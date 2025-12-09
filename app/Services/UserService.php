@@ -22,10 +22,8 @@ class UserService
             'domain_access' => $data['domain_access'],
        ]);
 
-        return [
-            'user' => $user,
-            'message' => "User created Successfully"
-        ];
+        return $user;
+
     }
 
     public function update(User $user, array $data)
