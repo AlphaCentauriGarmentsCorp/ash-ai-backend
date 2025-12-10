@@ -3,38 +3,61 @@
 namespace App\Services;
 
 use App\Models\User;
+use Illuminate\Database\Eloquent\Collection;
 
 class UserService
 {
-    public function list()
+    /**
+     * Get all User Brand.
+     */
+    public function getAll(): Collection
     {
         return User::all();
     }
 
-
-    public function create(array $data)
+    /**
+     * Find a User Brand. by ID.
+     */
+    public function find(int $id): ?User
     {
-        $user = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => $data['password'], // auto-hashed
-            'domain_role' => $data['domain_role'],
-            'domain_access' => $data['domain_access'],
-       ]);
-
-        return $user;
-
+        return User::find($id);
     }
 
-    public function update(User $user, array $data)
+    /**
+     * Create a new User Brand..
+     */
+    public function create(array $data): User
     {
+        return User::create($data);
+    }
+
+    /**
+     * Update an existing User Brand..
+     */
+    public function update(int $id, array $data): ? User
+    {
+        $user = User::find($id);
+
+        if (! $user) {
+            return null;
+        }
+
         $user->update($data);
+
         return $user;
     }
 
-    public function destroy(User $user)
+    /**
+     * Delete a User Brand..
+     */
+    public function delete(int $id): bool
     {
-        // $user->delete();
-        // return response()->json(['message' => 'Deleted successfully']);
+        $user = User::find($id);
+
+        if (! $user) {
+            return false;
+        }
+
+        return $user->delete();
     }
 }
