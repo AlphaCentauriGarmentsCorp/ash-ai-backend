@@ -3,42 +3,61 @@
 namespace App\Services;
 
 use App\Models\Client;
+use Illuminate\Database\Eloquent\Collection;
 
 class ClientService
 {
-    public function list()
+    /**
+     * Get all Client Brand.
+     */
+    public function getAll(): Collection
     {
         return Client::all();
     }
 
-    public function create(array $data)
+    /**
+     * Find a Client Brand. by ID.
+     */
+    public function find(int $id): ?Client
     {
-        $client = Client::create([
-            'user_id'           => $data['user_id'],
-            'company_name'      => $data['company_name'],
-            'client_name'       => $data['client_name'],
-            'email'             => $data['email'],
-            'contact'           => $data['contact'],
-            'street_address'    => $data['street_address'],
-            'city'              => $data['city'],
-            'province'          => $data['province'],
-            'postal'            => $data['postal'],
-            'country'           => $data['country'],
-            'status'            => $data['status'],
-       ]);
+        return Client::find($id);
+    }
+
+    /**
+     * Create a new Client Brand..
+     */
+    public function create(array $data): Client
+    {
+        return Client::create($data);
+    }
+
+    /**
+     * Update an existing Client Brand..
+     */
+    public function update(int $id, array $data): ? Client
+    {
+        $client = Client::find($id);
+
+        if (! $client) {
+            return null;
+        }
+
+        $client->update($data);
 
         return $client;
-
     }
 
-    public function update(Client $Client, array $data)
+    /**
+     * Delete a Client Brand..
+     */
+    public function delete(int $id): bool
     {
-        $Client->update($data);
-        return $Client;
-    }
+        $client = Client::find($id);
 
-    public function delete(Client $method)
-    {
-        return $method->delete();
+        if (! $client) {
+            return false;
+        }
+
+        return $client->delete();
     }
 }

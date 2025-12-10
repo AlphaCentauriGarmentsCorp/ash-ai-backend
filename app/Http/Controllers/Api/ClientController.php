@@ -1,71 +1,58 @@
 <?php
 
-namespace App\Http\Controllers\API;
+namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
-use App\Models\Client;
-use Illuminate\Http\Request;
 use App\Http\Requests\Client\ClientStoreRequest;
 use App\Http\Requests\Client\ClientUpdateRequest;
+use App\Http\Controllers\Controller;
+use App\Models\Client;
 use App\Services\ClientService;
 use App\Http\Resources\ClientResource;
 
 class ClientController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     protected $service;
 
     public function __construct(ClientService $service)
     {
         $this->service = $service;
     }
+
     public function index()
     {
-        //
-        return ClientResource::collection(
-            $this->service->list()
-        );
+        $client = $this->service->getAll();
+        return ClientResource::collection($client);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(ClientStoreRequest $request)
     {
-        
-        $method = $this->service->create($request->validated());
-        // return $method;
-        return [new ClientResource($method), "Client Added Successfully"];
-
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(Client $client)
-    {
-        //
+        $client = $this->service->create($request->validated());
         return new ClientResource($client);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(ClientUpdateRequest $request, Client $client)
+    public function show(Client $client)
     {
-        $result = $this->service->update($client, $request->validated());
-        return new ClientResource($result);
+        // Route model binding already loaded the model
+        return new ClientResource($client);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
+    public function update(ClientUpdateRequest $request, Client $client)
+    {
+        // Use the injected model's id
+        $client = $this->service->update($client->id, $request->validated());
+        if (! $client) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+        return new ClientResource($client);
+    }
+
     public function destroy(Client $client)
     {
-        //
-        $this->service->delete($client);
+        // Use the injected model's id
+        $deleted = $this->service->delete($client->id);
+        if (! $deleted) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
         return response()->json(['message' => 'Deleted successfully']);
     }
 }
