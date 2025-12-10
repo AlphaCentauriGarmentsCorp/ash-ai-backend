@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\FabricTypeController;
+use App\Http\Controllers\Api\TypeSizeController;
 use App\Http\Controllers\Api\ClientBrandController;
 
 // Route::get('/user', function (Request $request) {
@@ -26,6 +27,7 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::apiResource('user', UserController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
 Route::apiResource('client', ClientController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
 Route::apiResource('fabric-type', FabricTypeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+Route::apiResource('type-size', TypeSizeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
 Route::apiResource('client-brands', ClientBrandController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
 
 // Route::domain('admin.alphacentauri.com')->group(function () {

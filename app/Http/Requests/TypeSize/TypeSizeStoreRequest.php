@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Requests\FabricType;
+namespace App\Http\Requests\TypeSize;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class FabricTypeUpdateRequest extends FormRequest
+class TypeSizeStoreRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -22,7 +22,8 @@ class FabricTypeUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => 'string|max:50',
+            'name' => 'required|string|max:50',
+            'description' => 'required|string',
         ];
     }
 }
