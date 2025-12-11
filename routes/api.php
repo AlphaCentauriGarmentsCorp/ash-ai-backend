@@ -29,6 +29,7 @@ Route::apiResource('client', ClientController::class) -> only(['index', 'store',
 Route::apiResource('fabric-type', FabricTypeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
 Route::apiResource('type-size', TypeSizeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
 Route::apiResource('client-brands', ClientBrandController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+// designs route to be added soon. //
 
 // Route::domain('admin.alphacentauri.com')->group(function () {
 
