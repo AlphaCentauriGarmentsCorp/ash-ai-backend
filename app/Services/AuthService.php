@@ -11,13 +11,7 @@ class AuthService
     // Register user
     public function register(array $data)
     {
-        $user = User::create([
-            
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => $data['password'], // auto-hashed
-            'domain_role' => $data['domain_role'],
-        ]);
+        $user = User::create($data);
 
         $token = $user->createToken('api_token')->plainTextToken;
 
