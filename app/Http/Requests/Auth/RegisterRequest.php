@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Auth;
 
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -27,6 +27,8 @@ class RegisterRequest extends FormRequest
             'password' => 'required|string',
             'domain_role' => 'required|array',
             'domain_role.*' => 'string', // ensures each element is string
+            'domain_access' => 'required|array',
+            'domain_access.*' => 'string', // ensures each element is string
         ];
     }
 }

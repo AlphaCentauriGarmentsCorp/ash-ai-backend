@@ -26,6 +26,7 @@ class UserUpdateRequest extends FormRequest
             'name' => 'sometimes|string',
             'email' => 'sometimes|email|unique:users,email',
             'password' => 'sometimes|string|min:6',
+            'avatar'=> 'sometimes|string',
             'domain_role' => 'sometimes|array',
             'domain_role.*' => 'string',
             'domain_access' => 'sometimes|array',
