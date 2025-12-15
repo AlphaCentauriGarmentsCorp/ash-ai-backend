@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Requests\Auth;
+namespace App\Http\Requests\WarehouseMaterial;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class RegisterRequest extends FormRequest
+class WarehouseMaterialUpdateRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -22,13 +22,13 @@ class RegisterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => 'required|string',
-            'email' => 'required|email',
-            'password' => 'required|string',
-            'domain_role' => 'required|array',
-            'domain_role.*' => 'string', // ensures each element is string
-            'domain_access' => 'required|array',
-            'domain_access.*' => 'string', // ensures each element is string
+            'material_name' => 'string|max:50',
+            'brand' => 'string|max:50',
+            'category' => 'string|max:50',
+            'type' => 'string|max:50',
+            'unit' => 'string|max:50',
+            'quantity' => 'numeric|min:0', 
+            'cost_per_unit' => 'numeric|min:0',
         ];
     }
 }

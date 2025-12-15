@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\FabricTypeController;
 use App\Http\Controllers\Api\TypeSizeController;
+use App\Http\Controllers\Api\WarehouseMaterialsController;
 use App\Http\Controllers\Api\ClientBrandController;
 
 // Route::get('/user', function (Request $request) {
@@ -24,11 +25,16 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 });
 
-Route::apiResource('user', UserController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-Route::apiResource('client', ClientController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-Route::apiResource('fabric-type', FabricTypeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-Route::apiResource('type-size', TypeSizeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-Route::apiResource('client-brands', ClientBrandController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+
+// example usage: localhost:8000/api/v1/user
+Route::prefix('v1')->group(function () {
+    Route::apiResource('user', UserController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('client', ClientController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('fabric-type', FabricTypeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('type-size', TypeSizeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('client-brands', ClientBrandController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('warehouse-materials', WarehouseMaterialsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+});
 
 // Route::domain('admin.alphacentauri.com')->group(function () {
 

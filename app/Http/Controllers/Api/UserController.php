@@ -1,20 +1,16 @@
 <?php
 
-namespace App\Http\Controllers\API;
+namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\User;
-use App\Services\UserService;
 use App\Http\Requests\User\UserStoreRequest;
 use App\Http\Requests\User\UserUpdateRequest;
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Services\UserService;
 use App\Http\Resources\UserResource;
 
 class UserController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     protected $service;
 
     public function __construct(UserService $service)
@@ -24,43 +20,39 @@ class UserController extends Controller
 
     public function index()
     {
-        return UserResource::collection(
-            $this->service->list()
-        );  
+        $user = $this->service->getAll();
+        return UserResource::collection($user);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(UserStoreRequest $request)
     {
-        $method = $this->service->create($request->validated());
-        return new UserResource($method);
+        $user = $this->service->create($request->validated());
+        return new UserResource($user);
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(User $user)
     {
+        // Route model binding already loaded the model
         return new UserResource($user);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(UserUpdateRequest $request, User $user)
     {
-        $user = $this->service->update($user, $request->validated());
+        // Use the injected model's id
+        $user = $this->service->update($user->id, $request->validated());
+        if (! $user) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
         return new UserResource($user);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(User $user)
     {
-        // $this->service->delete($user);
-        // return response()->json(['message' => 'Deleted successfully'], 200);
+        // Use the injected model's id
+        $deleted = $this->service->delete($user->id);
+        if (! $deleted) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+        return response()->json(['message' => 'Deleted successfully']);
     }
 }
