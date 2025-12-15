@@ -21,8 +21,8 @@ class UserResource extends JsonResource
             'avatar' => $this->avatar,
             'domain_role' => $this->domain_role,
             'domain_access' => $this->domain_access,
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
+            'created_at'  => $this->created_at?->toDateTimeString(),
+            'updated_at'  => $this->updated_at?->toDateTimeString(),
         ];
     }
 }
