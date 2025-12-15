@@ -32,7 +32,6 @@ class FabricTypeController extends Controller
 
     public function show(FabricType $fabricType)
     {
-        // Route model binding already loaded the model
         return new FabricTypeResource($fabricType);
     }
 
@@ -48,7 +47,6 @@ class FabricTypeController extends Controller
 
     public function destroy(FabricType $fabricType)
     {
-        // Use the injected model's id
         $deleted = $this->service->delete($fabricType->id);
         if (! $deleted) {
             return response()->json(['message' => 'Not found'], 404);

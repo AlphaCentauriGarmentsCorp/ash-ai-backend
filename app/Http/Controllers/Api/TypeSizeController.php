@@ -63,7 +63,6 @@ class TypeSizeController extends Controller
      */
     public function destroy(TypeSize $typeSize)
     {
-          // Use the injected model's id
         $deleted = $this->service->delete($typeSize->id);
         if (! $deleted) {
             return response()->json(['message' => 'Not found'], 404);

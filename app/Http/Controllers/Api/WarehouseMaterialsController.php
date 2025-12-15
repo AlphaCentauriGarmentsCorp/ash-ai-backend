@@ -32,10 +32,12 @@ class WarehouseMaterialsController extends Controller
         return new WarehouseMaterialResource($warehouseMaterial);
     }
 
-    public function show(WarehouseMaterials $warehouseMaterials)
+    public function show(WarehouseMaterials $warehouseMaterial)
     {
-        return new WarehouseMaterialResource($warehouseMaterials);
+        return new WarehouseMaterialResource($warehouseMaterial);
     }
+
+    
 
     public function update(
         WarehouseMaterialUpdateRequest $request,
@@ -48,7 +50,10 @@ class WarehouseMaterialsController extends Controller
 
     public function destroy(WarehouseMaterials $warehouseMaterial)
     {
-        $this->service->delete($warehouseMaterial);
+        $deleted = $this->service->delete($warehouseMaterial);
+        if (!$deleted) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
         return response()->json(['message' => 'Deleted successfully']);
     }
 }
