@@ -6,7 +6,7 @@ use App\Models\Order;
 use Illuminate\Database\Eloquent\Collection;
 
 
-class TypeGarmentService
+class OrderService
 {
     public function getAll(): Collection
     {
