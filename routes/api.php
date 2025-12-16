@@ -11,7 +11,8 @@ use App\Http\Controllers\Api\WarehouseMaterialsController;
 use App\Http\Controllers\Api\ClientBrandController;
 use App\Http\Controllers\Api\TypeGarmentController;
 use App\Http\Controllers\Api\TypePrintingMethodController;
-use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\OrdersController;
+use App\Http\Controllers\Api\OrderProcessesController;
 
 // Route::get('/user', function (Request $request) {
 //     return $request->user();
@@ -39,7 +40,8 @@ Route::prefix('v1')->group(function () {
     Route::apiResource('warehouse-materials', WarehouseMaterialsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('type-garments', TypeGarmentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('type-printing-methods', TypePrintingMethodController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-    Route::apiResource('orders', OrderController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('orders', OrdersController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('order-processes', OrderProcessesController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
 });
 
 // Route::domain('admin.alphacentauri.com')->group(function () {
