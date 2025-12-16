@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class FabricType extends Model
 {
-    protected $table = 'type_fabric';
+    protected $table = 'type_fabrics';
 
     protected $fillable = [
         'name',

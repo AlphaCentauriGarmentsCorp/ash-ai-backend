@@ -6,6 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class TypeSize extends Model
 {
-    protected $table = 'type_size';
+    protected $table = 'type_sizes';
     protected $fillable = ['name', 'description'];
 }
