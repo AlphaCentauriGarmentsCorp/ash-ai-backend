@@ -20,15 +20,18 @@ class AuthController extends Controller
 
     public function register(RegisterRequest $request)
     {
-        $data = $this->authService->register($request->validated());
+        $user = $this->authService->register($request->validated());
 
         return response()->json([
-            'user' => new UserResource($data['user']),
-            'token' => $data['token']
+            'user' => new UserResource($user),
+            'message' => 'Registration successful. OTP sent to your email.',
         ]);
 
-        //this code is for testing
-        //  return response()->json($request->validated());
+        // return response()->json([
+        //     'user' => new UserResource($data['user']),
+        //     'token' => $data['token']
+        // ]);
+
     }
 
     public function login(LoginRequest $request)
@@ -38,6 +41,19 @@ class AuthController extends Controller
         return response()->json([
             'user' => new UserResource($data['user']),
             'token' => $data['token']
+        ]);
+    }
+
+    // OTP verification (after registration)
+    public function verifyOtp(Request $request)
+    {
+        $data = $this->authService->verifyOtp($request->only(['email', 'otp']));
+
+        return response()->json([
+            'user' => new UserResource($data['user']),
+            'token' => $data['token'],
+            'token_type' => 'Bearer',
+            'message' => 'OTP verified successfully. You are now logged in.'
         ]);
     }
 
