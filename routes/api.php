@@ -10,6 +10,13 @@ use App\Http\Controllers\Api\TypeSizeController;
 use App\Http\Controllers\Api\WarehouseMaterialsController;
 use App\Http\Controllers\Api\ClientBrandController;
 use App\Http\MiddleWare\FrontendAccess;
+use App\Http\Controllers\Api\TypeGarmentController;
+use App\Http\Controllers\Api\TypePrintingMethodController;
+use App\Http\Controllers\Api\OrdersController;
+use App\Http\Controllers\Api\OrderProcessesController;
+use App\Http\Controllers\Api\OrdersPaymentController;
+use App\Http\Controllers\Api\PoStatusController;
+
 
 // Route::get('/user', function (Request $request) {
 //     return $request->user();
@@ -30,12 +37,19 @@ Route::middleware('auth:sanctum')->group(function () {
 
 // example usage: localhost:8000/api/v1/user
 Route::prefix('v1')->group(function () {
-    Route::apiResource('user', UserController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-    Route::apiResource('client', ClientController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-    Route::apiResource('fabric-type', FabricTypeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-    Route::apiResource('type-size', TypeSizeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('users', UserController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('clients', ClientController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('fabric-types', FabricTypeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('type-sizes', TypeSizeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('client-brands', ClientBrandController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('warehouse-materials', WarehouseMaterialsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('type-garments', TypeGarmentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('type-printing-methods', TypePrintingMethodController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('orders', OrdersController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('order-processes', OrderProcessesController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('order-payments', OrdersPaymentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('po-statuses', PoStatusController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+
 });
 
 // example usage: localhost:8000/api/v2/user

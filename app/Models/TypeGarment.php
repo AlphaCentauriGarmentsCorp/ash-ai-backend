@@ -4,9 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class FabricType extends Model
+class TypeGarment extends Model
 {
-    protected $table = 'type_fabrics';
+    protected $table = 'type_garments';
 
     protected $fillable = [
         'name',
