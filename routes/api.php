@@ -14,6 +14,8 @@ use App\Http\Controllers\Api\TypePrintingMethodController;
 use App\Http\Controllers\Api\OrdersController;
 use App\Http\Controllers\Api\OrderProcessesController;
 use App\Http\Controllers\Api\OrdersPaymentController;
+use App\Http\Controllers\Api\PoStatusController;
+
 
 // Route::get('/user', function (Request $request) {
 //     return $request->user();
@@ -44,6 +46,8 @@ Route::prefix('v1')->group(function () {
     Route::apiResource('orders', OrdersController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('order-processes', OrderProcessesController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('order-payments', OrdersPaymentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('po-statuses', PoStatusController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+
 });
 
 // Route::domain('admin.alphacentauri.com')->group(function () {
