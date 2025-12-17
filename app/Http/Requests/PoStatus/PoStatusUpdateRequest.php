@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Requests\Auth;
+namespace App\Http\Requests\PoStatus;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class LoginRequest extends FormRequest
+class PoStatusUpdateRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -22,9 +22,10 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => 'required|email',
-            'password' => 'required|string',
-            'frontend' => 'required|string',
+            'po_id'      => 'required|integer|exists:purchase_orders,id', 
+            'updated_by' => 'required|integer|exists:users,id',
+            'message'    => 'required|string|max:255',
+
         ];
     }
 }
