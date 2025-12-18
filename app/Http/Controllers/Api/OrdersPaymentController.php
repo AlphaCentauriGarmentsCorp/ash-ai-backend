@@ -7,8 +7,8 @@ use App\Models\OrdersPayment;
 use Illuminate\Http\Request;
 use App\Services\OrdersPaymentService;
 use App\Http\Resources\OrdersPaymentResource;
-use App\Http\Requests\Order\OrderStoreRequest;
-use App\Http\Requests\Order\OrderUpdateRequest;
+use App\Http\Requests\OrdersPayment\OrdersPaymentStoreRequest;
+use App\Http\Requests\OrdersPayment\OrdersPaymentUpdateRequest;
 
 
 class OrdersPaymentController extends Controller
@@ -26,30 +26,30 @@ class OrdersPaymentController extends Controller
         return OrdersPaymentResource::collection($payment);
     }
 
-    public function store(OrderStoreRequest $request)
+    public function store(OrdersPaymentStoreRequest $request)
     {
         $payment = $this->service->create($request->validated());
         return new OrdersPaymentResource($payment);
     }
 
-    public function show(OrdersPayment $ordersPayment)
+    public function show(OrdersPayment $orders_payment)
     {
-        $payment = $this->service->find($ordersPayment->id);
+        $payment = $this->service->find($orders_payment->id);
         if (!$payment) {
             return response()->json(['message' => 'Not found'], 404);
         }
         return new OrdersPaymentResource($payment);
     }
 
-    public function update(OrderUpdateRequest $request, OrdersPayment $ordersPayment)
+    public function update(OrdersPaymentUpdateRequest $request, OrdersPayment $orders_payment)
     {
-        $payment = $this->service->update($ordersPayment, $request->validated());
+        $payment = $this->service->update($orders_payment, $request->validated());
         return new OrdersPaymentResource($payment);
     }
 
-    public function destroy(OrdersPayment $ordersPayment)
+    public function destroy(OrdersPayment $orders_payment)
     {
-        $deleted = $this->service->delete($ordersPayment);
+        $deleted = $this->service->delete($orders_payment);
         if (!$deleted) {
             return response()->json(['message' => 'Not found'], 404);
         }

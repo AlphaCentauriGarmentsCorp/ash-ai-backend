@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Order;
+use App\Models\User;
 
 class OrdersPayment extends Model
 {
     
-    protected $table = 'orders_payment';
+    protected $table = 'orders_payments';
     protected $fillable = [
         'po_id',
         'payment_type',

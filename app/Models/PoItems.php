@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Order;
 
 class PoItems extends Model
 {
@@ -19,9 +20,9 @@ class PoItems extends Model
         'variant_qr_code',
     ];
     
-    public function purchaseOrder()
+    public function order()
     {
-         return $this->belongsTo(PurchaseOrder::class, 'po_id');
+         return $this->belongsTo(Order::class, 'po_id');
     }
 }
 

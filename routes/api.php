@@ -51,7 +51,7 @@ Route::prefix('v1')->group(function () {
     Route::apiResource('type-printing-methods', TypePrintingMethodController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('orders', OrdersController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('order-processes', OrderProcessesController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-    Route::apiResource('order-payments', OrdersPaymentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('orders-payment', OrdersPaymentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('po-statuses', PoStatusController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('po-items', PoItemsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     Route::apiResource('designs', DesignController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
@@ -60,11 +60,20 @@ Route::prefix('v1')->group(function () {
 // example usage: localhost:8000/api/v2/user
 Route::prefix('v2')->group(function () {
     Route::middleware(['auth:sanctum', 'frontend.access:ash', 'role:admin'])->group(function () {
-        Route::apiResource('user', UserController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('client', ClientController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('fabric-type', FabricTypeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('type-size', TypeSizeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('users', UserController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('clients', ClientController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('fabric-types', FabricTypeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('type-sizes', TypeSizeController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('client-brands', ClientBrandController::class) -> only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('warehouse-materials', WarehouseMaterialsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('type-garments', TypeGarmentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('type-printing-methods', TypePrintingMethodController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('orders', OrdersController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('order-processes', OrderProcessesController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('order-payments', OrdersPaymentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('po-statuses', PoStatusController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('po-items', PoItemsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('designs', DesignController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         // Add more Ash-specific routes here
     });
 

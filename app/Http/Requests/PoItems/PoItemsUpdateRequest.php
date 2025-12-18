@@ -22,7 +22,7 @@ class PoItemsUpdateRequest extends FormRequest
     public function rules(): array
     {
             return [
-            'po_id'            => 'required|integer|exists:purchase_orders,id',
+            'po_id'            => 'required|integer|exists:orders,id',
             'design_code'      => 'required|string|max:255',
             'color'            => 'nullable|string|max:255',
             'size'             => 'required|string|max:50',

@@ -13,7 +13,7 @@ class OrderProcessesService
         return OrderProcesses::all();
     }
 
-    public function find(int $id): ?OrderProcesses
+    public function find(int $id): ? OrderProcesses
     {
         return OrderProcesses::find($id);
     }

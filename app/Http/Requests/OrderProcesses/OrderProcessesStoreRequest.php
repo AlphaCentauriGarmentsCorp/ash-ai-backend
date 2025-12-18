@@ -27,7 +27,7 @@ class OrderProcessesStoreRequest extends FormRequest
             'assigned_by' => 'required|string|max:50',
             'assigned_to' => 'required|string|max:50',
             'started_at' => 'required|string|max:50',
-            'completed_at' => 'required|string|max:50',
+            'completed_at' => 'sometimes|string|max:50',
             'deadline' => 'required|string|max:50',
             'status' => 'required|string|max:50',
             'notes' => 'required|string|max:50',
