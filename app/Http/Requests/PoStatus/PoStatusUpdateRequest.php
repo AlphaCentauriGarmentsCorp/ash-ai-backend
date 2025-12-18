@@ -22,7 +22,7 @@ class PoStatusUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'po_id'      => 'required|integer|exists:purchase_orders,id', 
+            'po_id'      => 'required|integer|exists:orders,id', 
             'updated_by' => 'required|integer|exists:users,id',
             'message'    => 'required|string|max:255',
 

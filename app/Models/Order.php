@@ -43,7 +43,7 @@ class Order extends Model
     ];
 
     // Relationships
-    public function client() { return $this->belongsTo(Client::class); }
+    public function client() { return $this->belongsTo(Client::class, 'client_id'); }
     public function brand() { return $this->belongsTo(ClientBrand::class, 'brand_id'); }
     public function typeFabric() { return $this->belongsTo(FabricType::class, 'type_fabric'); }
     public function typeGarment() { return $this->belongsTo(TypeGarment::class, 'type_garment'); }

@@ -32,24 +32,24 @@ class OrderProcessesController extends Controller
         return new OrderProcessesResource($process);
     }
 
-    public function show(OrderProcesses $orderProcesses)
+    public function show(OrderProcesses $order_process)
     {
-        $process = $this->service->find($orderProcesses->id);
-        if (!$process) {
+        $order_process = $this->service->find($order_process->id);
+        if (!$order_process) {
             return response()->json(['message' => 'Not found'], 404);
         }
+        return new OrderProcessesResource($order_process);
+    }
+
+    public function update(OrderProcessesUpdateRequest $request, OrderProcesses $order_process)
+    {
+        $process = $this->service->update($order_process, $request->validated());
         return new OrderProcessesResource($process);
     }
 
-    public function update(OrderProcessesUpdateRequest $request, OrderProcesses $orderProcesses)
+    public function destroy(OrderProcesses $order_process)
     {
-        $process = $this->service->update($orderProcesses, $request->validated());
-        return new OrderProcessesResource($process);
-    }
-
-    public function destroy(OrderProcesses $orderProcesses)
-    {
-        $deleted = $this->service->delete($orderProcesses);
+        $deleted = $this->service->delete($order_process);
         if (!$deleted) {
             return response()->json(['message' => 'Not found'], 404);
         }
