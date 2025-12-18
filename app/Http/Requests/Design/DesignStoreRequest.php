@@ -22,10 +22,10 @@ class DesignStoreRequest extends FormRequest
     public function rules(): array
     {
          return [
-            'artist_id'            => ['required', 'integer', 'exists:artists,id'],
+            'artist_id'            => ['required', 'integer', 'exists:users,id'],
             'po_number'            => ['required', 'integer'],
             'design_name'          => ['required', 'string', 'max:255'],
-            'type_printing_method' => ['required', 'integer', 'exists:printing_methods,id'],
+            'type_printing_method' => ['required', 'integer', 'exists:type_printing_methods,id'],
             'resolution'           => ['required', 'string', 'max:255'],
             'color_count'          => ['nullable', 'string', 'max:50'],
             'mockup_files'         => ['nullable', 'string'],

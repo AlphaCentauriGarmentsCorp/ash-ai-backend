@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
 
 class Design extends Model
 {
+  protected $table = 'designs';
    protected $fillable = [
         'artist_id',
         'po_number',
@@ -24,7 +26,7 @@ class Design extends Model
 
     public function artist()
     {
-        return $this->belongsTo(Artist::class);
+        return $this->belongsTo(User::class, 'artist_id');
     }
 
     //public function printingMethod()

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Client;
 
 class ClientBrand extends Model
 {
@@ -14,4 +15,6 @@ class ClientBrand extends Model
         'logo_url',
         'notes',
     ];
+
+   public function client() { return $this->belongsTo(Client::class,'client_id'); }
 }

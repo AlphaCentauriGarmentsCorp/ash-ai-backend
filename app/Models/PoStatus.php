@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Order;
+
 
 class PoStatus extends Model
 {
@@ -14,4 +16,8 @@ class PoStatus extends Model
         'message',
     ];
 
+    public function order()
+    {
+         return $this->belongsTo(Order::class, 'po_id');
+    }
 }

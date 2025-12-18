@@ -22,10 +22,10 @@ class DesignUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'artist_id'            => ['sometimes', 'integer', 'exists:artists,id'],
+            'artist_id'            => ['sometimes', 'integer', 'exists:users,id'],
             'po_number'            => ['sometimes', 'integer'],
             'design_name'          => ['sometimes', 'string', 'max:255'],
-            'type_printing_method' => ['sometimes', 'integer', 'exists:printing_methods,id'],
+            'type_printing_method' => ['sometimes', 'integer', 'exists:type_printing_methods,id'],
             'resolution'           => ['sometimes', 'string', 'max:255'],
             'color_count'          => ['nullable', 'string', 'max:50'],
             'mockup_files'         => ['nullable', 'string'],
