@@ -11,7 +11,7 @@ class PoStatusStoreRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,10 @@ class PoStatusStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'po_id'      => 'required|integer|exists:purchase_orders,id', 
+            'updated_by' => 'required|integer|exists:users,id',
+            'message'    => 'required|string|max:255',
+
         ];
     }
 }

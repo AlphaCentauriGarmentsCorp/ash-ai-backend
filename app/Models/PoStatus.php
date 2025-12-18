@@ -14,5 +14,4 @@ class PoStatus extends Model
         'message',
     ];
 
-
 }
