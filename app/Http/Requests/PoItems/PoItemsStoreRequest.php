@@ -22,9 +22,9 @@ class PoItemsStoreRequest extends FormRequest
     public function rules(): array
     {
            return [
-            'po_id'            => 'required|integer|exists:purchase_orders,id',
+            'po_id'            => 'required|integer|exists:orders,id',
             'design_code'      => 'required|string|max:255',
-            'color'            => 'nullable|string|max:255',
+            'color'            => 'required|string|max:255',
             'size'             => 'required|string|max:50',
             'quantity_ordered' => 'nullable|integer|min:1',
             'variant_code'     => 'nullable|string|max:255',
