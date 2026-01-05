@@ -11,12 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('designs', function (Blueprint $table) {
-            $table->foreign('artist_id')
-                  ->references('id')
-                  ->on('users')
-                  ->cascadeOnDelete();
-        });
+        // Schema::table('designs', function (Blueprint $table) {
+        //     $table->foreign('artist_id')
+        //           ->references('id')
+        //           ->on('users')
+        //           ->cascadeOnDelete();
+        // });
     }
 
     /**

@@ -26,12 +26,6 @@ class AuthController extends Controller
             'user' => new UserResource($user),
             'message' => 'Registration successful. OTP sent to your email.',
         ]);
-
-        // return response()->json([
-        //     'user' => new UserResource($data['user']),
-        //     'token' => $data['token']
-        // ]);
-
     }
 
     public function login(LoginRequest $request)
