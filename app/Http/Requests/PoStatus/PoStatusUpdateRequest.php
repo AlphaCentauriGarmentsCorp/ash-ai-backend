@@ -3,6 +3,8 @@
 namespace App\Http\Requests\PoStatus;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class PoStatusUpdateRequest extends FormRequest
 {
@@ -22,10 +24,32 @@ class PoStatusUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'po_id'      => 'required|integer|exists:orders,id', 
+            'po_id'      => 'required|integer|exists:orders,id',
             'updated_by' => 'required|integer|exists:users,id',
             'message'    => 'required|string|max:255',
 
         ];
+    }
+
+    public function messages(): array
+    {
+        return [];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        $errors = [];
+
+        foreach ($validator->errors()->toArray() as $field => $messages) {
+            $cleanField = preg_replace('/\.\d+$/', '', $field);
+            $errors[$cleanField] = $messages[0];
+        }
+
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Validation failed',
+                'errors' => $errors,
+            ], 422)
+        );
     }
 }

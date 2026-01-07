@@ -3,6 +3,9 @@
 namespace App\Http\Requests\WarehouseMaterial;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
 
 class WarehouseMaterialStoreRequest extends FormRequest
 {
@@ -30,5 +33,27 @@ class WarehouseMaterialStoreRequest extends FormRequest
             'quantity' => 'required|numeric|min:0',
             'cost_per_unit' => 'required|numeric|min:0',
         ];
+    }
+
+    public function messages(): array
+    {
+        return [];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        $errors = [];
+
+        foreach ($validator->errors()->toArray() as $field => $messages) {
+            $cleanField = preg_replace('/\.\d+$/', '', $field);
+            $errors[$cleanField] = $messages[0];
+        }
+
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Validation failed',
+                'errors' => $errors,
+            ], 422)
+        );
     }
 }

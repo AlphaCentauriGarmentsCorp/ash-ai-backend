@@ -19,7 +19,6 @@ class UserResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
-            'password' => Hash::make($this->password),
             'avatar' => $this->avatar,
             'domain_role' => $this->domain_role,
             'domain_access' => $this->domain_access,

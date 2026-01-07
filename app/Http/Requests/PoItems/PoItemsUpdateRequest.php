@@ -3,6 +3,8 @@
 namespace App\Http\Requests\PoItems;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class PoItemsUpdateRequest extends FormRequest
 {
@@ -21,7 +23,7 @@ class PoItemsUpdateRequest extends FormRequest
      */
     public function rules(): array
     {
-            return [
+        return [
             'po_id'            => 'required|integer|exists:orders,id',
             'design_code'      => 'required|string|max:255',
             'color'            => 'nullable|string|max:255',
@@ -31,6 +33,27 @@ class PoItemsUpdateRequest extends FormRequest
             'variant_barcode'  => 'nullable|string|max:255',
             'variant_qr_code'  => 'nullable|string|max:255',
         ];
+    }
 
+    public function messages(): array
+    {
+        return [];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        $errors = [];
+
+        foreach ($validator->errors()->toArray() as $field => $messages) {
+            $cleanField = preg_replace('/\.\d+$/', '', $field);
+            $errors[$cleanField] = $messages[0];
+        }
+
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Validation failed',
+                'errors' => $errors,
+            ], 422)
+        );
     }
 }

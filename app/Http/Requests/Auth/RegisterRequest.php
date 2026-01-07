@@ -21,9 +21,6 @@ class RegisterRequest extends FormRequest
         ];
     }
 
-    /**
-     * Custom validation messages
-     */
     public function messages(): array
     {
         return [

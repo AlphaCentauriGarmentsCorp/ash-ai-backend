@@ -3,6 +3,8 @@
 namespace App\Http\Requests\OrdersPayment;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class OrdersPaymentUpdateRequest extends FormRequest
 {
@@ -31,8 +33,30 @@ class OrdersPaymentUpdateRequest extends FormRequest
             'proof' => 'string|max:50',
             'remarks' => 'string|max:50',
             'verified_by' => 'string|max:50',
-            'verified_at' => 'string|max:50',   
+            'verified_at' => 'string|max:50',
             'status' => 'string|max:50',
         ];
+    }
+
+    public function messages(): array
+    {
+        return [];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        $errors = [];
+
+        foreach ($validator->errors()->toArray() as $field => $messages) {
+            $cleanField = preg_replace('/\.\d+$/', '', $field);
+            $errors[$cleanField] = $messages[0];
+        }
+
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Validation failed',
+                'errors' => $errors,
+            ], 422)
+        );
     }
 }

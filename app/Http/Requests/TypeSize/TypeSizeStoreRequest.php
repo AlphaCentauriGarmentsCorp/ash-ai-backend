@@ -3,6 +3,9 @@
 namespace App\Http\Requests\TypeSize;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
 
 class TypeSizeStoreRequest extends FormRequest
 {
@@ -25,5 +28,26 @@ class TypeSizeStoreRequest extends FormRequest
             'name' => 'required|string|max:50',
             'description' => 'required|string',
         ];
+    }
+    public function messages(): array
+    {
+        return [];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        $errors = [];
+
+        foreach ($validator->errors()->toArray() as $field => $messages) {
+            $cleanField = preg_replace('/\.\d+$/', '', $field);
+            $errors[$cleanField] = $messages[0];
+        }
+
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Validation failed',
+                'errors' => $errors,
+            ], 422)
+        );
     }
 }

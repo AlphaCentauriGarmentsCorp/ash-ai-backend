@@ -9,6 +9,8 @@ use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 use Carbon\Carbon;
 use App\Mail\OtpMail;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
 
 class AuthService
 {
@@ -19,7 +21,7 @@ class AuthService
 
         // Clear old permissions just in case
         $user->syncPermissions([]);
-        
+
         // Ensure roles exist before assignment
         foreach ($data['domain_role'] ?? [] as $roleName) {
             Role::firstOrCreate(['name' => $roleName]);
@@ -34,7 +36,7 @@ class AuthService
 
         Mail::raw("Your OTP code is: {$otp}. It will expire in 5 minutes.", function ($message) use ($user) {
             $message->to($user->email)
-                    ->subject('Your OTP Code');
+                ->subject('Your OTP Code');
         });
 
         // // Send OTP via email
@@ -49,21 +51,23 @@ class AuthService
         $user = User::where('email', $data['email'])->first();
 
 
-        if (!$user || !Hash::check($data['password'], $user->password)) {
-            throw ValidationException::withMessages([
-                'message' => ['The provided credentials are incorrect.'],
-            ]);
-        }
-        // FRONTEND ACCESS CHECK
         if (
+            ! $user ||
+            ! Hash::check($data['password'], $user->password) ||
             empty($data['frontend']) ||
             ! in_array($data['frontend'], $user->domain_access ?? [])
         ) {
-            throw ValidationException::withMessages([
-                'frontend' => ['You are not allowed to access this application'],
-            ]);
-        } 
-        
+            throw new HttpResponseException(
+                response()->json([
+                    'message' => 'Validation failed',
+                    'errors' => [
+                        'email' => 'The provided credentials are incorrect.',
+                    ],
+                ], 422)
+            );
+        }
+
+
         $token = $user->createToken('api_token')->plainTextToken;
 
         return [

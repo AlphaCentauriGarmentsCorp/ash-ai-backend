@@ -3,6 +3,9 @@
 namespace App\Http\Requests\TypePrintingMethod;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
 
 class TypePrintingMethodStoreRequest extends FormRequest
 {
@@ -26,5 +29,26 @@ class TypePrintingMethodStoreRequest extends FormRequest
             'description' => 'required|string|max:50',
             'minimum' => 'required|numeric|min:1',
         ];
+    }
+    public function messages(): array
+    {
+        return [];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        $errors = [];
+
+        foreach ($validator->errors()->toArray() as $field => $messages) {
+            $cleanField = preg_replace('/\.\d+$/', '', $field);
+            $errors[$cleanField] = $messages[0];
+        }
+
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Validation failed',
+                'errors' => $errors,
+            ], 422)
+        );
     }
 }

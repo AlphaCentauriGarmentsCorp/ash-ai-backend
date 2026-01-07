@@ -3,6 +3,9 @@
 namespace App\Http\Requests\User;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
 
 class UserUpdateRequest extends FormRequest
 {
@@ -26,11 +29,32 @@ class UserUpdateRequest extends FormRequest
             'name' => 'sometimes|string',
             'email' => 'sometimes|email|unique:users,email',
             'password' => 'sometimes|string|min:6',
-            'avatar'=> 'sometimes|string',
+            'avatar' => 'sometimes|string',
             'domain_role' => 'sometimes|array',
             'domain_role.*' => 'string',
             'domain_access' => 'sometimes|array',
             'domain_access.*' => 'string',
         ];
+    }
+    public function messages(): array
+    {
+        return [];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        $errors = [];
+
+        foreach ($validator->errors()->toArray() as $field => $messages) {
+            $cleanField = preg_replace('/\.\d+$/', '', $field);
+            $errors[$cleanField] = $messages[0];
+        }
+
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Validation failed',
+                'errors' => $errors,
+            ], 422)
+        );
     }
 }
