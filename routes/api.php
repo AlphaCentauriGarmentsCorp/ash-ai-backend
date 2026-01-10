@@ -20,19 +20,16 @@ use App\Http\Controllers\Api\PoItemsController;
 use App\Http\Controllers\Api\DesignController;
 
 
+Route::post('login/reefer', [AuthController::class, 'loginReefer']);
+Route::post('register/reefer', [AuthController::class, 'registerReefer']);
 
-// Route::get('/user', function (Request $request) {
-//     return $request->user();
-// })->middleware('auth:sanctum');
+Route::post('login/sorbetes', [AuthController::class, 'loginSorbetes']);
+Route::post('register/sorbetes', [AuthController::class, 'registerSorbetes']);
 
 
-Route::post('login', [AuthController::class, 'login']);
-Route::post('register', [AuthController::class, 'register']);
+
 Route::post('verify-otp', [AuthController::class, 'verifyOtp']);
-
-
-
-
+Route::post('login', [AuthController::class, 'login']);
 
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -82,7 +79,6 @@ Route::prefix('v2')->group(function () {
         Route::apiResource('po-statuses', PoStatusController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('po-items', PoItemsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('designs', DesignController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        // Add more Ash-specific routes here
     });
 
     Route::middleware(['auth:sanctum', 'frontend.access:sorbetes', 'role:customer'])->group(function () {
@@ -93,6 +89,18 @@ Route::prefix('v2')->group(function () {
         // Add more Ash-specific routes here
     });
 });
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Route::domain('admin.alphacentauri.com')->group(function () {
 

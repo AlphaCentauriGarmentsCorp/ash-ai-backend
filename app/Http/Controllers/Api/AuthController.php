@@ -18,19 +18,46 @@ class AuthController extends Controller
         $this->authService = $authService;
     }
 
-    public function register(RegisterRequest $request)
+    public function registerReefer(RegisterRequest $request)
     {
-        $user = $this->authService->register($request->validated());
+        $user = $this->authService->register(
+            $request->validated(),
+            ['reefer'],
+            ['customer']
+        );
 
         return response()->json([
+            'message' => 'Reefer registration successful. OTP sent.',
             'user' => new UserResource($user),
-            'message' => 'Registration successful. OTP sent to your email.',
         ]);
     }
 
-    public function login(LoginRequest $request)
+    public function registerSorbetes(RegisterRequest $request)
     {
-        $data = $this->authService->login($request->validated());
+        $user = $this->authService->register(
+            $request->validated(),
+            ['sorbetes'],
+            ['customer']
+        );
+
+        return response()->json([
+            'message' => 'Sorbetes registration successful. OTP sent.',
+            'user' => new UserResource($user),
+        ]);
+    }
+
+    public function loginSorbetes(LoginRequest $request)
+    {
+        $data = $this->authService->login($request->validated(), 'sorbetes');
+        return response()->json([
+            'user' => new UserResource($data['user']),
+            'token' => $data['token']
+        ]);
+    }
+
+    public function loginReefer(LoginRequest $request)
+    {
+        $data = $this->authService->login($request->validated(), 'reefer');
 
         return response()->json([
             'user' => new UserResource($data['user']),

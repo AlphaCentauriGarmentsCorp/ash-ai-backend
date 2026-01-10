@@ -15,18 +15,27 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 class AuthService
 {
     // Register user
-    public function register(array $data)
+    public function register(array $data, array $domains, array $roles)
     {
-        $user = User::create($data);
+        // Create user WITHOUT domain fields
+        $user = User::create([
+            'name'     => $data['name'] ?? null,
+            'email'    => $data['email'],
+            'password' => bcrypt($data['password']),
+            'domain_access' =>  array_values($domains),
+            'domain_role'   => array_values($roles),
+        ]);
 
-        // Clear old permissions just in case
+        // Clear permissions (safe)
         $user->syncPermissions([]);
 
-        // Ensure roles exist before assignment
-        foreach ($data['domain_role'] ?? [] as $roleName) {
+        // Ensure roles exist (BACKEND roles only)
+        foreach ($roles as $roleName) {
             Role::firstOrCreate(['name' => $roleName]);
         }
-        $user->assignRole($data['domain_role'] ?? []);
+
+        // Assign roles using Spatie
+        $user->syncRoles($roles); // better than assignRole for consistency
 
         // Generate OTP
         $otp = rand(100000, 999999);
@@ -34,28 +43,28 @@ class AuthService
         $user->otp_expires_at = Carbon::now()->addMinutes(5);
         $user->save();
 
-        Mail::raw("Your OTP code is: {$otp}. It will expire in 5 minutes.", function ($message) use ($user) {
-            $message->to($user->email)
-                ->subject('Your OTP Code');
-        });
-
-        // // Send OTP via email
-        // Mail::to($user->email)->send(new OtpMail($otp));
+        // Send OTP email
+        Mail::raw(
+            "Your OTP code is: {$otp}. It will expire in 5 minutes.",
+            function ($message) use ($user) {
+                $message->to($user->email)->subject('Your OTP Code');
+            }
+        );
 
         return $user;
     }
 
+
     // Login user
-    public function login(array $data)
+    public function login(array $data, string $frontend): array
     {
         $user = User::where('email', $data['email'])->first();
-
 
         if (
             ! $user ||
             ! Hash::check($data['password'], $user->password) ||
-            empty($data['frontend']) ||
-            ! in_array($data['frontend'], $user->domain_access ?? [])
+            ! is_array($user->domain_access) ||
+            ! in_array($frontend, $user->domain_access, true)
         ) {
             throw new HttpResponseException(
                 response()->json([
@@ -66,19 +75,26 @@ class AuthService
                 ], 422)
             );
         }
+        $remember = filter_var($data['remember'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
+        // Create token with domain scope (IMPORTANT)
+        $expiration = $remember
+            ? Carbon::now()->addDays(30)
+            : Carbon::now()->addHours(1);
 
-        $token = $user->createToken('api_token')->plainTextToken;
+        $token = $user->createToken(
+            'api_token',
+            ['domain:' . $frontend],
+            $expiration
+        )->plainTextToken;
 
         return [
-            'user' => $user,
-            'token' => $token
+            'user'  => $user,
+            'token' => $token,
         ];
     }
 
-    /**
-     * Verify OTP after registration and issue token
-     */
+    // Verify OTP after registration and issue token
     public function verifyOtp(array $data): array
     {
         $user = User::where('email', $data['email'])->firstOrFail();
@@ -89,11 +105,12 @@ class AuthService
 
         if (Carbon::now()->greaterThan($user->otp_expires_at)) {
             throw new \Exception('OTP expired.');
-        }
+        }   
 
         // OTP verified → clear OTP fields
         // $user->otp = null;
         // $user->otp_expires_at = null;
+        
         $user->last_verified = Carbon::now();
         $user->save();
 

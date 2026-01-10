@@ -14,10 +14,10 @@ class RegisterRequest extends FormRequest
             'name' => 'required|string',
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
-            'domain_role' => 'required|array',
-            'domain_role.*' => 'string',
-            'domain_access' => 'required|array',
-            'domain_access.*' => 'string',
+            // 'domain_role' => 'required|array',
+            // 'domain_role.*' => 'string',
+            // 'domain_access' => 'required|array',
+            // 'domain_access.*' => 'string',
         ];
     }
 
