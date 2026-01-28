@@ -13,8 +13,8 @@ return new class extends Migration
     {
         Schema::create('client', function (Blueprint $table) {
             $table->id();
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
-            $table->foreign('address_id')->nullable()->references('id')->on('address')->onDelete('null');
+            $table->foreignId('user_id')->references('id')->on('users')->onDelete('cascade');
+            $table->foreignId('address_id')->nullable()->references('id')->on('user_address')->nullOnDelete();
             $table->string('company_name');
             $table->string('client_name');
             $table->string('email');
