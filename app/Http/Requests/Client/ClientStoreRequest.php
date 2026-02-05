@@ -25,56 +25,33 @@ class ClientStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'user_id' => 'required|exists:users,id',
-            'company_name' => 'required|string|max:255',
-            'client_name' => 'required|string|max:255',
-            'email' => 'required|string|max:255',
-            'contact' => 'required|string|max:255',
-            'street_address' => 'required|string|max:255',
-            'city' => 'required|string|max:255',
-            'province' => 'required|string|max:255',
-            'postal' => 'required|string|max:255',
-            'country' => 'required|string|max:255',
-            'status' => 'required|string|max:255',
+            'first_name'       => 'required|string|max:255',
+            'last_name'        => 'required|string|max:255',
+            'email'            => 'required|email|max:255',
+            'contact_number'   => 'required|string|min:10|max:15',
+
+            // Address
+            'street_address'   => 'required|string|max:255',
+            'city'             => 'required|string|max:255',
+            'province'         => 'required|string|max:255',
+            'postal_code'      => 'required|string|max:10',
+
+            // Optional
+            'notes'            => 'nullable|string',
+
+            // Brands array
+            'brands'           => 'required|array|min:1',
+            'brands.*.name'    => 'required|string|max:255',
+            'brands.*.logo'    => 'required|file|image|mimes:jpg,jpeg,png,webp|max:2048',
         ];
     }
 
     public function messages(): array
     {
         return [
-            'user_id.exists' => 'Selected user does not exist or is invalid.',
-            'user_id.required' => 'User is required.',
-
-            'company_name.required' => 'Company name is required.',
-            'company_name.max' => 'Company name must not exceed 255 characters.',
-
-            'client_name.required' => 'Client name is required.',
-            'client_name.max' => 'Client name must not exceed 255 characters.',
-
-            'email.required' => 'Email address is required.',
-            'email.email' => 'Please enter a valid email address.',
-            'email.max' => 'Email address must not exceed 255 characters.',
-
-            'contact.required' => 'Contact number is required.',
-            'contact.max' => 'Contact number must not exceed 255 characters.',
-
-            'street_address.required' => 'Street address is required.',
-            'street_address.max' => 'Street address must not exceed 255 characters.',
-
-            'city.required' => 'City is required.',
-            'city.max' => 'City must not exceed 255 characters.',
-
-            'province.required' => 'Province is required.',
-            'province.max' => 'Province must not exceed 255 characters.',
-
-            'postal.required' => 'Postal code is required.',
-            'postal.max' => 'Postal code must not exceed 255 characters.',
-
-            'country.required' => 'Country is required.',
-            'country.max' => 'Country must not exceed 255 characters.',
-
-            'status.required' => 'Status is required.',
-            'status.max' => 'Status must not exceed 255 characters.',
+            'brands.required'        => 'At least one brand is required.',
+            'brands.*.name.required' => 'Brand name is required.',
+            'brands.*.logo.required' => 'Brand logo is required.',
         ];
     }
 

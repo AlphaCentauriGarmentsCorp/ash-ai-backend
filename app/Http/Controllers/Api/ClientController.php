@@ -20,8 +20,8 @@ class ClientController extends Controller
 
     public function index()
     {
-        $client = $this->service->getAll();
-        return ClientResource::collection($client);
+        $clients = Client::with('brands')->get();
+        return ClientResource::collection($clients);
     }
 
     public function store(ClientStoreRequest $request)

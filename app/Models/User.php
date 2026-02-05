@@ -11,13 +11,12 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    //
-     use HasRoles, HasFactory, Notifiable, HasApiTokens;
+    use HasRoles, HasFactory, Notifiable, HasApiTokens;
 
     protected $table = 'users';
-
     protected $fillable = [
         'name',
+        'username',
         'email',
         'password',
         'avatar',
@@ -27,13 +26,13 @@ class User extends Authenticatable
         'domain_role',
         'domain_access',
     ];
-    
+
 
     protected $hidden = [
         'password',
         'remember_token',
     ];
-    
+
     protected function casts(): array
     {
         return [
@@ -44,5 +43,15 @@ class User extends Authenticatable
             'domain_role'      => 'array',
             'password'           => 'hashed'
         ];
+    }
+
+    public function addresses()
+    {
+        return $this->hasMany(UserAddress::class);
+    }
+
+    public function employeeDetail()
+    {
+        return $this->hasOne(EmployeeDetails::class);
     }
 }

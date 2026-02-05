@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    
     /**
      * Run the migrations.
      */
@@ -13,11 +14,9 @@ return new class extends Migration
     {
         Schema::create('client_brands', function (Blueprint $table) {
             $table->id();
-            $table->bigInteger('client_id')->unsigned()->index()->nullable();
-            $table->foreign('client_id')->references('id')->on('client')->onDelete('cascade');        
-            $table->string('brand_name');         
-            $table->string('logo_url')->nullable();              
-            $table->string('notes')->nullable();
+            $table->foreignId('client_id')->constrained('clients')->cascadeOnDelete();
+            $table->string('brand_name');
+            $table->string('logo_url')->nullable();
             $table->timestamps();
         });
     }

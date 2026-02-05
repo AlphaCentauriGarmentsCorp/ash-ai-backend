@@ -7,28 +7,29 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class ClientResource extends JsonResource
 {
-    /**
-     * Transform the resource into an array.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(Request $request): array
     {
         return [
             'id' => $this->id,
-            'user_id' => $this->user_id,
-            'company_name' => $this->company_name,
-            'client_name' => $this->client_name,
+
+            'name' => $this->name,
             'email' => $this->email,
-            'contact'  => $this->contact,
-            'street_address' => $this->street_address,
-            'city' => $this->city,
-            'province' => $this->province,
-            'postal' => $this->postal,
-            'country' => $this->country,
-            'status' => $this->status,
-            'created_at' => $this->created_at?->toDateTimeString(),
-            'updated_at' => $this->updated_at?->toDateTimeString(),
+            'contact_number' => $this->contact_number,
+            'address' => $this->address,
+            'notes' => $this->notes,
+
+            'brands' => $this->whenLoaded('brands', function () {
+                return $this->brands->map(function ($brand) {
+                    return [
+                        'id' => $brand->id,
+                        'name' => $brand->brand_name,
+                        'logo' => asset($brand->logo_url),
+                    ];
+                });
+            }),
+
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

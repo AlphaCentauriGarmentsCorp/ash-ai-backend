@@ -11,16 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('client', function (Blueprint $table) {
+        Schema::create('clients', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->references('id')->on('users')->onDelete('cascade');
-            $table->foreignId('address_id')->nullable()->references('id')->on('user_address')->nullOnDelete();
-            $table->string('company_name');
-            $table->string('client_name');
+            $table->string('name');
             $table->string('email');
-            $table->string('contact');
-            $table->string('status');
-            $table->integer('total_projects')->default(0);
+            $table->string('contact_number');
+            $table->string('address');
+            $table->text('notes')->nullable();
             $table->timestamps();
         });
     }

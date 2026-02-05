@@ -10,19 +10,15 @@ class Client extends Model
     protected $table = 'clients';
 
     protected $fillable = [
-        'user_id',
-        'company_name',
-        'client_name',
+        'name',
         'email',
-        'contact',
-        'street_address',
-        'city',
-        'province',
-        'postal',
-        'country',
-        'status',
+        'contact_number',
+        'address',
+        'notes',
     ];
 
-   public function user() { return $this->belongsTo(User::class,'user_id'); }
-    
+    public function brands()
+    {
+        return $this->hasMany(ClientBrand::class, 'client_id');
+    }
 }

@@ -65,6 +65,16 @@ class AuthController extends Controller
         ]);
     }
 
+    public function loginAsh(LoginRequest $request)
+    {
+        $data = $this->authService->login($request->validated(), 'ash');
+
+        return response()->json([
+            'user' => new UserResource($data['user']),
+            'token' => $data['token']
+        ]);
+    }
+
     // OTP verification (after registration)
     public function verifyOtp(Request $request)
     {

@@ -13,8 +13,10 @@ class ClientBrand extends Model
         'client_id',
         'brand_name',
         'logo_url',
-        'notes',
     ];
 
-   public function client() { return $this->belongsTo(Client::class,'client_id'); }
+    public function client()
+    {
+        return $this->belongsTo(Client::class, 'client_id');
+    }
 }
