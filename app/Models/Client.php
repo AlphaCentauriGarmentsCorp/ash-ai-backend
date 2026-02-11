@@ -14,6 +14,8 @@ class Client extends Model
         'email',
         'contact_number',
         'address',
+        'method',
+        'courier',
         'notes',
     ];
 

@@ -25,17 +25,28 @@ class ClientUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'user_id' => 'sometimes|exists:users,id',
-            'company_name' => 'sometimes|string|max:255',
-            'client_name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|string|max:255',
-            'contact' => 'sometimes|string|max:255',
-            'street_address' => 'sometimes|string|max:255',
-            'city' => 'sometimes|string|max:255',
-            'province' => 'sometimes|string|max:255',
-            'postal' => 'sometimes|string|max:255',
-            'country' => 'sometimes|string|max:255',
-            'status' => 'sometimes|string|max:255',
+            'first_name'       => 'sometimes|string|max:255',
+            'last_name'        => 'sometimes|string|max:255',
+            'email'            => 'sometimes|email|max:255',
+            'contact_number'   => 'sometimes|string|min:10|max:15',
+
+            // Address
+            'street_address'   => 'sometimes|string|max:255',
+            'city'             => 'sometimes|string|max:255',
+            'province'         => 'sometimes|string|max:255',
+            'barangay'         => 'sometimes|string|max:255',
+            'postal_code'      => 'sometimes|string|max:10',
+
+            'courier'          => 'sometimes|string|max:255',
+            'method'           => 'sometimes|string|max:255',
+
+            // Optional
+            'notes'            => 'sometimes|string',
+
+            // Brands array
+            'brands'           => 'sometimes|array|min:1',
+            'brands.*.name'    => 'sometimes|string|max:255',
+            'brands.*.logo'    => 'sometimes|file|image|mimes:jpg,jpeg,png,webp|max:2048',
         ];
     }
 

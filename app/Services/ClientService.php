@@ -35,6 +35,7 @@ class ClientService
             $fullName = $data['first_name'] . ' ' . $data['last_name'];
             $address = implode(', ', [
                 $data['street_address'],
+                $data['barangay'],
                 $data['city'],
                 $data['province'],
                 $data['postal_code'],
@@ -45,6 +46,8 @@ class ClientService
                 'email'          => $data['email'],
                 'contact_number' => $data['contact_number'],
                 'address'        => $address,
+                'method'         => $data['method'],
+                'courier'        => $data['courier'],
                 'notes'          => $data['notes'] ?? null,
             ]);
 

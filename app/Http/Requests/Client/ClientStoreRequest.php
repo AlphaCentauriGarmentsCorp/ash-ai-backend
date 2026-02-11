@@ -31,10 +31,14 @@ class ClientStoreRequest extends FormRequest
             'contact_number'   => 'required|string|min:10|max:15',
 
             // Address
-            'street_address'   => 'required|string|max:255',
-            'city'             => 'required|string|max:255',
-            'province'         => 'required|string|max:255',
-            'postal_code'      => 'required|string|max:10',
+            'street_address'   => 'nullable|string|max:255',
+            'city'             => 'nullable|string|max:255',
+            'province'         => 'nullable|string|max:255',
+            'barangay'         => 'nullable|string|max:255',
+            'postal_code'      => 'nullable|string|max:10',
+
+            'courier'          => 'nullable|string|max:255',
+            'method'           => 'nullable|string|max:255',
 
             // Optional
             'notes'            => 'nullable|string',
@@ -42,7 +46,7 @@ class ClientStoreRequest extends FormRequest
             // Brands array
             'brands'           => 'required|array|min:1',
             'brands.*.name'    => 'required|string|max:255',
-            'brands.*.logo'    => 'required|file|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'brands.*.logo'    => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:2048',
         ];
     }
 

@@ -16,6 +16,8 @@ return new class extends Migration
             $table->string('name');
             $table->string('email')->nullable();
             $table->string('contact_number')->nullable();
+            $table->string('courier')->nullable();
+            $table->string('method')->nullable();
             $table->string('address')->nullable();
             $table->text('notes')->nullable();
             $table->timestamps();
