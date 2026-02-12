@@ -23,14 +23,6 @@ use App\Http\Controllers\Api\DesignController;
 
 
 
-Route::middleware('auth:sanctum')->group(function () {
-
-    Route::post('logout', [AuthController::class, 'logout']);
-
-    Route::get('/me', function (Request $request) {
-        return response()->json(Auth::user());
-    });
-});
 
 
 
@@ -66,6 +58,16 @@ Route::prefix('v2')->group(function () {
     Route::post('login/ash', [AuthController::class, 'loginAsh']);
     Route::post('verify-otp', [AuthController::class, 'verifyOtp']);
     Route::post('login', [AuthController::class, 'login']);
+
+
+    Route::middleware('auth:sanctum')->group(function () {
+
+        Route::post('logout', [AuthController::class, 'logout']);
+
+        Route::get('/me', function (Request $request) {
+            return response()->json(Auth::user());
+        });
+    });
 
     Route::middleware(['auth:sanctum', 'frontend.access:ash'])->group(function () {
 
