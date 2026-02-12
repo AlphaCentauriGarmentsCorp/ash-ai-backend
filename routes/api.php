@@ -68,12 +68,12 @@ Route::prefix('v2')->group(function () {
 
         Route::prefix('/employee')->name('employee.')->controller(AccountController::class)->group(function () {
             Route::get('/', 'index');
-            Route::post('/store', 'store');
+            Route::post('/', 'store');
         });
 
         Route::prefix('/clients')->name('clients.')->controller(ClientController::class)->group(function () {
             Route::get('/', 'index');
-            Route::post('/store', 'store');
+            Route::post('/', 'store');
         });
 
 
