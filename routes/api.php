@@ -58,13 +58,13 @@ Route::prefix('v2')->group(function () {
 
 
 
- 
+
 
     Route::middleware(['auth:sanctum', 'frontend.access:ash'])->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
-   Route::get('/me', function (Request $request) {
-        return response()->json(Auth::user());
-    });
+        Route::get('/me', function (Request $request) {
+            return response()->json(Auth::user());
+        });
 
 
         Route::prefix('/employee')->name('employee.')->controller(AccountController::class)->group(function () {
@@ -90,7 +90,7 @@ Route::prefix('v2')->group(function () {
         // PENDING
 
 
-        Route::apiResource('client/{id}/{user_id}', ClientController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        Route::apiResource('client', ClientController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('fabric-types', FabricTypeController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('type-sizes', TypeSizeController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('warehouse-materials', WarehouseMaterialsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
