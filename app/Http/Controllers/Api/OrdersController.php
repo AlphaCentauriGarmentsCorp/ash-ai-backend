@@ -7,7 +7,7 @@ use App\Models\Order;
 use Illuminate\Http\Request;
 use App\Services\OrderService;
 use App\Http\Resources\OrderResource;
-use App\Http\Requests\Order\OrderStoreRequest;
+use App\Http\Requests\Order\StoreOrderRequest;
 use App\Http\Requests\Order\OrderUpdateRequest;
 
 class OrdersController extends Controller
@@ -19,41 +19,29 @@ class OrdersController extends Controller
         $this->service = $service;
     }
 
+
     public function index()
     {
-        $order = $this->service->getAll();
-        return OrderResource::collection($order);
+        $orders = Order::get();
+
+        return OrderResource::collection($orders);
     }
 
-    public function store(OrderStoreRequest $request)
-    {
-        $order = $this->service->create($request->validated());
-        return new OrderResource($order);
-    }
 
-    public function show(Order $order)
+    public function show($po_code)
     {
-        $order = $this->service->find($order->id);
+        $order = Order::with(['client', 'items'])->where('po_code', $po_code)->first();
         if (!$order) {
-            return response()->json(['message' => 'Not found'], 404);
+            return response()->json(['message' => 'Order not found'], 404);
         }
         return new OrderResource($order);
     }
 
-    public function update(OrderUpdateRequest $request, Order $order)
-    {
-        $order = $this->service->update($order, $request->validated());
-        return new OrderResource($order);
-    }
 
-    public function destroy(Order $order)
+    public function store(StoreOrderRequest $request)
     {
-        $deleted = $this->service->delete($order);
-        if (!$deleted) {
-            return response()->json(['message' => 'Not found'], 404);
-        }
-        return response()->json(['message' => 'Deleted successfully']);
+        $order = $this->service->store($request->validated());
+
+        return new OrderResource($order);
     }
 }
-
-

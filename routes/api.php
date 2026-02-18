@@ -72,14 +72,20 @@ Route::prefix('v2')->group(function () {
     Route::middleware(['auth:sanctum', 'frontend.access:ash'])->group(function () {
 
 
-        Route::prefix('/employee')->name('employee.')->controller(AccountController::class)->group(function () {
+        Route::prefix('/employee')->controller(AccountController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
         });
 
-        Route::prefix('/clients')->name('clients.')->controller(ClientController::class)->group(function () {
+        Route::prefix('/clients')->controller(ClientController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
+        });
+
+        Route::prefix('/orders')->controller(OrdersController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/details/{po_code}', 'show');
         });
 
 
@@ -91,7 +97,7 @@ Route::prefix('v2')->group(function () {
         // IN PROGRESS
         // Route::apiResource('users', UserController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         // Route::apiResource('clients', ClientController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-
+        // Route::apiResource('orders', OrdersController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         // PENDING
 
 
@@ -101,7 +107,7 @@ Route::prefix('v2')->group(function () {
         Route::apiResource('warehouse-materials', WarehouseMaterialsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('type-garments', TypeGarmentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('type-printing-methods', TypePrintingMethodController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('orders', OrdersController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+
         Route::apiResource('order-processes', OrderProcessesController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('order-payments', OrdersPaymentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('po-statuses', PoStatusController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
