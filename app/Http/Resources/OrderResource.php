@@ -7,43 +7,67 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class OrderResource extends JsonResource
 {
-    /**
-     * Transform the resource into an array.
-     *
-     * @return array<string, mixed>
-     */
+
     public function toArray(Request $request): array
     {
         return [
             'id' => $this->id,
-            'po_number' => $this->po_number,
+            'po_code' => $this->po_code,
             'client_id' => $this->client_id,
-            'brand_id' => $this->brand_id,
-            'channel' => $this->channel,
-            'order_type' => $this->order_type,
+            'client_brand' => $this->client_brand,
+            'deadline' => $this->deadline?->toDateString(),
+            'priority' => $this->priority,
+            'brand' => $this->brand,
+
+            'courier' => $this->courier,
+            'method' => $this->method,
+            'receiver_name' => $this->receiver_name,
+            'receiver_contact' => $this->receiver_contact,
+            'address' => $this->address,
+
             'design_name' => $this->design_name,
-            'type_fabric' => $this->type_fabric,
-            'type_size' => $this->type_size,
-            'type_garment' => $this->type_garment,
-            'type_printing_method' => $this->type_printing_method,
-            'design_files' => $this->design_files,
-            'artist_filename' => $this->artist_filename,
-            'mockup_url' => $this->mockup_url,
-            'mockup_images' => $this->mockup_images,
-            'mockup_notes' => $this->mockup_notes,
-            'print_location' => $this->print_location,
+            'apparel_type' => $this->apparel_type,
+            'pattern_type' => $this->pattern_type,
+            'service_type' => $this->service_type,
+            'print_method' => $this->print_method,
+            'print_service' => $this->print_service,
+            'size_label' => $this->size_label,
+            'print_label_placement' => $this->print_label_placement,
+
+            'fabric_type' => $this->fabric_type,
+            'fabric_supplier' => $this->fabric_supplier,
+            'fabric_color' => $this->fabric_color,
+            'thread_color' => $this->thread_color,
+            'ribbing_color' => $this->ribbing_color,
+
+            'placement_measurements' => $this->placement_measurements,
+            'notes' => $this->notes,
+            'options' => $this->options,
+
+            'freebie_items' => $this->freebie_items,
+            'freebie_color' => $this->freebie_color,
+            'freebie_others' => $this->freebie_others,
+
+            'payment_method' => $this->payment_method,
+            'payment_plan' => $this->payment_plan,
+            'total_price' => $this->total_price,
+            'average_unit_price' => $this->average_unit_price,
             'total_quantity' => $this->total_quantity,
-            'size_breakdown' => $this->size_breakdown,
-            'target_date' => $this->target_date,
-            'instruction_files' => $this->instruction_files,
-            'instruction_notes' => $this->instruction_notes,
-            'unit_price' => $this->unit_price,
-            'desposit_percentage' => $this->desposit_percentage,
-            'payment_terms' => $this->payment_terms,
-            'currency' => $this->currency,
-            'status' => $this->status,
-            'created_at'  => $this->created_at?->toDateTimeString(),
-            'updated_at'  => $this->updated_at?->toDateTimeString(),
+            'deposit' => $this->deposit,
+
+            'design_files' => $this->design_files,
+            'design_mockup' => $this->design_mockup,
+            'size_label_files' => $this->size_label_files,
+            'freebies_files' => $this->freebies_files,
+
+            'qr_path' => $this->qr_path,
+            'barcode_path' => $this->barcode_path,
+
+            'items' => PoItemResource::collection($this->whenLoaded('items')),
+            'client' => $this->whenLoaded('client'),
+
+            'created_at' => $this->created_at?->toDateTimeString(),
+            'updated_at' => $this->updated_at?->toDateTimeString(),
         ];
     }
 }

@@ -10,9 +10,11 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "endroid/qr-code": "^5.0",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
+        "picqer/php-barcode-generator": "*",
         "spatie/laravel-permission": "^6.24"
     },
     "require-dev": {

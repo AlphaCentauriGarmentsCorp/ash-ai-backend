@@ -35,6 +35,7 @@ class UserStoreRequest extends FormRequest
             'domain_access.*' => 'string',
         ];
     }
+    
     public function messages(): array
     {
         return [];

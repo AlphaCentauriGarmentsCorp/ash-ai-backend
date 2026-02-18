@@ -3,50 +3,80 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Client;
-use App\Models\ClientBrand;
-use App\Models\FabricType;
-use App\Models\TypeSize;
-use App\Models\TypeGarment;
-use App\Models\TypePrintingMethod;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Order extends Model
 {
+    use HasFactory;
+
     protected $table = 'orders';
+
     protected $fillable = [
-        'po_number',
+        'po_code',
         'client_id',
-        'brand_id',
-        'channel',
-        'order_type',
+        'client_brand',
+        'deadline',
+        'priority',
+        'brand',
+
+        'courier',
+        'method',
+        'receiver_name',
+        'receiver_contact',
+        'address',
+
         'design_name',
-        'type_fabric',
-        'type_size',
-        'type_garment',
-        'type_printing_method',
-        'design_files',
-        'artist_filename',
-        'mockup_url',
-        'mockup_images',
-        'mockup_notes',
-        'print_location',
+        'apparel_type',
+        'pattern_type',
+        'service_type',
+        'print_method',
+        'print_service',
+        'size_label',
+        'print_label_placement',
+
+        'fabric_type',
+        'fabric_supplier',
+        'fabric_color',
+        'thread_color',
+        'ribbing_color',
+
+        'placement_measurements',
+        'notes',
+        'options',
+
+        'freebie_items',
+        'freebie_color',
+        'freebie_others',
+
+        'payment_method',
+        'payment_plan',
+        'total_price',
+        'average_unit_price',
         'total_quantity',
-        'size_breakdown',
-        'target_date',
-        'instruction_files',
-        'instruction_notes',
-        'unit_price',
-        'desposit_percentage',
-        'payment_terms',
-        'currency',
-        'status',
+        'deposit',
+
+        'design_files',
+        'design_mockup',
+        'size_label_files',
+        'freebies_files',
+
+        'qr_path',
+        'barcode_path',
     ];
 
-    // Relationships
-    public function client() { return $this->belongsTo(Client::class, 'client_id'); }
-    public function brand() { return $this->belongsTo(ClientBrand::class, 'brand_id'); }
-    public function typeFabric() { return $this->belongsTo(FabricType::class, 'type_fabric'); }
-    public function typeGarment() { return $this->belongsTo(TypeGarment::class, 'type_garment'); }
-    public function typePrintingMethod() { return $this->belongsTo(TypePrintingMethod::class, 'type_printing_method'); }
+    public function client()
+    {
+        return $this->belongsTo(Client::class);
+    }
 
+    public function items()
+    {
+        return $this->hasMany(PoItem::class);
+    }
+
+    protected $casts = [
+        'deadline' => 'date',
+        'total_price' => 'decimal:2',
+        'average_unit_price' => 'decimal:2',
+    ];
 }
