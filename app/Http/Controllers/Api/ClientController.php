@@ -30,27 +30,26 @@ class ClientController extends Controller
         return new ClientResource($client);
     }
 
-    public function show(Client $client)
+    public function show(Client $clients)
     {
-        // Route model binding already loaded the model
-        return new ClientResource($client);
+        $clients->load('brands');
+        return new ClientResource($clients);
     }
 
-    public function update(ClientUpdateRequest $request, Client $client)
+    public function update(ClientUpdateRequest $request, Client $clients)
     {
-        // Use the injected model's id
-        $client = $this->service->update($client->id, $request->validated());
-        if (! $client) {
+        $client = $this->service->update($clients->id, $request->validated());
+        if (!$client) {
             return response()->json(['message' => 'Not found'], 404);
         }
         return new ClientResource($client);
     }
 
-    public function destroy(Client $client)
+
+    public function destroy(Client $clients)
     {
-        // Use the injected model's id
-        $deleted = $this->service->delete($client->id);
-        if (! $deleted) {
+        $deleted = $this->service->delete($clients->id);
+        if (!$deleted) {
             return response()->json(['message' => 'Not found'], 404);
         }
         return response()->json(['message' => 'Deleted successfully']);
