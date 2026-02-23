@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ServiceTypeController;
 use App\Http\Controllers\Api\PrintMethodController;
+use App\Http\Controllers\Api\SizeLabelController;
 
 
 
@@ -123,6 +124,16 @@ Route::prefix('v2')->group(function () {
             Route::put('/{id}', 'update');
             Route::delete('/{id}', 'destroy');
         });
+
+        Route::prefix('/size-label')->controller(SizeLabelController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        
 
 
         // IN PROGRESS
