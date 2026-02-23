@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\PoStatusController;
 use App\Http\Controllers\Api\PoItemsController;
 use App\Http\Controllers\Api\DesignController;
 use App\Http\Controllers\Api\PatternTypeController;
+use App\Http\Controllers\Api\ApparelTypeController;
 
 
 
@@ -97,7 +98,13 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-
+        Route::prefix('/apparel-type')->controller(ApparelTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
 
 
 
