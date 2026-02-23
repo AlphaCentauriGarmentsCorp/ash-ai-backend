@@ -16,6 +16,8 @@ class ClientResource extends JsonResource
             'email' => $this->email,
             'contact_number' => $this->contact_number,
             'address' => $this->address,
+            'method' => $this->method,
+            'courier' => $this->courier,
             'notes' => $this->notes,
 
             'brands' => $this->whenLoaded('brands', function () {

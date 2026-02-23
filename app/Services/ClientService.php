@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\ClientBrand;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class ClientService
 {
@@ -72,13 +73,89 @@ class ClientService
     {
         $client = Client::find($id);
 
-        if (! $client) {
+        if (!$client) {
             return null;
         }
 
-        $client->update($data);
+        return DB::transaction(function () use ($client, $data) {
+            
+            if (isset($data['first_name']) && isset($data['last_name'])) {
+                $data['name'] = $data['first_name'] . ' ' . $data['last_name'];
+            }
 
-        return $client;
+            $addressFields = ['street_address', 'barangay', 'city', 'province', 'postal_code'];
+            if (collect($addressFields)->some(fn($field) => isset($data[$field]))) {
+                $existing = explode(', ', $client->address);
+                $data['address'] = implode(', ', [
+                    $data['street_address'] ?? $existing[0] ?? '',
+                    $data['barangay'] ?? $existing[1] ?? '',
+                    $data['city'] ?? $existing[2] ?? '',
+                    $data['province'] ?? $existing[3] ?? '',
+                    $data['postal_code'] ?? $existing[4] ?? '',
+                ]);
+            }
+
+            $clientData = collect($data)->except([
+                'first_name', 'last_name', 'street_address', 'barangay',
+                'city', 'province', 'postal_code', 'brands'
+            ])->toArray();
+
+            $client->update($clientData);
+
+            if (isset($data['brands'])) {
+                $submittedBrandIds = collect($data['brands'])->pluck('id')->filter()->toArray();
+
+                $brandsToDelete = ClientBrand::where('client_id', $client->id)
+                    ->whereNotIn('id', $submittedBrandIds)
+                    ->get();
+
+                foreach ($brandsToDelete as $brand) {
+                    if ($brand->logo_url) {
+                        $relativePath = str_replace('/storage/', '', $brand->logo_url);
+                        Storage::disk('public')->delete($relativePath);
+                    }
+                    $brand->delete();
+                }
+
+                foreach ($data['brands'] as $brand) {
+                    $brandId = $brand['id'] ?? null;
+                    $logoUrl = null;
+
+                    if (isset($brand['logo']) && $brand['logo'] instanceof \Illuminate\Http\UploadedFile) {
+                        if ($brandId) {
+                            $existingBrand = ClientBrand::find($brandId);
+                            if ($existingBrand && $existingBrand->logo_url) {
+                                $relativePath = str_replace('/storage/', '', $existingBrand->logo_url);
+                                Storage::disk('public')->delete($relativePath);
+                            }
+                        }
+
+                        $logoPath = $brand['logo']->store('client_brands', 'public');
+                        $logoUrl = '/storage/' . $logoPath;
+                    }
+                    
+                    if ($brandId) {
+                        $brandData = ['brand_name' => $brand['name']];
+                        if ($logoUrl) {
+                            $brandData['logo_url'] = $logoUrl;
+                        }
+                        
+                        ClientBrand::updateOrCreate(
+                            ['id' => $brandId, 'client_id' => $client->id],
+                            $brandData
+                        );
+                    } else {
+                        ClientBrand::create([
+                            'client_id' => $client->id,
+                            'brand_name' => $brand['name'],
+                            'logo_url' => $logoUrl,
+                        ]);
+                    }
+                }
+            }
+
+            return $client->fresh('brands');
+        });
     }
 
     /**

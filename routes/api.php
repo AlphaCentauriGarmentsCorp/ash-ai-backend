@@ -83,6 +83,9 @@ Route::prefix('v2')->group(function () {
         Route::prefix('/clients')->controller(ClientController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
+            Route::get('/{clients}', 'show');
+            Route::put('/{clients}', 'update');
+            Route::delete('/{clients}', 'destroy');
         });
 
         Route::prefix('/orders')->controller(OrdersController::class)->group(function () {
@@ -125,7 +128,7 @@ Route::prefix('v2')->group(function () {
         // PENDING
 
 
-        Route::apiResource('client', ClientController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+        // Route::apiResource('client', ClientController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('fabric-types', FabricTypeController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('type-sizes', TypeSizeController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
         Route::apiResource('warehouse-materials', WarehouseMaterialsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
