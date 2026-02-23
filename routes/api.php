@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\DesignController;
 use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ServiceTypeController;
+use App\Http\Controllers\Api\PrintMethodController;
 
 
 
@@ -115,7 +116,13 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-
+        Route::prefix('/print-method')->controller(PrintMethodController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
 
 
         // IN PROGRESS
