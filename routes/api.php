@@ -5,21 +5,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ClientController;
-use App\Http\Controllers\Api\FabricTypeController;
 use App\Http\Controllers\Api\TypeSizeController;
-use App\Http\Controllers\Api\WarehouseMaterialsController;
-use App\Http\Controllers\Api\ClientBrandController;
-use App\Http\MiddleWare\FrontendAccess;
 use App\Http\Controllers\Api\TypeGarmentController;
 use App\Http\Controllers\Api\TypePrintingMethodController;
 use App\Http\Controllers\Api\OrdersController;
 use App\Http\Controllers\Api\OrderProcessesController;
-use App\Http\Controllers\Api\OrdersPaymentController;
-use App\Http\Controllers\Api\PoStatusController;
-use App\Http\Controllers\Api\PoItemsController;
-use App\Http\Controllers\Api\DesignController;
 use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ServiceTypeController;
@@ -29,14 +20,6 @@ use App\Http\Controllers\Api\PrintLabelPlacementController;
 use App\Http\Controllers\Api\FreebieController;
 use App\Http\Controllers\Api\PlacementMeasurementController;
 use App\Http\Controllers\Api\AdditionalOptionController;
-
-
-
-
-
-
-
-
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -79,8 +62,6 @@ Route::prefix('v2')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'frontend.access:ash'])->group(function () {
-
-
         Route::prefix('/employee')->controller(AccountController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
@@ -171,27 +152,6 @@ Route::prefix('v2')->group(function () {
             Route::put('/{id}', 'update');
             Route::delete('/{id}', 'destroy');
         });
-
-
-        // IN PROGRESS
-        // Route::apiResource('users', UserController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        // Route::apiResource('clients', ClientController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        // Route::apiResource('orders', OrdersController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        // PENDING
-
-
-        // Route::apiResource('client', ClientController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('fabric-types', FabricTypeController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('type-sizes', TypeSizeController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('warehouse-materials', WarehouseMaterialsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('type-garments', TypeGarmentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('type-printing-methods', TypePrintingMethodController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-
-        Route::apiResource('order-processes', OrderProcessesController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('order-payments', OrdersPaymentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('po-statuses', PoStatusController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('po-items', PoItemsController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
-        Route::apiResource('designs', DesignController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
     });
 
     Route::middleware(['auth:sanctum', 'frontend.access:sorbetes', 'role:customer'])->group(function () {
@@ -201,27 +161,3 @@ Route::prefix('v2')->group(function () {
         // Add more Ash-specific routes here
     });
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Route::domain('admin.alphacentauri.com')->group(function () {
-
-//     Route::post('login', [AuthController::class, 'login']);
-
-//     Route::middleware(['auth:sanctum', 'role:super_admin'])->group(function () {
-//         // Admin sees EVERYTHING
-//         Route::get('/users/all', [AdminUserController::class, 'index']);
-//         Route::get('/reports/sales', [ReportController::class, 'sales']);
-//         Route::get('/reports/rfqs', [ReportController::class, 'rfqs']);
-//     });
-// });
