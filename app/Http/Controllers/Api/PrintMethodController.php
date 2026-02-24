@@ -30,8 +30,12 @@ class PrintMethodController extends Controller
         return new PrintMethodResource($printMethod);
     }
 
-    public function show(PrintMethod $printMethod)
+    public function show(PrintMethod $printMethod, $id)
     {
+        $printMethod = $this->service->find($id);
+        if (! $printMethod) {
+            return response()->json(['message' => 'Print method not found'], 404);
+        }
         return new PrintMethodResource($printMethod);
     }
 
