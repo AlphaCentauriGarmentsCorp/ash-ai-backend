@@ -30,8 +30,12 @@ class PrintLabelPlacementController extends Controller
         return new PrintLabelPlacementResource($printLabelPlacement);
     }
 
-    public function show(PrintLabelPlacement $printLabelPlacement)
+    public function show(PrintLabelPlacement $printLabelPlacement, $id)
     {
+        $printLabelPlacement = $this->service->find($id);
+        if (! $printLabelPlacement) {
+            return response()->json(['message' => 'Print label placement not found'], 404);
+        }
         return new PrintLabelPlacementResource($printLabelPlacement);
     }
 
