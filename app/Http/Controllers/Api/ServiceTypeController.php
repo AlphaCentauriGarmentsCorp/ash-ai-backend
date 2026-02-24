@@ -30,8 +30,12 @@ class ServiceTypeController extends Controller
         return new ServiceTypeResource($serviceType);
     }
 
-    public function show(ServiceType $serviceType)
+    public function show(ServiceType $serviceType, $id)
     {
+        $serviceType = $this->service->find($id);
+        if (! $serviceType) {
+            return response()->json(['message' => 'Service type not found'], 404);
+        }
         return new ServiceTypeResource($serviceType);
     }
 
