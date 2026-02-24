@@ -26,6 +26,8 @@ use App\Http\Controllers\Api\ServiceTypeController;
 use App\Http\Controllers\Api\PrintMethodController;
 use App\Http\Controllers\Api\SizeLabelController;
 use App\Http\Controllers\Api\PrintLabelPlacementController;
+use App\Http\Controllers\Api\FreebieController;
+use App\Http\Controllers\Api\PlacementMeasurementController;
 
 
 
@@ -145,7 +147,21 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        
+        Route::prefix('/freebie')->controller(FreebieController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/placement-measurement')->controller(PlacementMeasurementController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
 
 
         // IN PROGRESS
