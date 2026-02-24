@@ -30,8 +30,12 @@ class SizeLabelController extends Controller
         return new SizeLabelResource($sizeLabel);
     }
 
-    public function show(SizeLabel $sizeLabel)
+    public function show(SizeLabel $sizeLabel, $id)
     {
+        $sizeLabel = $this->service->find($id);
+        if (! $sizeLabel) {
+            return response()->json(['message' => 'Size label not found'], 404);
+        }
         return new SizeLabelResource($sizeLabel);
     }
 
