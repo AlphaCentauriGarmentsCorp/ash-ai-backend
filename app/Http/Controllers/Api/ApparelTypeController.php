@@ -30,8 +30,12 @@ class ApparelTypeController extends Controller
         return new ApparelTypeResource($apparelType);
     }
 
-    public function show(ApparelType $apparelType)
+    public function show(ApparelType $apparelType, $id)
     {
+        $apparelType = $this->service->find($id);
+        if (! $apparelType) {
+            return response()->json(['message' => 'Apparel type not found'], 404);
+        }
         return new ApparelTypeResource($apparelType);
     }
 
