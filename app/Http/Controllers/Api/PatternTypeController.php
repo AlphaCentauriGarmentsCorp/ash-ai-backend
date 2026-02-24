@@ -27,11 +27,18 @@ class PatternTypeController extends Controller
     public function store(PatternTypeStoreRequest $request)
     {
         $patternType = $this->service->create($request->validated());
+        if (! $patternType) {
+            return response()->json(['message' => 'Apparel type not found'], 404);
+        }
         return new PatternTypeResource($patternType);
     }
 
-    public function show(PatternType $patternType)
+    public function show(PatternType $patternType, $id)
     {
+        $patternType = $this->service->find($id);
+        if (! $patternType) {
+            return response()->json(['message' => 'Apparel type not found'], 404);
+        }
         return new PatternTypeResource($patternType);
     }
 
