@@ -7,7 +7,7 @@ use App\Models\Client;
 
 class ClientBrand extends Model
 {
-    //
+
     protected $table = 'client_brands';
     protected $fillable = [
         'client_id',

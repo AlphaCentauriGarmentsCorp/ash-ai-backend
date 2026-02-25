@@ -27,28 +27,33 @@ class ClientController extends Controller
     public function store(ClientStoreRequest $request)
     {
         $client = $this->service->create($request->validated());
+        $client->load('brands');
         return new ClientResource($client);
     }
 
-    public function show(Client $clients)
+    public function show(Client $clients, $id)
     {
-        $clients->load('brands');
+        $clients = $this->service->find($id);
+        if (!$clients) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+
+        $clients->load(['brands', 'orders']);
         return new ClientResource($clients);
     }
 
-    public function update(ClientUpdateRequest $request, Client $clients)
+    public function update(ClientUpdateRequest $request, $id)
     {
-        $client = $this->service->update($clients->id, $request->validated());
+        $client = $this->service->update($id, $request->validated());
         if (!$client) {
             return response()->json(['message' => 'Not found'], 404);
         }
         return new ClientResource($client);
     }
 
-
-    public function destroy(Client $clients)
+    public function destroy($id)
     {
-        $deleted = $this->service->delete($clients->id);
+        $deleted = $this->service->delete($id);
         if (!$deleted) {
             return response()->json(['message' => 'Not found'], 404);
         }
