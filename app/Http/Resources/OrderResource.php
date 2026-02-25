@@ -66,6 +66,8 @@ class OrderResource extends JsonResource
             'items' => PoItemResource::collection($this->whenLoaded('items')),
             'client' => $this->whenLoaded('client'),
 
+            'status' => $this->status,
+
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),
         ];
