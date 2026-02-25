@@ -7,6 +7,7 @@ use App\Models\ClientBrand;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ClientService
 {
@@ -53,12 +54,25 @@ class ClientService
             ]);
 
             foreach ($data['brands'] as $brand) {
-                $logoPath = $brand['logo']->store('client_brands', 'public');
+
+                $logoPath = null;
+
+                if (isset($brand['logo']) && $brand['logo'] instanceof \Illuminate\Http\UploadedFile) {
+                    $originalName = pathinfo(
+                        $brand['logo']->getClientOriginalName(),
+                        PATHINFO_FILENAME
+                    );
+                    $originalName = Str::slug($originalName);
+                    $extension = $brand['logo']->getClientOriginalExtension();
+                    $fileName = time() . '_' . $originalName . '.' . $extension;
+                    $brand['logo']->storeAs('client_brands', $fileName, 'public');
+                    $logoPath = '/storage/client_brands/' . $fileName;
+                }
 
                 ClientBrand::create([
                     'client_id'  => $client->id,
                     'brand_name' => $brand['name'],
-                    'logo_url'   => '/storage/' . $logoPath,
+                    'logo_url'   => $logoPath,
                 ]);
             }
 
@@ -78,7 +92,7 @@ class ClientService
         }
 
         return DB::transaction(function () use ($client, $data) {
-            
+
             if (isset($data['first_name']) && isset($data['last_name'])) {
                 $data['name'] = $data['first_name'] . ' ' . $data['last_name'];
             }
@@ -110,11 +124,11 @@ class ClientService
                     ->get();
 
                 foreach ($brandsToDelete as $brand) {
-                    if ($brand->logo_url) {
-                        $relativePath = str_replace('/storage/', '', $brand->logo_url);
-                        Storage::disk('public')->delete($relativePath);
-                    }
-                    $brand->delete();
+                        if ($brand->logo_url) {
+                            $relativePath = str_replace('/storage/', '', $brand->logo_url);
+                            Storage::disk('public')->delete($relativePath);
+                        }
+                        $brand->delete();
                 }
 
                 foreach ($data['brands'] as $brand) {
@@ -133,7 +147,7 @@ class ClientService
                         $logoPath = $brand['logo']->store('client_brands', 'public');
                         $logoUrl = '/storage/' . $logoPath;
                     }
-                    
+
                     if ($brandId) {
                         $brandData = ['brand_name' => $brand['name']];
                         if ($logoUrl) {

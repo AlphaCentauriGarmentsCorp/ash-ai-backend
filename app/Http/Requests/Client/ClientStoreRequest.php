@@ -46,7 +46,7 @@ class ClientStoreRequest extends FormRequest
             // Brands array
             'brands'           => 'required|array|min:1',
             'brands.*.name'    => 'required|string|max:255',
-            'brands.*.logo'    => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'brands.*.logo'    => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:25600',
         ];
     }
 
@@ -55,7 +55,6 @@ class ClientStoreRequest extends FormRequest
         return [
             'brands.required'        => 'At least one brand is required.',
             'brands.*.name.required' => 'Brand name is required.',
-            'brands.*.logo.required' => 'Brand logo is required.',
         ];
     }
 

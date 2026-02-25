@@ -46,46 +46,7 @@ class ClientUpdateRequest extends FormRequest
             // Brands array
             'brands'           => 'sometimes|array|min:1',
             'brands.*.name'    => 'sometimes|string|max:255',
-            'brands.*.logo'    => 'sometimes|file|image|mimes:jpg,jpeg,png,webp|max:2048',
-        ];
-    }
-
-    public function messages(): array
-    {
-        return [
-            'user_id.exists' => 'Selected user does not exist or is invalid.',
-            'user_id.required' => 'User is required.',
-
-            'company_name.required' => 'Company name is required.',
-            'company_name.max' => 'Company name must not exceed 255 characters.',
-
-            'client_name.required' => 'Client name is required.',
-            'client_name.max' => 'Client name must not exceed 255 characters.',
-
-            'email.required' => 'Email address is required.',
-            'email.email' => 'Please enter a valid email address.',
-            'email.max' => 'Email address must not exceed 255 characters.',
-
-            'contact.required' => 'Contact number is required.',
-            'contact.max' => 'Contact number must not exceed 255 characters.',
-
-            'street_address.required' => 'Street address is required.',
-            'street_address.max' => 'Street address must not exceed 255 characters.',
-
-            'city.required' => 'City is required.',
-            'city.max' => 'City must not exceed 255 characters.',
-
-            'province.required' => 'Province is required.',
-            'province.max' => 'Province must not exceed 255 characters.',
-
-            'postal.required' => 'Postal code is required.',
-            'postal.max' => 'Postal code must not exceed 255 characters.',
-
-            'country.required' => 'Country is required.',
-            'country.max' => 'Country must not exceed 255 characters.',
-
-            'status.required' => 'Status is required.',
-            'status.max' => 'Status must not exceed 255 characters.',
+            'brands.*.logo'    => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:25600',
         ];
     }
 

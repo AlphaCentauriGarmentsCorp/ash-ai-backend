@@ -29,6 +29,9 @@ class ClientResource extends JsonResource
                     ];
                 });
             }),
+            'orders' => OrderResource::collection(
+                $this->whenLoaded('orders')
+            ),
 
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
