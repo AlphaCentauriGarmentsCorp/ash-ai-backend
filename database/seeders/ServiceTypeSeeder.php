@@ -14,25 +14,30 @@ class ServiceTypeSeeder extends Seeder
      */
     public function run(): void
     {
-        ServiceType::insert(
+        $items = [
             [
                 'name' => 'Sew & Print / Embro',
                 'description' => 'A comprehensive, end-to-end service that covers both the garment construction and the application of custom designs or logos.',
-                'created_at' => Carbon::now(),
-                'updated_at' => Carbon::now(),
             ],
             [
                 'name' => 'Sew Only',
                 'description' => 'A specialized manufacturing service focused strictly on the assembly, stitching, and construction of the garment.',
-                'created_at' => Carbon::now(),
-                'updated_at' => Carbon::now(),
             ],
             [
                 'name' => 'Print / Embro Only',
                 'description' => 'A finishing service dedicated solely to adding graphics or embroidery to pre-made blank apparel.',
-                'created_at' => Carbon::now(),
-                'updated_at' => Carbon::now(),
             ]
-        );
+        ];
+
+        foreach ($items as $data) {
+            ServiceType::updateOrCreate(
+                ['name' => $data['name']],
+                [
+                    'description' => $data['description'],
+                    'created_at' => Carbon::now(),
+                    'updated_at' => Carbon::now(),
+                ]
+            );
+        }
     }
 }

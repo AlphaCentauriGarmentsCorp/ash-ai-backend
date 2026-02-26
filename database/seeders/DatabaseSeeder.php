@@ -22,6 +22,6 @@ class DatabaseSeeder extends Seeder
         $this->call(PatternTypeSeeder::class);
         $this->call(PrintMethodSeeder::class);
         $this->call(ServiceTypeSeeder::class);
-        $this->call(PrintLabelPlacement::class);
+        $this->call(PrintLabelPlacements::class);
     }
 }
