@@ -25,7 +25,19 @@ class ApparelTypeStoreRequest extends FormRequest
     {
         return [
             'name'        => 'required|string|max:50',
-            'description' => 'required|string|max:100',
+            'description' => 'required|string|max:150',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'name.required' => 'The name field is required.',
+            'name.string'   => 'The name must be a string.',
+            'name.max'      => 'The name may not be greater than 50 characters.',
+            'description.required' => 'The description field is required.',
+            'description.string'   => 'The description must be a string.',
+            'description.max'      => 'The description may not be greater than 150 characters.',
         ];
     }
 
