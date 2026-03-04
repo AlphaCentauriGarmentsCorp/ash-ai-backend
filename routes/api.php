@@ -6,11 +6,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
-use App\Http\Controllers\Api\TypeSizeController;
-use App\Http\Controllers\Api\TypeGarmentController;
-use App\Http\Controllers\Api\TypePrintingMethodController;
 use App\Http\Controllers\Api\OrdersController;
-use App\Http\Controllers\Api\OrderProcessesController;
 use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ServiceTypeController;
@@ -20,6 +16,9 @@ use App\Http\Controllers\Api\PrintLabelPlacementController;
 use App\Http\Controllers\Api\FreebieController;
 use App\Http\Controllers\Api\PlacementMeasurementController;
 use App\Http\Controllers\Api\AdditionalOptionController;
+use App\Http\Controllers\Api\EquipmentLocationController;
+
+
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -146,6 +145,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/additional-option')->controller(AdditionalOptionController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/equipment-location')->controller(EquipmentLocationController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
