@@ -17,6 +17,9 @@ use App\Http\Controllers\Api\FreebieController;
 use App\Http\Controllers\Api\PlacementMeasurementController;
 use App\Http\Controllers\Api\AdditionalOptionController;
 use App\Http\Controllers\Api\EquipmentLocationController;
+use App\Http\Controllers\Api\EquipmentInventoryController;
+use App\Http\Controllers\Api\DownloadController;
+
 
 
 
@@ -61,6 +64,10 @@ Route::prefix('v2')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'frontend.access:ash'])->group(function () {
+        Route::prefix('/download')->controller(DownloadController::class)->group(function () {
+            Route::get('/', 'download');
+        });
+
         Route::prefix('/employee')->controller(AccountController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
@@ -154,6 +161,15 @@ Route::prefix('v2')->group(function () {
 
         Route::prefix('/equipment-location')->controller(EquipmentLocationController::class)->group(function () {
             Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/equipment-inventory')->controller(EquipmentInventoryController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}/contents', 'getByLocation');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
             Route::put('/{id}', 'update');

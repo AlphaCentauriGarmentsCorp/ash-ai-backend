@@ -24,7 +24,7 @@ class OrderService
             $poCode = $this->generatePoCode('ASH');
 
             // Create QR and Barcode for the Order
-            $orderCodes = $this->generateQrAndBarcode($poCode, 'Orders');
+            $orderCodes = $this->generateQrAndBarcode($poCode, 'Orders/' . $poCode . '/Codes');
 
             // Create Order
             $order = Order::create([
@@ -153,7 +153,7 @@ class OrderService
             $sizeCode = strtoupper($size['name'] ?? $size['size']);
             $sku = $brandPrefix . str_pad($nextNumber, 3, '0', STR_PAD_LEFT) . "U{$sizeCode}";
 
-            $paths = $this->generateQrAndBarcode($sku, 'ItemCodes');
+            $paths = $this->generateQrAndBarcode($sku, 'Orders/' . $data['po_code'] . '/PoItems/' . $sku);
 
             PoItem::create([
                 'order_id' => $order->id,
