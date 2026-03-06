@@ -15,4 +15,9 @@ class Supplier extends Model
         'address',
         'notes',
     ];
+
+    public function materials()
+    {
+        return $this->hasMany(Materials::class);
+    }
 }

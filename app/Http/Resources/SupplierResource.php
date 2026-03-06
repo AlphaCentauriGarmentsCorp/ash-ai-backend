@@ -28,6 +28,7 @@ class SupplierResource extends JsonResource
             'province'          => $addressParts[3] ?? '',
             'postal_code'       => $addressParts[4] ?? '',
             'notes'             => $this->notes,
+            'materials'         => $this->whenLoaded('materials'),
             'created_at'        => $this->created_at?->toDateTimeString(),
             'updated_at'        => $this->updated_at?->toDateTimeString(),
         ];

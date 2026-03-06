@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\AdditionalOptionController;
 use App\Http\Controllers\Api\EquipmentLocationController;
 use App\Http\Controllers\Api\EquipmentInventoryController;
 use App\Http\Controllers\Api\DownloadController;
+use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
 
 // example usage: localhost:8000/api/v1/user
@@ -176,6 +177,16 @@ Route::prefix('v2')->group(function () {
 
         Route::prefix('/supplier')->controller(SupplierController::class)->group(function () {
             Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/materials')->controller(MaterialsController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}/supplier', 'getBySupplier');
+            Route::get('/type/{type}', 'getByType');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
             Route::put('/{id}', 'update');

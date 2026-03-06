@@ -14,7 +14,7 @@ class SupplierService
 
     public function find(int $id): ?Supplier
     {
-        return Supplier::find($id);
+        return Supplier::with('materials')->find($id);
     }
 
     public function create(array $data): Supplier
