@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\EquipmentInventoryController;
 use App\Http\Controllers\Api\DownloadController;
 use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
+use App\Http\Controllers\Api\ScreenController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -187,6 +188,15 @@ Route::prefix('v2')->group(function () {
             Route::get('/', 'index');
             Route::get('/{id}/supplier', 'getBySupplier');
             Route::get('/type/{type}', 'getByType');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+
+        Route::prefix('/screens')->controller(ScreenController::class)->group(function () {
+            Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
             Route::put('/{id}', 'update');
