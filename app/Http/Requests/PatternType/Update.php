@@ -6,7 +6,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
-class PatternTypeUpdateRequest extends FormRequest
+class Update extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -35,23 +35,10 @@ class PatternTypeUpdateRequest extends FormRequest
             'name.required' => 'The name field is required.',
             'name.string'   => 'The name must be a string.',
             'name.max'      => 'The name may not be greater than 50 characters.',
+            
             'description.required' => 'The description field is required.',
             'description.string'   => 'The description must be a string.',
             'description.max'      => 'The description may not be greater than 150 characters.',
         ];
-    }
-
-    /**
-     * Handle a failed validation attempt.
-     */
-    protected function failedValidation(Validator $validator): void
-    {
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => 'Validation errors',
-                'errors'  => $validator->errors(),
-            ], 422)
-        );
     }
 }
