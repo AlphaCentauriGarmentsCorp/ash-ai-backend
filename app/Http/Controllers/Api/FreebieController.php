@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Freebie\FreebieStoreRequest;
-use App\Http\Requests\Freebie\FreebieUpdateRequest;
+use App\Http\Requests\Freebie\Store;
+use App\Http\Requests\Freebie\Update;
 use App\Http\Resources\FreebieResource;
 use App\Models\Freebie;
 use App\Services\FreebieService;
@@ -24,18 +24,23 @@ class FreebieController extends Controller
         return FreebieResource::collection($freebies);
     }
 
-    public function store(FreebieStoreRequest $request)
+    public function store(Store $request)
     {
         $freebie = $this->service->create($request->validated());
         return new FreebieResource($freebie);
     }
 
-    public function show(Freebie $freebie)
+    public function show($id)
     {
+        $freebie = $this->service->find($id);
+        if (! $freebie) {
+            return response()->json(['message' => 'Freebie not found'], 404);
+        }
+
         return new FreebieResource($freebie);
     }
 
-    public function update(FreebieUpdateRequest $request, $id)
+    public function update(Update $request, $id)
     {
         $freebie = $this->service->update($request->validated(), $id);
         if (! $freebie) {
