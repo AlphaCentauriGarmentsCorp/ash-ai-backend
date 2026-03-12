@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\ApparelType\ApparelTypeStoreRequest;
-use App\Http\Requests\ApparelType\ApparelTypeUpdateRequest;
+use App\Http\Requests\ApparelType\Store;
+use App\Http\Requests\ApparelType\Update;
 use App\Http\Resources\ApparelTypeResource;
 use App\Models\ApparelType;
 use App\Services\ApparelTypeService;
@@ -24,13 +24,13 @@ class ApparelTypeController extends Controller
         return ApparelTypeResource::collection($apparelTypes);
     }
 
-    public function store(ApparelTypeStoreRequest $request)
+    public function store(Store $request)
     {
         $apparelType = $this->service->create($request->validated());
         return new ApparelTypeResource($apparelType);
     }
 
-    public function show(ApparelType $apparelType, $id)
+    public function show($id)
     {
         $apparelType = $this->service->find($id);
         if (! $apparelType) {
@@ -39,7 +39,7 @@ class ApparelTypeController extends Controller
         return new ApparelTypeResource($apparelType);
     }
 
-    public function update(ApparelTypeUpdateRequest $request, $id)
+    public function update(Update $request, $id)
     {
         $apparelType = $this->service->update($request->validated(), $id);
         if (! $apparelType) {
