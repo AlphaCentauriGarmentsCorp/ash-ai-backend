@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\PrintMethod\PrintMethodStoreRequest;
-use App\Http\Requests\PrintMethod\PrintMethodUpdateRequest;
+use App\Http\Requests\PrintMethod\Store;
+use App\Http\Requests\PrintMethod\Update;
 use App\Http\Resources\PrintMethodResource;
 use App\Models\PrintMethod;
 use App\Services\PrintMethodService;
@@ -24,7 +24,7 @@ class PrintMethodController extends Controller
         return PrintMethodResource::collection($printMethods);
     }
 
-    public function store(PrintMethodStoreRequest $request)
+    public function store(Store $request)
     {
         $printMethod = $this->service->create($request->validated());
         return new PrintMethodResource($printMethod);
@@ -39,7 +39,7 @@ class PrintMethodController extends Controller
         return new PrintMethodResource($printMethod);
     }
 
-    public function update(PrintMethodUpdateRequest $request, $id)
+    public function update(Update $request, $id)
     {
         $printMethod = $this->service->update($request->validated(), $id);
         if (! $printMethod) {
