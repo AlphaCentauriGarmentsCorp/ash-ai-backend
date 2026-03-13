@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\ServiceType\ServiceTypeStoreRequest;
-use App\Http\Requests\ServiceType\ServiceTypeUpdateRequest;
+use App\Http\Requests\ServiceType\Store;
+use App\Http\Requests\ServiceType\Update;
 use App\Http\Resources\ServiceTypeResource;
 use App\Models\ServiceType;
 use App\Services\ServiceTypeService;
@@ -24,13 +24,13 @@ class ServiceTypeController extends Controller
         return ServiceTypeResource::collection($serviceTypes);
     }
 
-    public function store(ServiceTypeStoreRequest $request)
+    public function store(Store $request)
     {
         $serviceType = $this->service->create($request->validated());
         return new ServiceTypeResource($serviceType);
     }
 
-    public function show(ServiceType $serviceType, $id)
+    public function show($id)
     {
         $serviceType = $this->service->find($id);
         if (! $serviceType) {
@@ -39,7 +39,7 @@ class ServiceTypeController extends Controller
         return new ServiceTypeResource($serviceType);
     }
 
-    public function update(ServiceTypeUpdateRequest $request, $id)
+    public function update(Update $request, $id)
     {
         $serviceType = $this->service->update($request->validated(), $id);
         if (! $serviceType) {

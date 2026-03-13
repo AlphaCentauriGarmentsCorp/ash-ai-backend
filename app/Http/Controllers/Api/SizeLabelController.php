@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\SizeLabel\SizeLabelStoreRequest;
-use App\Http\Requests\SizeLabel\SizeLabelUpdateRequest;
+use App\Http\Requests\SizeLabel\Store;
+use App\Http\Requests\SizeLabel\Update;
 use App\Http\Resources\SizeLabelResource;
 use App\Models\SizeLabel;
 use App\Services\SizeLabelService;
@@ -24,7 +24,7 @@ class SizeLabelController extends Controller
         return SizeLabelResource::collection($sizeLabels);
     }
 
-    public function store(SizeLabelStoreRequest $request)
+    public function store(Store $request)
     {
         $sizeLabel = $this->service->create($request->validated());
         return new SizeLabelResource($sizeLabel);
@@ -39,7 +39,7 @@ class SizeLabelController extends Controller
         return new SizeLabelResource($sizeLabel);
     }
 
-    public function update(SizeLabelUpdateRequest $request, $id)
+    public function update(Update $request, $id)
     {
         $sizeLabel = $this->service->update($request->validated(), $id);
         if (! $sizeLabel) {

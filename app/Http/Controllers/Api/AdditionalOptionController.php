@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\AdditionalOption\AdditionalOptionStoreRequest;
-use App\Http\Requests\AdditionalOption\AdditionalOptionUpdateRequest;
+use App\Http\Requests\AdditionalOption\Store;
+use App\Http\Requests\AdditionalOption\Update;
 use App\Http\Resources\AdditionalOptionResource;
 use App\Models\AdditionalOption;
 use App\Services\AdditionalOptionService;
@@ -24,18 +24,23 @@ class AdditionalOptionController extends Controller
         return AdditionalOptionResource::collection($additionalOptions);
     }
 
-    public function store(AdditionalOptionStoreRequest $request)
+    public function store(Store $request)
     {
         $additionalOption = $this->service->create($request->validated());
         return new AdditionalOptionResource($additionalOption);
     }
 
-    public function show(AdditionalOption $additionalOption)
+    public function show($id)
     {
+        $additionalOption = $this->service->find($id);
+        if (! $additionalOption) {
+            return response()->json(['message' => 'Additional option not found'], 404);
+        }
+
         return new AdditionalOptionResource($additionalOption);
     }
 
-    public function update(AdditionalOptionUpdateRequest $request, $id)
+    public function update(Update $request, $id)
     {
         $additionalOption = $this->service->update($request->validated(), $id);
         if (! $additionalOption) {

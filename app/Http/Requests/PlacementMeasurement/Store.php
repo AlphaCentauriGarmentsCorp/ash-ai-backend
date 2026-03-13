@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Http\Requests\Freebie;
+namespace App\Http\Requests\PlacementMeasurement;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
-class FreebieUpdateRequest extends FormRequest
+class Store extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -41,17 +41,4 @@ class FreebieUpdateRequest extends FormRequest
         ];
     }
 
-    /**
-     * Handle a failed validation attempt.
-     */
-    protected function failedValidation(Validator $validator): void
-    {
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => 'Validation errors',
-                'errors'  => $validator->errors(),
-            ], 422)
-        );
-    }
 }

@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\PrintLabelPlacement\PrintLabelPlacementStoreRequest;
-use App\Http\Requests\PrintLabelPlacement\PrintLabelPlacementUpdateRequest;
+use App\Http\Requests\PrintLabelPlacement\Store;
+use App\Http\Requests\PrintLabelPlacement\Update;
 use App\Http\Resources\PrintLabelPlacementResource;
 use App\Models\PrintLabelPlacement;
 use App\Services\PrintLabelPlacementService;
@@ -24,7 +24,7 @@ class PrintLabelPlacementController extends Controller
         return PrintLabelPlacementResource::collection($printLabelPlacements);
     }
 
-    public function store(PrintLabelPlacementStoreRequest $request)
+    public function store(Store $request)
     {
         $printLabelPlacement = $this->service->create($request->validated());
         return new PrintLabelPlacementResource($printLabelPlacement);
@@ -39,7 +39,7 @@ class PrintLabelPlacementController extends Controller
         return new PrintLabelPlacementResource($printLabelPlacement);
     }
 
-    public function update(PrintLabelPlacementUpdateRequest $request, $id)
+    public function update(Update $request, $id)
     {
         $printLabelPlacement = $this->service->update($request->validated(), $id);
         if (! $printLabelPlacement) {

@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\PlacementMeasurement\PlacementMeasurementStoreRequest;
-use App\Http\Requests\PlacementMeasurement\PlacementMeasurementUpdateRequest;
+use App\Http\Requests\PlacementMeasurement\Store;
+use App\Http\Requests\PlacementMeasurement\Update;
 use App\Http\Resources\PlacementMeasurementResource;
 use App\Models\PlacementMeasurement;
 use App\Services\PlacementMeasurementService;
@@ -24,7 +24,7 @@ class PlacementMeasurementController extends Controller
         return PlacementMeasurementResource::collection($placementMeasurements);
     }
 
-    public function store(PlacementMeasurementStoreRequest $request)
+    public function store(Store $request)
     {
         $placementMeasurement = $this->service->create($request->validated());
         return new PlacementMeasurementResource($placementMeasurement);
@@ -35,7 +35,7 @@ class PlacementMeasurementController extends Controller
         return new PlacementMeasurementResource($placementMeasurement);
     }
 
-    public function update(PlacementMeasurementUpdateRequest $request, $id)
+    public function update(Update $request, $id)
     {
         $placementMeasurement = $this->service->update($request->validated(), $id);
         if (! $placementMeasurement) {

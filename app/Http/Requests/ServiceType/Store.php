@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Http\Requests\Freebie;
+namespace App\Http\Requests\ServiceType;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
-class FreebieStoreRequest extends FormRequest
+class Store extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -39,19 +39,5 @@ class FreebieStoreRequest extends FormRequest
             'description.string'   => 'The description must be a string.',
             'description.max'      => 'The description may not be greater than 150 characters.',
         ];
-    }
-
-    /**
-     * Handle a failed validation attempt.
-     */
-    protected function failedValidation(Validator $validator): void
-    {
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => 'Validation errors',
-                'errors'  => $validator->errors(),
-            ], 422)
-        );
     }
 }
