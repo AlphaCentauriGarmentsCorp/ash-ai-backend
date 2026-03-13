@@ -22,6 +22,8 @@ use App\Http\Controllers\Api\DownloadController;
 use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\ScreenController;
+use App\Http\Controllers\Api\OrderStagesController;
+
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -201,6 +203,10 @@ Route::prefix('v2')->group(function () {
             Route::get('/{id}', 'show');
             Route::put('/{id}', 'update');
             Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/order-stages')->controller(OrderStagesController::class)->group(function () {
+            Route::post('/', 'store');
         });
     });
 
