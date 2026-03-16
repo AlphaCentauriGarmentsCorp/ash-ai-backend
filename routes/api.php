@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\AdditionalOptionController;
 use App\Http\Controllers\Api\EquipmentLocationController;
 use App\Http\Controllers\Api\EquipmentInventoryController;
 use App\Http\Controllers\Api\DownloadController;
+use App\Http\Controllers\Api\GraphicDesignController;
 use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\ScreenController;
@@ -206,6 +207,10 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/order-stages')->controller(OrderStagesController::class)->group(function () {
+            Route::post('/', 'store');
+        });
+
+        Route::prefix('/graphic-design')->controller(GraphicDesignController::class)->group(function () {
             Route::post('/', 'store');
         });
     });

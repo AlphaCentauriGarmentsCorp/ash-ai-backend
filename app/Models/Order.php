@@ -79,6 +79,11 @@ class Order extends Model
         return $this->hasMany(OrderStage::class);
     }
 
+    public function orderDesign()
+    {
+        return $this->hasOne(orderDesign::class);
+    }
+
     protected $casts = [
         'deadline' => 'date',
         'total_price' => 'decimal:2',

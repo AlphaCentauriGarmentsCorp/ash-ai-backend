@@ -66,6 +66,7 @@ class OrderResource extends JsonResource
             'items' => PoItemResource::collection($this->whenLoaded('items')),
             'client' => $this->whenLoaded('client'),
             'orderStages'  => $this->whenLoaded('orderStages'),
+            'orderDesign'  => $this->whenLoaded('orderDesign'),
 
             'status' => $this->status,
 
