@@ -19,9 +19,13 @@ use App\Http\Controllers\Api\AdditionalOptionController;
 use App\Http\Controllers\Api\EquipmentLocationController;
 use App\Http\Controllers\Api\EquipmentInventoryController;
 use App\Http\Controllers\Api\DownloadController;
+use App\Http\Controllers\Api\GraphicDesignController;
 use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\ScreenController;
+use App\Http\Controllers\Api\OrderStagesController;
+use App\Http\Controllers\Api\ScreenCheckingController;
+use App\Http\Controllers\Api\ScreenMakingController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -201,6 +205,22 @@ Route::prefix('v2')->group(function () {
             Route::get('/{id}', 'show');
             Route::put('/{id}', 'update');
             Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/order-stages')->controller(OrderStagesController::class)->group(function () {
+            Route::post('/', 'store');
+        });
+
+        Route::prefix('/graphic-design')->controller(GraphicDesignController::class)->group(function () {
+            Route::post('/', 'store');
+        });
+
+        Route::prefix('/screen-making')->controller(ScreenMakingController::class)->group(function () {
+            Route::post('/', 'store');
+        });
+
+        Route::prefix('/screen-checking')->controller(ScreenCheckingController::class)->group(function () {
+            Route::post('/', 'store');
         });
     });
 

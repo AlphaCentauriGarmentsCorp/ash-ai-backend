@@ -74,6 +74,26 @@ class Order extends Model
         return $this->hasMany(PoItem::class);
     }
 
+    public function orderStages()
+    {
+        return $this->hasMany(OrderStage::class);
+    }
+
+    public function orderDesign()
+    {
+        return $this->hasOne(orderDesign::class);
+    }
+
+    public function screenAssignment()
+    {
+        return $this->hasMany(ScreenAssignment::class);
+    }
+
+    public function screenChecking()
+    {
+        return $this->hasMany(ScreenChecking::class);
+    }
+
     protected $casts = [
         'deadline' => 'date',
         'total_price' => 'decimal:2',

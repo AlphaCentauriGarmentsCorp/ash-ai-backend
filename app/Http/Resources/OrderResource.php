@@ -65,6 +65,10 @@ class OrderResource extends JsonResource
 
             'items' => PoItemResource::collection($this->whenLoaded('items')),
             'client' => $this->whenLoaded('client'),
+            'orderStages'  => $this->whenLoaded('orderStages'),
+            'orderDesign'  => $this->whenLoaded('orderDesign'),
+            'screenAssignment'  => $this->whenLoaded('screenAssignment'),
+            'screenChecking'  => $this->whenLoaded('screenChecking'),
 
             'status' => $this->status,
 
