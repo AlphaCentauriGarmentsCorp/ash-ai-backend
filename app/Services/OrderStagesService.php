@@ -26,7 +26,7 @@ class OrderStagesService
 
         $results = [];
         foreach ($newStages as $stage) {
-            $results[] = OrderStage::updateOrCreate(
+            $results[] = OrderStage::firstOrCreate(
                 [
                     'order_id' => $orderId,
                     'stage' => $stage
