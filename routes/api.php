@@ -24,7 +24,7 @@ use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\ScreenController;
 use App\Http\Controllers\Api\OrderStagesController;
-
+use App\Http\Controllers\Api\ScreenMakingController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -211,6 +211,10 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/graphic-design')->controller(GraphicDesignController::class)->group(function () {
+            Route::post('/', 'store');
+        });
+
+        Route::prefix('/screen-making')->controller(ScreenMakingController::class)->group(function () {
             Route::post('/', 'store');
         });
     });

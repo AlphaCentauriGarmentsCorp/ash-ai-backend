@@ -84,6 +84,11 @@ class Order extends Model
         return $this->hasOne(orderDesign::class);
     }
 
+    public function screenAssignment()
+    {
+        return $this->hasMany(ScreenAssignment::class);
+    }
+
     protected $casts = [
         'deadline' => 'date',
         'total_price' => 'decimal:2',
