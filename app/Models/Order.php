@@ -81,7 +81,7 @@ class Order extends Model
 
     public function orderDesign()
     {
-        return $this->hasOne(orderDesign::class);
+        return $this->hasOne(OrderDesign::class);
     }
 
     public function screenAssignment()
