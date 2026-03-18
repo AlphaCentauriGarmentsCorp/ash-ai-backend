@@ -68,6 +68,7 @@ class OrderResource extends JsonResource
             'orderStages'  => $this->whenLoaded('orderStages'),
             'orderDesign'  => $this->whenLoaded('orderDesign'),
             'screenAssignment'  => $this->whenLoaded('screenAssignment'),
+            'screenChecking'  => $this->whenLoaded('screenChecking'),
 
             'status' => $this->status,
 
