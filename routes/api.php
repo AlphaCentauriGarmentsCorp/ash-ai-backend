@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\ScreenController;
 use App\Http\Controllers\Api\OrderStagesController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
+use App\Http\Controllers\Api\ScreenMaintenanceController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -221,6 +222,16 @@ Route::prefix('v2')->group(function () {
 
         Route::prefix('/screen-checking')->controller(ScreenCheckingController::class)->group(function () {
             Route::post('/', 'store');
+        });
+
+        
+        Route::prefix('/screen-maintenance')->controller(ScreenMaintenanceController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+            Route::get('/user/{id}', 'getByUser');
+            Route::post('/', 'store');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
         });
     });
 
