@@ -14,6 +14,8 @@ class Screens extends Model
         'address',
         'mesh_count',
         'last_maintenance',
-        'total_use'
+        'last_used',
+        'total_use',
+        'status',
     ];
 }
