@@ -22,7 +22,7 @@ class Store extends FormRequest
     public function rules(): array
     {
         return [
-            'name'          => 'required|string|max:255',
+            'name'          => 'nullable|string|max:255',
             'address'       => 'required|string|max:255',
             'size'          => 'required|string|max:255',
             'mesh_count'    => 'required|string|max:255',
