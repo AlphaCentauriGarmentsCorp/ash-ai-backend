@@ -80,8 +80,15 @@ class StoreOrderRequest extends FormRequest
             // Arrays
             'sizes' => 'required|array|min:1',
             'sizes.*.name' => 'required|string',
-            'sizes.*.costPrice' => 'required|integer',
+            'sizes.*.costPrice' => 'required|numeric',
             'sizes.*.quantity' => 'required|numeric',
+
+            'samples' => 'required|array|min:1',
+            'samples.*.size' => 'required|string',
+            'samples.*.quantity' => 'required|integer',
+            'samples.*.unit_price' => 'required|numeric',
+            'samples.*.total_price' => 'required|numeric',
+
 
             'selectedOptions' => 'nullable|array',
         ];

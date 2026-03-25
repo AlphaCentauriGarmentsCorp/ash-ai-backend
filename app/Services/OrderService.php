@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\OrderSamples;
 use App\Models\PoItem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -85,10 +86,12 @@ class OrderService
             // Create PO Items
             $this->createPoItems($data, $order);
 
+            $this->createOrderSamples($data, $order);
+
             // Store uploaded files
             $this->storeFiles($data, $order);
 
-            return $order->load('items');
+            return $order->load('items', 'samples');
         });
     }
 
@@ -164,6 +167,25 @@ class OrderService
                 'quantity' => $size['quantity'],
                 'qr_path' => $paths['qr_path'],
                 'barcode_path' => $paths['barcode_path'],
+            ]);
+        }
+    }
+
+
+
+    /**
+     * Create Order Samples
+     */
+    protected function createOrderSamples(array $data, Order $order): void
+    {
+
+        foreach ($data['samples'] as $sample) {
+            OrderSamples::create([
+                'order_id' => $order->id,
+                'size' => $sample['size'],
+                'quantity' => $sample['quantity'],
+                'total_price' => $sample['total_price'],
+                'unit_price' => $sample['unit_price'],
             ]);
         }
     }

@@ -30,7 +30,7 @@ class OrdersController extends Controller
 
     public function show($po_code)
     {
-        $order = Order::with(['client', 'items', 'orderStages', 'orderDesign.placements', 'screenAssignment.screen', 'screenChecking.items'])->where('po_code', $po_code)->first();
+        $order = Order::with(['client', 'items', 'orderStages', 'orderDesign.placements', 'screenAssignment.screen', 'screenChecking.items', 'samples'])->where('po_code', $po_code)->first();
         if (!$order) {
             return response()->json(['message' => 'Order not found'], 404);
         }
