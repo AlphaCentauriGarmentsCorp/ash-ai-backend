@@ -64,14 +64,13 @@ class OrderResource extends JsonResource
             'barcode_path' => $this->barcode_path,
 
             'items' => PoItemResource::collection($this->whenLoaded('items')),
+            'samples' => OrderSamples::collection($this->whenLoaded('samples')),
             'client' => $this->whenLoaded('client'),
             'orderStages'  => $this->whenLoaded('orderStages'),
             'orderDesign'  => $this->whenLoaded('orderDesign'),
             'screenAssignment'  => $this->whenLoaded('screenAssignment'),
             'screenChecking'  => $this->whenLoaded('screenChecking'),
-
             'status' => $this->status,
-
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),
         ];

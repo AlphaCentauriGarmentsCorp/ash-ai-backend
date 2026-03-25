@@ -74,6 +74,11 @@ class Order extends Model
         return $this->hasMany(PoItem::class);
     }
 
+    public function samples()
+    {
+        return $this->hasMany(OrderSamples::class);
+    }
+
     public function orderStages()
     {
         return $this->hasMany(OrderStage::class);
