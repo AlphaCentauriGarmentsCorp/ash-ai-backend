@@ -20,8 +20,8 @@ class TshirtTypesController extends Controller
 
     public function index()
     {
-        $screens = $this->service->getAll();
-        return TshirtTypeResource::collection($screens);
+        $tshirtType = $this->service->getAll();
+        return TshirtTypeResource::collection($tshirtType);
     }
 
     public function store(Store $request)
@@ -55,7 +55,9 @@ class TshirtTypesController extends Controller
         $deleted = $this->service->delete($id);
 
         if (! $deleted) {
-            return response()->json(['message' => 'tshirtType not found'], 404);
+            return response()->json(['message' => 'Tshirt Type not found'], 404);
         }
+
+        return response()->json(['message' => 'Tshirt Type deleted successfully']);
     }
 }
