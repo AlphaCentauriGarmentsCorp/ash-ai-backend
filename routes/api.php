@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\ScreenMaintenanceController;
 use App\Http\Controllers\Api\SewingSubcontractorController;
 use App\Http\Controllers\Api\PaymentMethodsController;
 use App\Http\Controllers\Api\CourierListController;
+use App\Http\Controllers\Api\PrintPatternController;
 use App\Http\Controllers\Api\TshirtTypesController;
 use App\Http\Controllers\Api\TshirtNecklineController;
 use App\Http\Controllers\Api\PrintTypesController;
@@ -280,6 +281,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/quotation/settings/print-types')->controller(PrintTypesController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/quotation/settings/print-pattern')->controller(PrintPatternController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
