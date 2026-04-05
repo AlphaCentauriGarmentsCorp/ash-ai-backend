@@ -209,7 +209,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/payment-methods')->controller(PaymentMethods::class)->group(function () {
+        Route::prefix('/payment-methods')->controller(PaymentMethodsController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
