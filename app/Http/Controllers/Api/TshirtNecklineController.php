@@ -19,34 +19,34 @@ class TshirtNecklineController extends Controller
 
     public function index()
     {
-        $screens = $this->service->getAll();
-        return TshirtNecklineResource::collection($screens);
+        $tshirtNeckline = $this->service->getAll();
+        return TshirtNecklineResource::collection($tshirtNeckline);
     }
 
     public function store(Store $request)
     {
-        $tshirtType = $this->service->create($request->validated());
-        return new TshirtNecklineResource($tshirtType);
+        $tshirtNeckline = $this->service->create($request->validated());
+        return new TshirtNecklineResource($tshirtNeckline);
     }
 
     public function show($id)
     {
-        $tshirtType = $this->service->find($id);
-        if (! $tshirtType) {
-            return response()->json(['message' => 'Tshirt Type not found'], 404);
+        $tshirtNeckline = $this->service->find($id);
+        if (! $tshirtNeckline) {
+            return response()->json(['message' => 'Tshirt Neckline not found'], 404);
         }
 
-        return new TshirtNecklineResource($tshirtType);
+        return new TshirtNecklineResource($tshirtNeckline);
     }
 
     public function update(Update $request, $id)
     {
-        $tshirtType = $this->service->update($request->validated(), $id);
-        if (! $tshirtType) {
-            return response()->json(['message' => 'Tshirt Type not found'], 404);
+        $tshirtNeckline = $this->service->update($request->validated(), $id);
+        if (! $tshirtNeckline) {
+            return response()->json(['message' => 'Tshirt Neckline not found'], 404);
         }
 
-        return new TshirtNecklineResource($tshirtType);
+        return new TshirtNecklineResource($tshirtNeckline);
     }
 
     public function destroy($id)
@@ -54,7 +54,9 @@ class TshirtNecklineController extends Controller
         $deleted = $this->service->delete($id);
 
         if (! $deleted) {
-            return response()->json(['message' => 'tshirtType not found'], 404);
+            return response()->json(['message' => 'Tshirt Neckline not found'], 404);
         }
+
+        return response()->json(['message' => 'Tshirt Neckline deleted successfully']);
     }
 }
