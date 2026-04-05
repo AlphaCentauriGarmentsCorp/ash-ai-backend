@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\OrderStagesController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
+use App\Http\Controllers\Api\PaymentMethodsController;
 use App\Http\Controllers\Api\CourierListController;
 use App\Http\Controllers\Api\TshirtTypesController;
 use App\Http\Controllers\Api\TshirtNecklineController;
@@ -210,6 +211,14 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
+        Route::prefix('/payment-methods')->controller(PaymentMethodsController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+      
         Route::prefix('/courier-list')->controller(CourierListController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
