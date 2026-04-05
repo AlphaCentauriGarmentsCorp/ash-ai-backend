@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
 use App\Http\Controllers\Api\TshirtTypesController;
+use App\Http\Controllers\Api\TshirtNecklineController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -236,6 +237,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/quotation/settings/tshirt-type')->controller(TshirtTypesController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/quotation/settings/tshirt-neckline')->controller(TshirtNecklineController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
