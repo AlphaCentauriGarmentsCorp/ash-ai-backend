@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\PrintLabelPlacementController;
 use App\Http\Controllers\Api\FreebieController;
 use App\Http\Controllers\Api\PlacementMeasurementController;
 use App\Http\Controllers\Api\AdditionalOptionController;
+use App\Http\Controllers\Api\AddonCategoriesController;
 use App\Http\Controllers\Api\EquipmentLocationController;
 use App\Http\Controllers\Api\EquipmentInventoryController;
 use App\Http\Controllers\Api\DownloadController;
@@ -298,6 +299,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/quotation/settings/tshirt-sizes')->controller(TshirtSizeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/quotation/settings/addon-categories')->controller(AddonCategoriesController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
