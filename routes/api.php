@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\PrintPatternController;
 use App\Http\Controllers\Api\TshirtTypesController;
 use App\Http\Controllers\Api\TshirtNecklineController;
 use App\Http\Controllers\Api\PrintTypesController;
+use App\Http\Controllers\Api\SizePricesController;
 use App\Http\Controllers\Api\TshirtSizeController;
 
 // example usage: localhost:8000/api/v1/user
@@ -307,6 +308,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/quotation/settings/addon-categories')->controller(AddonCategoriesController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/quotation/settings/size-prices')->controller(SizePricesController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
