@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\OrderStagesController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
+use App\Http\Controllers\Api\PaymentMethodsController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -201,6 +202,14 @@ Route::prefix('v2')->group(function () {
 
 
         Route::prefix('/screens')->controller(ScreenController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/payment-methods')->controller(PaymentMethods::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
