@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\ScreenMaintenanceController;
 use App\Http\Controllers\Api\SewingSubcontractorController;
 use App\Http\Controllers\Api\PaymentMethodsController;
 use App\Http\Controllers\Api\CourierListController;
+use App\Http\Controllers\Api\PrintColorsController;
 use App\Http\Controllers\Api\PrintPatternController;
 use App\Http\Controllers\Api\TshirtTypesController;
 use App\Http\Controllers\Api\TshirtNecklineController;
@@ -316,6 +317,15 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/quotation/settings/size-prices')->controller(SizePricesController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+
+        Route::prefix('/quotation/settings/print-colors')->controller(PrintColorsController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
