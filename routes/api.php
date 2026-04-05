@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\PaymentMethodsController;
 use App\Http\Controllers\Api\CourierListController;
 use App\Http\Controllers\Api\TshirtTypesController;
 use App\Http\Controllers\Api\TshirtNecklineController;
+use App\Http\Controllers\Api\PrintTypesController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -271,6 +272,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/quotation/settings/tshirt-neckline')->controller(TshirtNecklineController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/quotation/settings/print-types')->controller(PrintTypesController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
