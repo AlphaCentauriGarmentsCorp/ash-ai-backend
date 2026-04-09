@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\PrintPatternController;
 use App\Http\Controllers\Api\TshirtTypesController;
 use App\Http\Controllers\Api\TshirtNecklineController;
 use App\Http\Controllers\Api\PrintTypesController;
+use App\Http\Controllers\Api\QuotationController;
 use App\Http\Controllers\Api\SizePricesController;
 use App\Http\Controllers\Api\TshirtSizeController;
 
@@ -338,6 +339,15 @@ Route::prefix('v2')->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/quotations')->controller(QuotationController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::get('/{id}/pdf', 'generatePDF');
             Route::put('/{id}', 'update');
             Route::delete('/{id}', 'destroy');
         });
