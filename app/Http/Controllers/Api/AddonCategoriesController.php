@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AddonCategoriesResource;
 use App\Services\AddonCategoriesService;
-use App\Http\Requests\addonCategories\Store;
-use App\Http\Requests\addonCategories\Update;
+use App\Http\Requests\AddonCategories\Store;
+use App\Http\Requests\AddonCategories\Update;
 
 class AddonCategoriesController extends Controller
 {
