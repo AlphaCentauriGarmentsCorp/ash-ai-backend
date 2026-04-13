@@ -11,4 +11,8 @@ class CourierList extends Model
         'name',
         'description',
     ];
+    public function shippingMethods()
+{
+    return $this->hasMany(ShippingMethod::class, 'courier_id');
+}
 }

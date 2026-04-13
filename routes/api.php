@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\PrintTypesController;
 use App\Http\Controllers\Api\QuotationController;
 use App\Http\Controllers\Api\SizePricesController;
 use App\Http\Controllers\Api\TshirtSizeController;
+use App\Http\Controllers\Api\ShippingMethodController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -221,6 +222,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/payment-methods')->controller(PaymentMethodsController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/shipping-methods')->controller(ShippingMethodController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
