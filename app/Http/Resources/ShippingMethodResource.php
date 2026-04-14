@@ -13,7 +13,6 @@ class ShippingMethodResource extends JsonResource
         'id' => $this->id,
         'courier_id' => $this->courier_id,
 
-        // 👇 THIS IS THE NEW PART
         'courier' => [
             'id' => $this->courier->id ?? null,
             'name' => $this->courier->name ?? null,
@@ -22,8 +21,8 @@ class ShippingMethodResource extends JsonResource
 
         'name' => $this->name,
         'description' => $this->description,
-        'created_at' => $this->created_at,
-        'updated_at' => $this->updated_at,
+        'created_at' => $this->created_at?->toDateTimeString(),
+        'updated_at' => $this->updated_at?->toDateTimeString(),
     ];
 }
 }
