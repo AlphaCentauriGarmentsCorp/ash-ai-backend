@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Quotation extends Model
 {
     protected $table = 'quotations';
+
     protected $fillable = [
         'quotation_id',
         'user_id',
@@ -23,6 +24,7 @@ class Quotation extends Model
         'items_json',
         'addons_json',
         'breakdown_json',
+        'print_parts_json',
         'status',
     ];
 
@@ -30,6 +32,7 @@ class Quotation extends Model
         'items_json' => 'array',
         'addons_json' => 'array',
         'breakdown_json' => 'array',
+        'print_parts_json' => 'array',
     ];
 
     public function user()

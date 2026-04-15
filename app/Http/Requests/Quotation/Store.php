@@ -22,37 +22,29 @@ class Store extends FormRequest
      */
     public function rules(): array
     {
-        return [
+       return [
+        'client_name'   => 'required|string|max:255',
+        'client_email'  => 'nullable|email|max:255',
+        'client_brand'  => 'nullable|string|max:255',
 
-            'client_name'   => 'required|string|max:255',
-            'client_email'  => 'nullable|email|max:255',
-            'client_brand'  => 'nullable|string|max:255',
+        'shirt_color'   => 'nullable|string|max:255',
+        'free_items'    => 'nullable|string|max:255',
+        'notes'         => 'nullable|string',
 
-            // Shirt / Notes
-            'shirt_color'   => 'nullable|string|max:255',
-            'free_items'    => 'nullable|string|max:255',
-            'notes'         => 'nullable|string',
+        'items_json'                 => 'required',
+        'addons_json'                => 'nullable',
+        'breakdown_json'             => 'nullable',
 
-            // Items (required JSON)
-            'items_json'                 => 'required|array|min:1',
-            'items_json.*.quantity'      => 'required|numeric|min:1',
-            // optional: add more strict rules if you have these fields
-            'items_json.*.name'          => 'nullable|string|max:255',
-            'items_json.*.price'         => 'nullable|numeric|min:0',
+        'subtotal'        => 'required|numeric|min:0',
+        'discount_type'   => 'nullable|string|max:50',
+        'discount_price'  => 'nullable|numeric|min:0',
+        'grand_total'     => 'required|numeric|min:0',
 
-            // Addons (optional JSON)
-            'addons_json'                => 'nullable|array',
-            'addons_json.*.name'         => 'required|string|max:255',
-            'addons_json.*.price'        => 'required|numeric|min:0',
-
-            // Breakdown (optional JSON)
-            'breakdown_json'             => 'nullable|array',
-
-
-            'subtotal'        => 'required|numeric|min:0',
-            'discount_type'   => 'nullable|string|max:50',
-            'discount_price'  => 'nullable|numeric|min:0',
-            'grand_total'     => 'required|numeric|min:0',
-        ];
+        // new field
+        'print_parts_json' => 'nullable|array',
+        'print_parts_json.*.part' => 'required_with:print_parts_json|in:Front,Back,Sleeves',
+        'print_parts_json.*.color_count' => 'required_with:print_parts_json|integer|min:1|max:20',
+        'print_parts_json.*.image' => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+       ];
     }
 }
