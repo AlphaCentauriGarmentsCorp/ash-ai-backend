@@ -29,9 +29,12 @@ class QuotationResource extends JsonResource
             'discount_type' => $this->discount_type,
             'discount_price' => $this->discount_price,
             'grand_total' => $this->grand_total,
+
             'items' => $this->items_json,
             'addons' => $this->addons_json,
             'breakdown' => $this->breakdown_json,
+            'print_parts' => $this->print_parts_json,
+
             'status' => $this->status,
             'user' => $this->whenLoaded('user'),
             'created_at' => $this->created_at,

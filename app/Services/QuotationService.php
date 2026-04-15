@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use App\Mail\QuotationPdfMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\Request;
 
 class QuotationService
 {
@@ -23,16 +24,21 @@ class QuotationService
         return Quotation::with('user')->find($id);
     }
 
-    public function store(array $data): Quotation
+    public function store(array $data, ?Request $request = null): Quotation
     {
-        return DB::transaction(function () use ($data) {
-
+        return DB::transaction(function () use ($data, $request) {
             $data['quotation_id'] = $this->generatePoCode('QUO');
-            $data['user_id']  = Auth::id();
+            $data['user_id'] = Auth::id();
+
+            $data['items_json'] = $this->decodeJsonField($data['items_json'] ?? null);
+            $data['addons_json'] = $this->decodeJsonField($data['addons_json'] ?? null);
+            $data['breakdown_json'] = $this->decodeJsonField($data['breakdown_json'] ?? null);
+
+            $data['print_parts_json'] = $this->handlePrintParts($data['print_parts_json'] ?? null, $request);
 
             $quotation = Quotation::create($data);
 
-            // Generate PDF
+            // Generate PDF after creation
             $pdf = Pdf::loadView('pdf', [
                 'quotation' => $quotation
             ]);
@@ -51,20 +57,34 @@ class QuotationService
                 Mail::to($quotation->client_email)->send(new QuotationPdfMail($filePath));
             }
 
-            return $quotation;
+            return $quotation->fresh();
         });
     }
 
-    public function update(array $data, int $id): Quotation
+    public function update(array $data, int $id, ?Request $request = null): Quotation
     {
-        return DB::transaction(function () use ($id, $data) {
-
+        return DB::transaction(function () use ($id, $data, $request) {
             $quotation = Quotation::findOrFail($id);
 
-            // Update quotation data
+            if (array_key_exists('items_json', $data)) {
+                $data['items_json'] = $this->decodeJsonField($data['items_json']);
+            }
+
+            if (array_key_exists('addons_json', $data)) {
+                $data['addons_json'] = $this->decodeJsonField($data['addons_json']);
+            }
+
+            if (array_key_exists('breakdown_json', $data)) {
+                $data['breakdown_json'] = $this->decodeJsonField($data['breakdown_json']);
+            }
+
+            if (array_key_exists('print_parts_json', $data)) {
+                $data['print_parts_json'] = $this->handlePrintParts($data['print_parts_json'], $request, $quotation);
+            }
+
             $quotation->update($data);
 
-            // Regenerate PDF
+            // Regenerate PDF after update
             $pdf = Pdf::loadView('pdf', [
                 'quotation' => $quotation->fresh()
             ]);
@@ -72,9 +92,8 @@ class QuotationService
             $fileName = $quotation->quotation_id . '.pdf';
             $filePath = "quotations/{$fileName}";
 
-            // Overwrite existing PDF
+            //Overwrite existing PDF
             Storage::disk('public')->put($filePath, $pdf->output());
-
 
             if (!empty($quotation->client_email)) {
                 Mail::to($quotation->client_email)->send(new QuotationPdfMail($filePath));
@@ -82,6 +101,47 @@ class QuotationService
 
             return $quotation->fresh();
         });
+    }
+
+    protected function decodeJsonField($value): ?array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && !empty($value)) {
+            return json_decode($value, true);
+        }
+
+        return null;
+    }
+
+    protected function handlePrintParts($printParts, ?Request $request = null, ?Quotation $quotation = null): ?array
+    {
+        $decodedParts = $this->decodeJsonField($printParts);
+
+        if (!$decodedParts || !is_array($decodedParts)) {
+            return null;
+        }
+
+        $result = [];
+
+        foreach ($decodedParts as $index => $partData) {
+            $imagePath = $partData['existing_image'] ?? null;
+
+            if ($request && $request->hasFile("print_parts_json.$index.image")) {
+                $imagePath = $request->file("print_parts_json.$index.image")
+                    ->store('quotation-print-parts', 'public');
+            }
+
+            $result[] = [
+                'part' => $partData['part'] ?? null,
+                'color_count' => isset($partData['color_count']) ? (int) $partData['color_count'] : null,
+                'image' => $imagePath,
+            ];
+        }
+
+        return $result;
     }
 
     protected function generatePoCode(string $prefix = 'QUO'): string
