@@ -383,7 +383,12 @@ Route::prefix('v2')->group(function () {
             });
         });
 
+    });
+
     // ── Public Share Access (NO authentication required) ──────────────────────
+    // These routes are intentionally OUTSIDE the auth middleware.
+    // Access is governed solely by the validity of the share token.
+    //
     // GET /v2/share/quotations/{token}        → filtered view (no prices/names)
     // PUT /v2/share/quotations/{token}        → update items & print parts (edit permission)
     // GET /v2/share/quotations/{token}/pdf    → download PDF (allow_download toggle)
@@ -391,7 +396,6 @@ Route::prefix('v2')->group(function () {
         Route::get('/{token}', 'show');
         Route::put('/{token}', 'update');
         Route::get('/{token}/pdf', 'pdf');
-    });
     });
 
 
