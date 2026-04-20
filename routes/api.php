@@ -38,6 +38,8 @@ use App\Http\Controllers\Api\TshirtTypesController;
 use App\Http\Controllers\Api\TshirtNecklineController;
 use App\Http\Controllers\Api\PrintTypesController;
 use App\Http\Controllers\Api\QuotationController;
+use App\Http\Controllers\Api\QuotationShareController;
+use App\Http\Controllers\Api\PublicQuotationController;
 use App\Http\Controllers\Api\SizePricesController;
 use App\Http\Controllers\Api\TshirtSizeController;
 use App\Http\Controllers\Api\ShippingMethodController;
@@ -352,14 +354,48 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotations')->controller(QuotationController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show');
-            Route::get('/{id}/pdf', 'generatePDF');
-            Route::put('/{id}', 'update');
-            Route::delete('/{id}', 'destroy');
+        Route::prefix('/quotations')->group(function () {
+
+            // ── Quotation CRUD ────────────────────────────────────────────────
+            Route::controller(QuotationController::class)->group(function () {
+                Route::get('/', 'index');
+                Route::post('/', 'store');
+                Route::get('/{id}', 'show');
+                Route::get('/{id}/pdf', 'generatePDF');
+                Route::put('/{id}', 'update');
+                Route::delete('/{id}', 'destroy');
+            });
+
+            // ── Share Token Management (authenticated) ────────────────────────
+            // permission: 'view'  → read-only filtered public data
+            // permission: 'edit'  → read + update items & print parts
+            // allow_download: bool → independent PDF download toggle
+            //
+            // POST   /{id}/share          → generate token
+            // GET    /{id}/share          → list tokens
+            // DELETE /{id}/share          → revoke all tokens
+            // DELETE /share/{token}       → revoke one token
+            Route::controller(QuotationShareController::class)->group(function () {
+                Route::post('/{id}/share', 'generate');
+                Route::get('/{id}/share', 'index');
+                Route::delete('/{id}/share', 'revokeAll');
+                Route::delete('/share/{token}', 'revoke');
+            });
         });
+
+    });
+
+    // ── Public Share Access (NO authentication required) ──────────────────────
+    // These routes are intentionally OUTSIDE the auth middleware.
+    // Access is governed solely by the validity of the share token.
+    //
+    // GET /v2/share/quotations/{token}        → filtered view (no prices/names)
+    // PUT /v2/share/quotations/{token}        → update items & print parts (edit permission)
+    // GET /v2/share/quotations/{token}/pdf    → download PDF (allow_download toggle)
+    Route::prefix('/share/quotations')->controller(PublicQuotationController::class)->group(function () {
+        Route::get('/{token}', 'show');
+        Route::put('/{token}', 'update');
+        Route::get('/{token}/pdf', 'pdf');
     });
 
 

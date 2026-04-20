@@ -29,14 +29,19 @@ class Quotation extends Model
     ];
 
     protected $casts = [
-        'items_json' => 'array',
-        'addons_json' => 'array',
-        'breakdown_json' => 'array',
+        'items_json'       => 'array',
+        'addons_json'      => 'array',
+        'breakdown_json'   => 'array',
         'print_parts_json' => 'array',
     ];
 
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function shareTokens()
+    {
+        return $this->hasMany(QuotationShareToken::class, 'quotation_id');
     }
 }
