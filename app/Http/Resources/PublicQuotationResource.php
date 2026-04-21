@@ -17,8 +17,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * Safe fields exposed:
  *   - id, quotation_id                           (identification)
  *   - shirt_color, free_items, notes             (order details)
- *   - items_json  → name + quantity only
- *   - print_parts_json → full (part, color_count, image)
+ *   - print_parts_json → full (part, color_count, price_per_color, image)
  *   - status, created_at, updated_at
  */
 class PublicQuotationResource extends JsonResource
@@ -36,31 +35,11 @@ class PublicQuotationResource extends JsonResource
             'notes'        => $this->notes,
             'status'       => $this->status,
 
-            // Items — name and quantity only, price stripped
-            'items'        => $this->filterItems($this->items_json),
-
-            // Print parts — full data (no prices exist here)
+            // Print parts — full data (pricing now included per color)
             'print_parts'  => $this->print_parts_json,
 
             'created_at'   => $this->created_at?->toDateTimeString(),
             'updated_at'   => $this->updated_at?->toDateTimeString(),
         ];
-    }
-
-    /**
-     * Strip price from each item entry, keep name and quantity.
-     */
-    private function filterItems(?array $items): ?array
-    {
-        if (empty($items)) {
-            return $items;
-        }
-
-        return array_map(function ($item) {
-            return array_filter([
-                'name'     => $item['name']     ?? null,
-                'quantity' => $item['quantity'] ?? null,
-            ], fn($v) => $v !== null);
-        }, $items);
     }
 }

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\OrdersController;
 use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
+use App\Http\Controllers\Api\ApparelPartController;
 use App\Http\Controllers\Api\ServiceTypeController;
 use App\Http\Controllers\Api\PrintMethodController;
 use App\Http\Controllers\Api\SizeLabelController;
@@ -32,17 +33,12 @@ use App\Http\Controllers\Api\ScreenMaintenanceController;
 use App\Http\Controllers\Api\SewingSubcontractorController;
 use App\Http\Controllers\Api\PaymentMethodsController;
 use App\Http\Controllers\Api\CourierListController;
-use App\Http\Controllers\Api\PrintColorsController;
-use App\Http\Controllers\Api\PrintPatternController;
-use App\Http\Controllers\Api\TshirtTypesController;
-use App\Http\Controllers\Api\TshirtNecklineController;
-use App\Http\Controllers\Api\PrintTypesController;
 use App\Http\Controllers\Api\QuotationController;
 use App\Http\Controllers\Api\QuotationShareController;
 use App\Http\Controllers\Api\PublicQuotationController;
-use App\Http\Controllers\Api\SizePricesController;
-use App\Http\Controllers\Api\TshirtSizeController;
 use App\Http\Controllers\Api\ShippingMethodController;
+use App\Http\Controllers\Api\ApparelPatternPriceController;
+use App\Http\Controllers\Api\ApparelNecklineController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -117,6 +113,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/apparel-type')->controller(ApparelTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/apparel-parts')->controller(ApparelPartController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -281,39 +285,16 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotation/settings/tshirt-type')->controller(TshirtTypesController::class)->group(function () {
+        Route::prefix('/quotation/settings/apparel-pattern-prices')->controller(ApparelPatternPriceController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
+            Route::get('/price/{apparelTypeName}/{patternTypeName}', 'getPrice');
             Route::get('/{id}', 'show');
             Route::put('/{id}', 'update');
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotation/settings/tshirt-neckline')->controller(TshirtNecklineController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show');
-            Route::put('/{id}', 'update');
-            Route::delete('/{id}', 'destroy');
-        });
-
-        Route::prefix('/quotation/settings/print-types')->controller(PrintTypesController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show');
-            Route::put('/{id}', 'update');
-            Route::delete('/{id}', 'destroy');
-        });
-
-        Route::prefix('/quotation/settings/print-pattern')->controller(PrintPatternController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show');
-            Route::put('/{id}', 'update');
-            Route::delete('/{id}', 'destroy');
-        });
-
-        Route::prefix('/quotation/settings/tshirt-sizes')->controller(TshirtSizeController::class)->group(function () {
+        Route::prefix('/quotation/settings/apparel-neckline')->controller(ApparelNecklineController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -322,23 +303,6 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/quotation/settings/addon-categories')->controller(AddonCategoriesController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show');
-            Route::put('/{id}', 'update');
-            Route::delete('/{id}', 'destroy');
-        });
-
-        Route::prefix('/quotation/settings/size-prices')->controller(SizePricesController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show');
-            Route::put('/{id}', 'update');
-            Route::delete('/{id}', 'destroy');
-        });
-
-
-        Route::prefix('/quotation/settings/print-colors')->controller(PrintColorsController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');

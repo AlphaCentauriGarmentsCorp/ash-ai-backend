@@ -26,7 +26,7 @@ class QuotationShareTokenResource extends JsonResource
             'created_at'       => $this->created_at->toIso8601String(),
 
             // Full shareable URL for the frontend
-            'share_url'        => config('app.frontend_url')
+            'share_url'        => rtrim((string) config('share.frontend_url'), '/')
                                     . '/quotations/share/'
                                     . $this->token,
         ];
