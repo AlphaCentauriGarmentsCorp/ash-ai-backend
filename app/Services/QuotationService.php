@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\ApparelNeckline;
+use App\Models\ApparelPatternPrice;
 use App\Models\Quotation;
 use Illuminate\Database\Eloquent\Collection;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -11,6 +13,8 @@ use App\Mail\QuotationPdfMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Log;
 
 class QuotationService
 {
@@ -27,16 +31,11 @@ class QuotationService
     public function store(array $data, ?Request $request = null): Quotation
     {
         return DB::transaction(function () use ($data, $request) {
-            $data['quotation_id'] = $this->generatePoCode('QUO');
-            $data['user_id'] = Auth::id();
+            $normalized = $this->normalizePayload($data, $request);
+            $normalized['quotation_id'] = $this->generatePoCode('QUO');
+            $normalized['user_id'] = Auth::id();
 
-            $data['items_json'] = $this->decodeJsonField($data['items_json'] ?? null);
-            $data['addons_json'] = $this->decodeJsonField($data['addons_json'] ?? null);
-            $data['breakdown_json'] = $this->decodeJsonField($data['breakdown_json'] ?? null);
-
-            $data['print_parts_json'] = $this->handlePrintParts($data['print_parts_json'] ?? null, $request);
-
-            $quotation = Quotation::create($data);
+            $quotation = Quotation::create($normalized);
 
             // Generate PDF after creation
             $pdf = Pdf::loadView('pdf', [
@@ -66,23 +65,31 @@ class QuotationService
         return DB::transaction(function () use ($id, $data, $request) {
             $quotation = Quotation::findOrFail($id);
 
-            if (array_key_exists('items_json', $data)) {
-                $data['items_json'] = $this->decodeJsonField($data['items_json']);
+            if (array_key_exists('print_parts_json', $data) || array_key_exists('print_parts', $data) || ($request && $request->hasFile('print_parts_files'))) {
+                Log::info('Quotation public update incoming print parts payload', [
+                    'quotation_id' => $quotation->id,
+                    'print_parts_json' => $data['print_parts_json'] ?? null,
+                    'print_parts' => $data['print_parts'] ?? null,
+                ]);
             }
 
-            if (array_key_exists('addons_json', $data)) {
-                $data['addons_json'] = $this->decodeJsonField($data['addons_json']);
+            $normalized = $this->normalizePayload($data, $request, $quotation);
+
+            if (array_key_exists('print_parts_json', $normalized)) {
+                Log::info('Quotation public update normalized print parts before save', [
+                    'quotation_id' => $quotation->id,
+                    'print_parts_json' => $normalized['print_parts_json'],
+                ]);
             }
 
-            if (array_key_exists('breakdown_json', $data)) {
-                $data['breakdown_json'] = $this->decodeJsonField($data['breakdown_json']);
-            }
+            $quotation->update($normalized);
 
-            if (array_key_exists('print_parts_json', $data)) {
-                $data['print_parts_json'] = $this->handlePrintParts($data['print_parts_json'], $request, $quotation);
+            if (array_key_exists('print_parts_json', $normalized)) {
+                Log::info('Quotation public update saved print parts', [
+                    'quotation_id' => $quotation->id,
+                    'print_parts_json' => $quotation->fresh()->print_parts_json,
+                ]);
             }
-
-            $quotation->update($data);
 
             // Regenerate PDF after update
             $pdf = Pdf::loadView('pdf', [
@@ -103,6 +110,250 @@ class QuotationService
         });
     }
 
+    protected function normalizePayload(array $data, ?Request $request = null, ?Quotation $existing = null): array
+    {
+        $hasPrintPartPayload = array_key_exists('print_parts_json', $data)
+            || array_key_exists('print_parts', $data)
+            || ($request && $request->hasFile('print_parts_files'));
+        $isPrintPartsOnlyUpdate = $existing
+            && $hasPrintPartPayload
+            && ! array_key_exists('item_config_json', $data);
+        $hasIncomingPrintPartsMetadata = array_key_exists('print_parts_json', $data)
+            || array_key_exists('print_parts', $data);
+
+        $printPartsMetadata = $this->extractPrintPartsMetadata($data, $existing);
+
+        if ($isPrintPartsOnlyUpdate) {
+            $resolvedPrintParts = $this->handlePrintParts($printPartsMetadata, $request, $existing, false);
+            $printPartsUnitTotal = $this->calculatePrintPartsTotal($resolvedPrintParts);
+
+            $existingItems = is_array($existing?->items_json) ? $existing->items_json : [];
+            $totalQuantity = collect($existingItems)->sum(fn ($row) => (float) ($row['quantity'] ?? 0));
+            $appliedPrintPartsTotal = round($printPartsUnitTotal * $totalQuantity, 2);
+
+            $existingBreakdown = is_array($existing?->breakdown_json) ? $existing->breakdown_json : [];
+            $normalizedBreakdown = array_merge($existingBreakdown, [
+                'print_parts_unit_total' => $printPartsUnitTotal,
+                'print_parts_total' => $appliedPrintPartsTotal,
+            ]);
+
+            return [
+                'print_parts_json' => $resolvedPrintParts,
+                'breakdown_json' => $normalizedBreakdown,
+            ];
+        }
+
+        $itemConfig = $this->decodeJsonField($data['item_config_json'] ?? ($existing?->item_config_json));
+        $items = $this->decodeJsonField($data['items_json'] ?? ($existing?->items_json));
+        $addons = $this->decodeJsonField($data['addons_json'] ?? ($existing?->addons_json)) ?? [];
+        $breakdown = $this->decodeJsonField($data['breakdown_json'] ?? ($existing?->breakdown_json)) ?? [];
+
+        if (! is_array($itemConfig)) {
+            throw ValidationException::withMessages(['item_config_json' => 'The item_config_json field is required and must be a valid JSON object.']);
+        }
+
+        $apparelPatternPriceId = $itemConfig['apparel_pattern_price_id'] ?? null;
+        if (! $apparelPatternPriceId) {
+            throw ValidationException::withMessages(['item_config_json.apparel_pattern_price_id' => 'The item_config_json.apparel_pattern_price_id field is required.']);
+        }
+
+        $patternPrice = null;
+        if ($apparelPatternPriceId) {
+            $patternPrice = ApparelPatternPrice::find($apparelPatternPriceId);
+            if (! $patternPrice) {
+                throw ValidationException::withMessages(['item_config_json.apparel_pattern_price_id' => 'The selected apparel_pattern_price_id is invalid.']);
+            }
+        }
+
+        $apparelNecklineId = $data['apparel_neckline_id'] ?? $existing?->apparel_neckline_id;
+        $necklinePrice = 0.0;
+        if ($apparelNecklineId) {
+            $neckline = ApparelNeckline::find($apparelNecklineId);
+            if (! $neckline) {
+                throw ValidationException::withMessages(['apparel_neckline_id' => 'The selected apparel neckline is invalid.']);
+            }
+            $necklinePrice = (float) $neckline->price;
+        }
+
+        if (! is_array($items) || count($items) < 1) {
+            throw ValidationException::withMessages(['items_json' => 'The items_json field must contain at least 1 row.']);
+        }
+
+        if (! is_array($items)) {
+            $items = [];
+        }
+
+        $printPartsTotal = $this->calculatePrintPartsTotal($printPartsMetadata);
+
+        $basePrice = (float) ($patternPrice?->price ?? 0);
+        $computedItems = [];
+        $itemsTotal = 0.0;
+        $totalQuantity = 0.0;
+
+        foreach ($items as $index => $item) {
+            if (! is_array($item)) {
+                throw ValidationException::withMessages(["items_json.{$index}" => 'Each item row must be an object.']);
+            }
+
+            $quantity = (float) ($item['quantity'] ?? 0);
+            $unitPrice = (float) ($item['unit_price'] ?? 0);
+
+            if ($quantity < 0) {
+                throw ValidationException::withMessages(["items_json.{$index}.quantity" => 'Quantity must be greater than or equal to 0.']);
+            }
+
+            if ($unitPrice < 0) {
+                throw ValidationException::withMessages(["items_json.{$index}.unit_price" => 'Unit price must be greater than or equal to 0.']);
+            }
+
+            $pricePerPiece = round($basePrice + $necklinePrice + $unitPrice + $printPartsTotal, 2);
+            $totalAmount = round($pricePerPiece * $quantity, 2);
+            $itemsTotal += $totalAmount;
+            $totalQuantity += $quantity;
+
+            $computedItems[] = [
+                'id' => $item['id'] ?? null,
+                'size_id' => $item['size_id'] ?? null,
+                'size' => $item['size'] ?? null,
+                'quantity' => $quantity,
+                'unit_price' => round($unitPrice, 2),
+                'print_parts_total' => $printPartsTotal,
+                'price_per_piece' => $pricePerPiece,
+                'total_amount' => $totalAmount,
+            ];
+        }
+
+        $normalizedAddons = [];
+        $addonsTotal = 0.0;
+        foreach ($addons as $index => $addon) {
+            if (! is_array($addon)) {
+                throw ValidationException::withMessages(["addons_json.{$index}" => 'Each addon row must be an object.']);
+            }
+
+            $addonPrice = (float) ($addon['price'] ?? 0);
+            if ($addonPrice < 0) {
+                throw ValidationException::withMessages(["addons_json.{$index}.price" => 'Addon price must be greater than or equal to 0.']);
+            }
+
+            $quantity = (float) ($addon['quantity'] ?? 1);
+            $lineTotal = round($addonPrice * $quantity, 2);
+            $addonsTotal += $lineTotal;
+
+            $normalizedAddons[] = [
+                'name' => $addon['name'] ?? null,
+                'price' => round($addonPrice, 2),
+                'quantity' => $quantity,
+                'line_total' => $lineTotal,
+            ];
+        }
+
+        $sampleBreakdown = is_array($breakdown['sample_breakdown'] ?? null) ? $breakdown['sample_breakdown'] : [];
+        $samplePricePerPiece = isset($sampleBreakdown['price_per_piece'])
+            ? (float) $sampleBreakdown['price_per_piece']
+            : round((float) ($sampleBreakdown['unit_price'] ?? 0) * (float) ($sampleBreakdown['quantity'] ?? 0), 2);
+
+        $sampleTotal = max(0, round($samplePricePerPiece, 2));
+
+        $normalizedSampleBreakdown = [
+            'sample_apparel' => $sampleBreakdown['sample_apparel'] ?? null,
+            'unit_price' => round((float) ($sampleBreakdown['unit_price'] ?? 0), 2),
+            'quantity' => (float) ($sampleBreakdown['quantity'] ?? 0),
+            'price_per_piece' => $sampleTotal,
+        ];
+
+        $normalizedBreakdown = [
+            'items' => is_array($breakdown['items'] ?? null) ? $breakdown['items'] : [],
+            'sample_breakdown' => $normalizedSampleBreakdown,
+        ];
+
+        $resolvedPrintParts = $this->handlePrintParts(
+            $printPartsMetadata,
+            $request,
+            $existing,
+            ! $hasIncomingPrintPartsMetadata
+        );
+        $appliedPrintPartsTotal = round($printPartsTotal * $totalQuantity, 2);
+
+        $subtotal = round($itemsTotal + $addonsTotal + $sampleTotal, 2);
+        $discountType = $data['discount_type'] ?? $existing?->discount_type;
+        $discountPrice = round((float) ($data['discount_price'] ?? $existing?->discount_price ?? 0), 2);
+
+        $discountAmount = 0.0;
+        if ($discountType === 'percentage') {
+            $discountAmount = round($subtotal * ($discountPrice / 100), 2);
+        } elseif ($discountType === 'fixed') {
+            $discountAmount = min($discountPrice, $subtotal);
+        }
+
+        $discountAmount = max(0, $discountAmount);
+        $grandTotal = round($subtotal - $discountAmount, 2);
+
+        return [
+            'client_id' => $data['client_id'] ?? $existing?->client_id,
+            'client_name' => $data['client_name'] ?? $existing?->client_name,
+            'client_email' => $data['client_email'] ?? $existing?->client_email,
+            'client_facebook' => $data['client_facebook'] ?? $existing?->client_facebook,
+            'client_brand' => $data['client_brand'] ?? $existing?->client_brand,
+            'shirt_color' => $data['shirt_color'] ?? $existing?->shirt_color,
+            'apparel_neckline_id' => $apparelNecklineId,
+            'free_items' => $data['free_items'] ?? $existing?->free_items,
+            'notes' => $data['notes'] ?? $existing?->notes,
+            'discount_type' => $discountType,
+            'discount_price' => $discountPrice,
+            'discount_amount' => $discountAmount,
+            'subtotal' => $subtotal,
+            'grand_total' => $grandTotal,
+            'item_config_json' => $itemConfig,
+            'items_json' => $computedItems,
+            'addons_json' => $normalizedAddons,
+            'breakdown_json' => array_merge($normalizedBreakdown, [
+                'print_parts_total' => $appliedPrintPartsTotal,
+                'print_parts_unit_total' => $printPartsTotal,
+            ]),
+            'print_parts_json' => $resolvedPrintParts,
+        ];
+    }
+
+    protected function calculatePrintPartsTotal($printParts): float
+    {
+        if (! is_array($printParts)) {
+            return 0.0;
+        }
+
+        return round(array_sum(array_map(function ($partData) {
+            if (! is_array($partData)) {
+                return 0.0;
+            }
+
+            $colorCount = (float) ($partData['color_count'] ?? $partData['colorCount'] ?? 0);
+            $pricePerColor = (float) ($partData['price_per_color'] ?? $partData['pricePerColor'] ?? 0);
+
+            return round($colorCount * $pricePerColor, 2);
+        }, $printParts)), 2);
+    }
+
+    protected function extractPrintPartsMetadata(array $data, ?Quotation $existing = null): array
+    {
+        if (array_key_exists('print_parts', $data) && is_array($data['print_parts'])) {
+            return $data['print_parts'];
+        }
+
+        if (array_key_exists('print_parts_json', $data)) {
+            if (is_array($data['print_parts_json'])) {
+                return $data['print_parts_json'];
+            }
+
+            if (is_string($data['print_parts_json']) && $data['print_parts_json'] !== '') {
+                $decoded = json_decode($data['print_parts_json'], true);
+                return is_array($decoded) ? $decoded : [];
+            }
+
+            return [];
+        }
+
+        return $this->decodeJsonField($data['print_parts_json'] ?? ($existing?->print_parts_json)) ?? [];
+    }
+
     protected function decodeJsonField($value): ?array
     {
         if (is_array($value)) {
@@ -110,50 +361,109 @@ class QuotationService
         }
 
         if (is_string($value) && !empty($value)) {
-            return json_decode($value, true);
+            $decoded = json_decode($value, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw ValidationException::withMessages([
+                    'json' => 'Malformed JSON payload received.',
+                ]);
+            }
+            return $decoded;
         }
 
         return null;
     }
 
-    protected function handlePrintParts($printParts, ?Request $request = null, ?Quotation $quotation = null): ?array
+    protected function handlePrintParts($printParts, ?Request $request = null, ?Quotation $quotation = null, bool $allowExistingImageFallback = true): array
     {
-        $decodedParts = $this->decodeJsonField($printParts);
-
-        if (!$decodedParts || !is_array($decodedParts)) {
-            return null;
+        if (! is_array($printParts)) {
+            return [];
         }
 
         $result = [];
+        $existingParts = $allowExistingImageFallback ? ($quotation?->print_parts_json ?? []) : [];
 
-        foreach ($decodedParts as $index => $partData) {
-            $imagePath = $partData['existing_image'] ?? null;
-
-            if ($request && $request->hasFile("print_parts_json.$index.image")) {
-                $imagePath = $request->file("print_parts_json.$index.image")
-                    ->store('quotation-print-parts', 'public');
+        foreach ($printParts as $index => $partData) {
+            if (! is_array($partData)) {
+                continue;
             }
 
-            $result[] = [
-                'part' => $partData['part'] ?? null,
-                'color_count' => isset($partData['color_count']) ? (int) $partData['color_count'] : null,
-                'image' => $imagePath,
-            ];
+            $partId = $partData['part_id'] ?? $partData['id'] ?? null;
+            $partName = $partData['part'] ?? $partData['name'] ?? null;
+            $colorCount = max(1, (int) ($partData['color_count'] ?? $partData['colorCount'] ?? 1));
+            $pricePerColor = (float) ($partData['price_per_color'] ?? $partData['pricePerColor'] ?? 0);
+
+            $imageInputType = $partData['image_input_type'] ?? $partData['imageInputType'] ?? null;
+            $imageLink = $partData['image_link'] ?? $partData['imageLink'] ?? null;
+            $imagePath = $existingParts[$index]['image'] ?? null;
+
+            if ($request && $request->hasFile("print_parts_files.{$index}")) {
+                $imagePath = $request->file("print_parts_files.{$index}")->store('quotation-print-parts', 'public');
+                $imageInputType = 'file';
+                $imageLink = null;
+            } elseif ($imageInputType === 'file' && is_string($imageLink) && $imageLink !== '') {
+                $imagePath = $imageLink;
+                $imageLink = null;
+            } elseif ($imageInputType === 'link') {
+                $imagePath = null;
+            }
+
+            $result[] = $this->buildPrintPartRow(
+                $partData,
+                $partId,
+                $partName,
+                $colorCount,
+                $pricePerColor,
+                $imageInputType,
+                $imageLink,
+                $imagePath
+            );
         }
 
         return $result;
     }
 
+    protected function buildPrintPartRow(
+        array $partData,
+        mixed $partId,
+        mixed $partName,
+        int $colorCount,
+        float $pricePerColor,
+        mixed $imageInputType,
+        mixed $imageLink,
+        mixed $imagePath
+    ): array {
+        return array_merge($partData, [
+            'part_id' => $partId,
+            'id' => $partId,
+            'part' => $partName,
+            'name' => $partName,
+            'color_count' => $colorCount,
+            'colorCount' => $colorCount,
+            'price_per_color' => $pricePerColor,
+            'pricePerColor' => $pricePerColor,
+            'image_input_type' => $imageInputType,
+            'imageInputType' => $imageInputType,
+            'image_link' => $imageLink,
+            'imageLink' => $imageLink,
+            'color_price_total' => round($colorCount * $pricePerColor, 2),
+            'image' => $imagePath,
+        ]);
+    }
+
     protected function generatePoCode(string $prefix = 'QUO'): string
     {
         $year = now()->year;
-        $lastNumber = Quotation::whereYear('created_at', $year)
+        $lastQuotationId = Quotation::whereYear('created_at', $year)
             ->lockForUpdate()
-            ->selectRaw("CAST(SUBSTRING_INDEX(quotation_id, '-', -1) AS UNSIGNED) as num")
-            ->orderByDesc('num')
-            ->value('num');
+            ->orderByDesc('id')
+            ->value('quotation_id');
 
-        $nextNumber = ($lastNumber ?? 0) + 1;
+        $lastNumber = 0;
+        if (is_string($lastQuotationId) && preg_match('/-(\d+)$/', $lastQuotationId, $matches)) {
+            $lastNumber = (int) $matches[1];
+        }
+
+        $nextNumber = $lastNumber + 1;
         return sprintf('%s-%d-%06d', $prefix, $year, $nextNumber);
     }
 

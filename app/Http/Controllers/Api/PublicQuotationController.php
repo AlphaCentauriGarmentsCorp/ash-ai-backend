@@ -47,48 +47,44 @@ class PublicQuotationController extends Controller
     }
 
     /**
-     * Update items_json and/or print_parts_json via a valid edit-permission token.
+     * Update print_parts_json via a valid edit-permission token.
      *
      * PUT /v2/share/quotations/{token}
      *
      * Accepted fields:
-     *   items_json[].name, items_json[].quantity   (price is NOT accepted)
-     *   print_parts_json[].part
-     *   print_parts_json[].color_count
-     *   print_parts_json[].image                   (file upload, optional)
-     *   print_parts_json[].existing_image          (keep current image path)
+        *   print_parts_json                           (JSON string)
+        *   print_parts_files[index]                   (file upload, optional)
      *
      * Triggers PDF regeneration and email notification (same as private update).
      */
     public function update(PublicUpdateRequest $request, string $token)
     {
-        ['quotation' => $quotation] =
-            $this->shareService->resolveEditToken($token);
+        ['quotation' => $quotation] = $this->shareService->resolveEditToken($token);
 
+        $validated = $request->validated();
         $data = [];
 
-        // ── Items — build from validated input, no price field accepted ───────
-        if ($request->has('items_json')) {
-            $data['items_json'] = array_map(function ($item) {
-                return [
-                    'name'     => $item['name'],
-                    'quantity' => $item['quantity'],
-                ];
-            }, $request->input('items_json'));
+        $incomingPrintParts = $request->input('print_parts_json');
+        if (is_array($incomingPrintParts)) {
+            if (! array_is_list($incomingPrintParts)) {
+                $incomingPrintParts = array_values($incomingPrintParts);
+            }
+
+            $data['print_parts'] = $incomingPrintParts;
+            $data['print_parts_json'] = json_encode($incomingPrintParts);
+        } elseif (array_key_exists('print_parts_json', $validated) && is_string($validated['print_parts_json']) && $validated['print_parts_json'] !== '') {
+            $data['print_parts_json'] = $validated['print_parts_json'];
+            $decoded = json_decode($validated['print_parts_json'], true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $data['print_parts'] = $decoded;
+            }
         }
 
-        // ── Print parts — pass through with file handling in service ──────────
-        if ($request->has('print_parts_json')) {
-            $data['print_parts_json'] = $request->input('print_parts_json');
-        }
-
-        // Delegate to the existing QuotationService::update()
-        // This triggers PDF regeneration and email notification automatically
         $updated = $this->quotationService->update($data, $quotation->id, $request);
 
         return response()->json([
             'message' => 'Quotation updated successfully.',
-            'data'    => new PublicQuotationResource($updated),
+            'data' => new PublicQuotationResource($updated),
         ]);
     }
 

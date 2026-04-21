@@ -29,14 +29,14 @@ class QuotationController extends Controller
 
     public function store(Store $request)
     {
-        $quotation = $this->service->store($request->all(), $request);
+        $quotation = $this->service->store($request->validated(), $request);
 
-        return new QuotationResource($quotation);
+        return (new QuotationResource($quotation))->response()->setStatusCode(201);
     }
 
     public function update(Update $request, $id)
     {
-        $quotation = $this->service->update($request->all(), $id, $request);
+        $quotation = $this->service->update($request->validated(), $id, $request);
 
        return new QuotationResource($quotation);
     }
