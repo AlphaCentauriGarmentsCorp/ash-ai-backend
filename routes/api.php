@@ -36,6 +36,8 @@ use App\Http\Controllers\Api\CourierListController;
 use App\Http\Controllers\Api\QuotationController;
 use App\Http\Controllers\Api\QuotationShareController;
 use App\Http\Controllers\Api\PublicQuotationController;
+use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ShippingMethodController;
 use App\Http\Controllers\Api\ApparelPatternPriceController;
 use App\Http\Controllers\Api\ApparelNecklineController;
@@ -81,16 +83,34 @@ Route::prefix('v2')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'frontend.access:ash'])->group(function () {
-        Route::prefix('/download')->controller(DownloadController::class)->group(function () {
+        Route::prefix('/download')->middleware('permission:access.download')->controller(DownloadController::class)->group(function () {
             Route::get('/', 'download');
         });
 
-        Route::prefix('/employee')->controller(AccountController::class)->group(function () {
+        Route::prefix('/employee')->middleware('permission:access.employees')->controller(AccountController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
         });
 
-        Route::prefix('/clients')->controller(ClientController::class)->group(function () {
+        Route::prefix('/rbac')->middleware('permission:access.rbac')->group(function () {
+            Route::prefix('/roles')->controller(RoleController::class)->group(function () {
+                Route::get('/', 'index');
+                Route::post('/', 'store');
+                Route::get('/{id}', 'show');
+                Route::put('/{id}', 'update');
+                Route::delete('/{id}', 'destroy');
+            });
+
+            Route::prefix('/permissions')->controller(PermissionController::class)->group(function () {
+                Route::get('/', 'index');
+                Route::post('/', 'store');
+                Route::get('/{id}', 'show');
+                Route::put('/{id}', 'update');
+                Route::delete('/{id}', 'destroy');
+            });
+        });
+
+        Route::prefix('/clients')->middleware('permission:access.clients')->controller(ClientController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -98,13 +118,13 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/orders')->controller(OrdersController::class)->group(function () {
+        Route::prefix('/orders')->middleware('permission:access.orders')->controller(OrdersController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/details/{po_code}', 'show');
         });
 
-        Route::prefix('/pattern-type')->controller(PatternTypeController::class)->group(function () {
+        Route::prefix('/pattern-type')->middleware('permission:access.dropdown-settings')->controller(PatternTypeController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -112,7 +132,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/apparel-type')->controller(ApparelTypeController::class)->group(function () {
+        Route::prefix('/apparel-type')->middleware('permission:access.dropdown-settings')->controller(ApparelTypeController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -120,7 +140,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/apparel-parts')->controller(ApparelPartController::class)->group(function () {
+        Route::prefix('/apparel-parts')->middleware('permission:access.dropdown-settings')->controller(ApparelPartController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -128,7 +148,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/service-type')->controller(ServiceTypeController::class)->group(function () {
+        Route::prefix('/service-type')->middleware('permission:access.dropdown-settings')->controller(ServiceTypeController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -136,7 +156,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/print-method')->controller(PrintMethodController::class)->group(function () {
+        Route::prefix('/print-method')->middleware('permission:access.dropdown-settings')->controller(PrintMethodController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -144,7 +164,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/size-label')->controller(SizeLabelController::class)->group(function () {
+        Route::prefix('/size-label')->middleware('permission:access.dropdown-settings')->controller(SizeLabelController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -152,7 +172,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/print-label-placement')->controller(PrintLabelPlacementController::class)->group(function () {
+        Route::prefix('/print-label-placement')->middleware('permission:access.dropdown-settings')->controller(PrintLabelPlacementController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -160,7 +180,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/freebie')->controller(FreebieController::class)->group(function () {
+        Route::prefix('/freebie')->middleware('permission:access.dropdown-settings')->controller(FreebieController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -168,7 +188,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/placement-measurement')->controller(PlacementMeasurementController::class)->group(function () {
+        Route::prefix('/placement-measurement')->middleware('permission:access.dropdown-settings')->controller(PlacementMeasurementController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -176,7 +196,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/additional-option')->controller(AdditionalOptionController::class)->group(function () {
+        Route::prefix('/additional-option')->middleware('permission:access.dropdown-settings')->controller(AdditionalOptionController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -184,7 +204,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/equipment-location')->controller(EquipmentLocationController::class)->group(function () {
+        Route::prefix('/equipment-location')->middleware('permission:access.equipment')->controller(EquipmentLocationController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -192,7 +212,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/equipment-inventory')->controller(EquipmentInventoryController::class)->group(function () {
+        Route::prefix('/equipment-inventory')->middleware('permission:access.equipment')->controller(EquipmentInventoryController::class)->group(function () {
             Route::get('/', 'index');
             Route::get('/{id}/contents', 'getByLocation');
             Route::post('/', 'store');
@@ -201,7 +221,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/supplier')->controller(SupplierController::class)->group(function () {
+        Route::prefix('/supplier')->middleware('permission:access.suppliers')->controller(SupplierController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -209,7 +229,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/materials')->controller(MaterialsController::class)->group(function () {
+        Route::prefix('/materials')->middleware('permission:access.materials')->controller(MaterialsController::class)->group(function () {
             Route::get('/', 'index');
             Route::get('/{id}/supplier', 'getBySupplier');
             Route::get('/type/{type}', 'getByType');
@@ -219,7 +239,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/screens')->controller(ScreenController::class)->group(function () {
+        Route::prefix('/screens')->middleware('permission:access.screens')->controller(ScreenController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -227,7 +247,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/payment-methods')->controller(PaymentMethodsController::class)->group(function () {
+        Route::prefix('/payment-methods')->middleware('permission:access.payment-methods')->controller(PaymentMethodsController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -235,7 +255,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/shipping-methods')->controller(ShippingMethodController::class)->group(function () {
+        Route::prefix('/shipping-methods')->middleware('permission:access.shipping-methods')->controller(ShippingMethodController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -243,7 +263,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/courier-list')->controller(CourierListController::class)->group(function () {
+        Route::prefix('/courier-list')->middleware('permission:access.courier-list')->controller(CourierListController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -251,7 +271,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/sewing-subcontractor')->controller(SewingSubcontractorController::class)->group(function () {
+        Route::prefix('/sewing-subcontractor')->middleware('permission:access.sewing-subcontractor')->controller(SewingSubcontractorController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -259,24 +279,24 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/order-stages')->controller(OrderStagesController::class)->group(function () {
+        Route::prefix('/order-stages')->middleware('permission:access.order-stages')->controller(OrderStagesController::class)->group(function () {
             Route::post('/', 'store');
         });
 
-        Route::prefix('/graphic-design')->controller(GraphicDesignController::class)->group(function () {
+        Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
             Route::post('/', 'store');
         });
 
-        Route::prefix('/screen-making')->controller(ScreenMakingController::class)->group(function () {
+        Route::prefix('/screen-making')->middleware('permission:access.screen-making')->controller(ScreenMakingController::class)->group(function () {
             Route::post('/', 'store');
         });
 
-        Route::prefix('/screen-checking')->controller(ScreenCheckingController::class)->group(function () {
+        Route::prefix('/screen-checking')->middleware('permission:access.screen-checking')->controller(ScreenCheckingController::class)->group(function () {
             Route::post('/', 'store');
         });
 
 
-        Route::prefix('/screen-maintenance')->controller(ScreenMaintenanceController::class)->group(function () {
+        Route::prefix('/screen-maintenance')->middleware('permission:access.screen-maintenance')->controller(ScreenMaintenanceController::class)->group(function () {
             Route::get('/', 'index');
             Route::get('/{id}', 'show');
             Route::get('/user/{id}', 'getByUser');
@@ -285,7 +305,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotation/settings/apparel-pattern-prices')->controller(ApparelPatternPriceController::class)->group(function () {
+        Route::prefix('/quotation/settings/apparel-pattern-prices')->middleware('permission:access.quotation-settings')->controller(ApparelPatternPriceController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/price/{apparelTypeName}/{patternTypeName}', 'getPrice');
@@ -294,7 +314,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotation/settings/apparel-neckline')->controller(ApparelNecklineController::class)->group(function () {
+        Route::prefix('/quotation/settings/apparel-neckline')->middleware('permission:access.quotation-settings')->controller(ApparelNecklineController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -302,7 +322,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotation/settings/addon-categories')->controller(AddonCategoriesController::class)->group(function () {
+        Route::prefix('/quotation/settings/addon-categories')->middleware('permission:access.quotation-settings')->controller(AddonCategoriesController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -310,7 +330,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotation/settings/addons')->controller(AddonsController::class)->group(function () {
+        Route::prefix('/quotation/settings/addons')->middleware('permission:access.quotation-settings')->controller(AddonsController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -318,7 +338,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotations')->group(function () {
+        Route::prefix('/quotations')->middleware('permission:access.quotations')->group(function () {
 
             // ── Quotation CRUD ────────────────────────────────────────────────
             Route::controller(QuotationController::class)->group(function () {
@@ -364,10 +384,4 @@ Route::prefix('v2')->group(function () {
 
 
 
-    Route::middleware(['auth:sanctum', 'frontend.access:sorbetes', 'role:customer'])->group(function () {
-        // Add more Ash-specific routes here
-    });
-    Route::middleware(['auth:sanctum', 'frontend.access:reefer', 'role:customer'])->group(function () {
-        // Add more Ash-specific routes here
-    });
 });

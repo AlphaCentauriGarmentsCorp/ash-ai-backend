@@ -9,6 +9,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
 
@@ -83,11 +85,17 @@ function quotationPayload(array $overrides = []): array
 
 function actingAshUser(): User
 {
+    Permission::firstOrCreate(['name' => 'access.quotations', 'guard_name' => 'web']);
+    Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
+
     $user = User::factory()->create([
         'username' => 'ash_' . uniqid(),
         'domain_role' => ['admin'],
         'domain_access' => ['ash'],
     ]);
+
+    $user->givePermissionTo('access.quotations');
+    $user->assignRole('admin');
 
     test()->actingAs($user, 'sanctum');
 
