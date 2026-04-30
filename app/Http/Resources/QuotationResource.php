@@ -25,6 +25,9 @@ class QuotationResource extends JsonResource
             'client_brand' => $this->client_brand,
             'shirt_color' => $this->shirt_color,
             'apparel_neckline_id' => $this->apparel_neckline_id,
+            'print_method_id' => $this->print_method_id,
+            'special_print' => $this->special_print,
+            'print_area' => $this->print_area,
             'free_items' => $this->free_items,
             'notes' => $this->notes,
 

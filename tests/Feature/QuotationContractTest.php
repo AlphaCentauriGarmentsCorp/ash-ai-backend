@@ -4,6 +4,7 @@ use App\Models\ApparelNeckline;
 use App\Models\ApparelType;
 use App\Models\ApparelPatternPrice;
 use App\Models\PatternType;
+use App\Models\PrintMethod;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -40,12 +41,20 @@ function quotationPayload(array $overrides = []): array
         'price' => 20,
     ]);
 
+    $printMethod = PrintMethod::create([
+        'name' => 'Silkscreen',
+        'description' => 'Silkscreen method',
+    ]);
+
     $base = [
         'client_name' => 'Client A',
         'client_email' => 'client@example.com',
         'client_brand' => 'Brand A',
         'shirt_color' => 'Black',
         'apparel_neckline_id' => $neckline->id,
+        'print_method_id' => $printMethod->id,
+        'special_print' => 'Puff',
+        'print_area' => 'Chest',
         'discount_type' => 'percentage',
         'discount_price' => 10,
         'item_config_json' => json_encode([
@@ -72,8 +81,10 @@ function quotationPayload(array $overrides = []): array
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 2,
-                'price_per_color' => 15,
+                'unit_count' => 2,
+                'price_per_unit' => 15,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'link',
                 'image_link' => 'https://example.com/front.png',
             ],
@@ -116,8 +127,11 @@ it('creates and updates quotation with compact item_config and items', function 
     $createResponse->assertJsonPath('data.items.0.price_per_piece', 155);
     $createResponse->assertJsonPath('data.items.0.total_amount', 310);
     $createResponse->assertJsonPath('data.print_parts.0.part_id', 1);
-    $createResponse->assertJsonPath('data.print_parts.0.price_per_color', 15);
-    $createResponse->assertJsonPath('data.print_parts.0.color_price_total', 30);
+    $createResponse->assertJsonPath('data.print_parts.0.price_per_unit', 15);
+    $createResponse->assertJsonPath('data.print_parts.0.print_part_total', 30);
+    $createResponse->assertJsonPath('data.print_method_id', $createPayload['print_method_id']);
+    $createResponse->assertJsonPath('data.special_print', 'Puff');
+    $createResponse->assertJsonPath('data.print_area', 'Chest');
     $createResponse->assertJsonPath('data.breakdown.print_parts_total', 60);
     $createResponse->assertJsonPath('data.breakdown.print_parts_unit_total', 30);
     $createResponse->assertJsonPath('data.subtotal', 365);
@@ -139,7 +153,7 @@ it('creates and updates quotation with compact item_config and items', function 
 
     $updateResponse->assertJsonPath('data.items.0.price_per_piece', 160);
     $updateResponse->assertJsonPath('data.items.0.total_amount', 480);
-    $updateResponse->assertJsonPath('data.print_parts.0.color_price_total', 30);
+    $updateResponse->assertJsonPath('data.print_parts.0.print_part_total', 30);
     $updateResponse->assertJsonPath('data.breakdown.print_parts_total', 90);
     $updateResponse->assertJsonPath('data.breakdown.print_parts_unit_total', 30);
     $updateResponse->assertJsonPath('data.subtotal', 535);
@@ -157,8 +171,10 @@ it('handles print parts in file mode', function () {
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 2,
-                'price_per_color' => 15,
+                'unit_count' => 2,
+                'price_per_unit' => 15,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'file',
                 'image_link' => '',
             ],
@@ -172,7 +188,7 @@ it('handles print parts in file mode', function () {
         ->assertJsonPath('data.print_parts.0.image_input_type', 'file');
 
     expect($response->json('data.print_parts.0.image'))->not->toBeNull();
-    expect($response->json('data.print_parts.0.color_price_total'))->toBe(30);
+    expect($response->json('data.print_parts.0.print_part_total'))->toBe(30);
 });
 
 it('handles print parts in link mode', function () {
@@ -185,8 +201,10 @@ it('handles print parts in link mode', function () {
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 2,
-                'price_per_color' => 15,
+                'unit_count' => 2,
+                'price_per_unit' => 15,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'link',
                 'image_link' => 'https://example.com/front.png',
             ],
@@ -199,7 +217,7 @@ it('handles print parts in link mode', function () {
         ->assertJsonPath('data.print_parts.0.image_input_type', 'link')
         ->assertJsonPath('data.print_parts.0.image_link', 'https://example.com/front.png')
         ->assertJsonPath('data.print_parts.0.image', null)
-        ->assertJsonPath('data.print_parts.0.color_price_total', 30);
+        ->assertJsonPath('data.print_parts.0.print_part_total', 30);
 });
 
 it('handles mixed file and link print parts', function () {
@@ -212,16 +230,20 @@ it('handles mixed file and link print parts', function () {
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 2,
-                'price_per_color' => 15,
+                'unit_count' => 2,
+                'price_per_unit' => 15,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'file',
                 'image_link' => '',
             ],
             [
                 'part_id' => 2,
                 'part' => 'Back',
-                'color_count' => 3,
-                'price_per_color' => 10,
+                'unit_count' => 3,
+                'price_per_unit' => 10,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'link',
                 'image_link' => 'https://example.com/back.png',
             ],
@@ -235,10 +257,26 @@ it('handles mixed file and link print parts', function () {
         ->assertJsonPath('data.print_parts.0.image_input_type', 'file')
         ->assertJsonPath('data.print_parts.1.image_input_type', 'link')
         ->assertJsonPath('data.print_parts.1.image_link', 'https://example.com/back.png')
-        ->assertJsonPath('data.print_parts.0.color_price_total', 30)
-        ->assertJsonPath('data.print_parts.1.color_price_total', 30);
+        ->assertJsonPath('data.print_parts.0.print_part_total', 30)
+        ->assertJsonPath('data.print_parts.1.print_part_total', 30);
 
     expect($response->json('data.print_parts.0.image'))->not->toBeNull();
+});
+
+it('allows empty special_print for silkscreen', function () {
+    Storage::fake('public');
+    Mail::fake();
+    actingAshUser();
+
+    $payload = quotationPayload([
+        'special_print' => '',
+    ]);
+
+    $response = $this->withHeader('Accept', 'application/json')->post('/api/v2/quotations', $payload);
+
+    $response->assertStatus(201)
+        ->assertJsonPath('data.print_method_id', $payload['print_method_id'])
+        ->assertJsonPath('data.special_print', null);
 });
 
 it('returns 422 for malformed json fields', function () {

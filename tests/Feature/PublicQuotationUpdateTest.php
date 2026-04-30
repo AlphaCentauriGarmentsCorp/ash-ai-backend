@@ -63,9 +63,11 @@ function createSharedQuotation(string $permission = 'edit', array $tokenOverride
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 1,
-                'price_per_color' => 5,
-                'color_price_total' => 5,
+                'unit_count' => 1,
+                'price_per_unit' => 5,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
+                'print_part_total' => 5,
                 'image_input_type' => 'link',
                 'image_link' => 'https://example.com/front-old.png',
                 'image' => null,
@@ -99,12 +101,14 @@ it('updates public quotation print parts via json payload and persists recalcula
     $payload = [
         'print_parts_json' => json_encode([
             [
-                'id' => 2,
-                'name' => 'Back',
-                'colorCount' => 2,
-                'pricePerColor' => 10,
-                'imageInputType' => 'link',
-                'imageLink' => 'https://example.com/back-new.png',
+                'part_id' => 2,
+                'part' => 'Back',
+                'unit_count' => 2,
+                'price_per_unit' => 10,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
+                'image_input_type' => 'link',
+                'image_link' => 'https://example.com/back-new.png',
             ],
         ]),
     ];
@@ -115,7 +119,7 @@ it('updates public quotation print parts via json payload and persists recalcula
     $update->assertOk()
         ->assertJsonPath('data.print_parts.0.part', 'Back')
         ->assertJsonPath('data.print_parts.0.part_id', 2)
-        ->assertJsonPath('data.print_parts.0.color_price_total', 20);
+        ->assertJsonPath('data.print_parts.0.print_part_total', 20);
 
     $quotation->refresh();
 
@@ -132,7 +136,7 @@ it('updates public quotation print parts via json payload and persists recalcula
 
     $fetch->assertOk()
         ->assertJsonPath('data.print_parts.0.part', 'Back')
-        ->assertJsonPath('data.print_parts.0.color_price_total', 20);
+        ->assertJsonPath('data.print_parts.0.print_part_total', 20);
 });
 
 it('updates public quotation print parts with file uploads', function () {
@@ -146,8 +150,10 @@ it('updates public quotation print parts with file uploads', function () {
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 3,
-                'price_per_color' => 5,
+                'unit_count' => 3,
+                'price_per_unit' => 5,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'file',
                 'image_link' => '',
             ],
@@ -162,7 +168,7 @@ it('updates public quotation print parts with file uploads', function () {
 
     $response->assertOk()
         ->assertJsonPath('data.print_parts.0.image_input_type', 'file')
-        ->assertJsonPath('data.print_parts.0.color_price_total', 15);
+        ->assertJsonPath('data.print_parts.0.print_part_total', 15);
 
     $quotation->refresh();
 
@@ -183,8 +189,10 @@ it('prefers indexed multipart print part data and persists updated color count',
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 2,
-                'price_per_color' => 0,
+                'unit_count' => 2,
+                'price_per_unit' => 0,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'file',
                 'image_link' => 'quotation-print-parts/existing-front.png',
             ],
@@ -195,21 +203,21 @@ it('prefers indexed multipart print part data and persists updated color count',
         ->put('/api/v2/share/quotations/' . $token->token, $payload);
 
     $update->assertOk()
-        ->assertJsonPath('data.print_parts.0.color_count', 2)
-        ->assertJsonPath('data.print_parts.0.price_per_color', 0)
+        ->assertJsonPath('data.print_parts.0.unit_count', 2)
+        ->assertJsonPath('data.print_parts.0.price_per_unit', 0)
         ->assertJsonPath('data.print_parts.0.image_input_type', 'file');
 
     $quotation->refresh();
 
-    expect($quotation->print_parts_json[0]['color_count'])->toBe(2);
-    expect((float) ($quotation->print_parts_json[0]['price_per_color'] ?? 0))->toBe(0.0);
+    expect((float) ($quotation->print_parts_json[0]['unit_count'] ?? 0))->toBe(2.0);
+    expect((float) ($quotation->print_parts_json[0]['price_per_unit'] ?? 0))->toBe(0.0);
 
     $fetch = $this->withHeader('Accept', 'application/json')
         ->get('/api/v2/share/quotations/' . $token->token);
 
     $fetch->assertOk()
-        ->assertJsonPath('data.print_parts.0.color_count', 2)
-        ->assertJsonPath('data.print_parts.0.price_per_color', 0);
+        ->assertJsonPath('data.print_parts.0.unit_count', 2)
+        ->assertJsonPath('data.print_parts.0.price_per_unit', 0);
 });
 
 it('persists mixed multipart print parts payload from frontend shape', function () {
@@ -223,16 +231,20 @@ it('persists mixed multipart print parts payload from frontend shape', function 
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 2,
-                'price_per_color' => 25,
+                'unit_count' => 2,
+                'price_per_unit' => 25,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'file',
                 'image_link' => '',
             ],
             [
                 'part_id' => 2,
                 'part' => 'Back',
-                'color_count' => 3,
-                'price_per_color' => 20,
+                'unit_count' => 3,
+                'price_per_unit' => 20,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'link',
                 'image_link' => 'https://example.com/back-artwork.png',
             ],
@@ -244,21 +256,58 @@ it('persists mixed multipart print parts payload from frontend shape', function 
 
     $update->assertOk()
         ->assertJsonPath('data.print_parts.0.part_id', 1)
-        ->assertJsonPath('data.print_parts.0.color_count', 2)
-        ->assertJsonPath('data.print_parts.0.price_per_color', 25)
+        ->assertJsonPath('data.print_parts.0.unit_count', 2)
+        ->assertJsonPath('data.print_parts.0.price_per_unit', 25)
         ->assertJsonPath('data.print_parts.1.part_id', 2)
-        ->assertJsonPath('data.print_parts.1.color_count', 3)
-        ->assertJsonPath('data.print_parts.1.price_per_color', 20)
+        ->assertJsonPath('data.print_parts.1.unit_count', 3)
+        ->assertJsonPath('data.print_parts.1.price_per_unit', 20)
         ->assertJsonPath('data.print_parts.1.image_input_type', 'link')
         ->assertJsonPath('data.print_parts.1.image_link', 'https://example.com/back-artwork.png');
 
     $quotation->refresh();
 
-    expect($quotation->print_parts_json[0]['color_count'])->toBe(2);
-    expect((float) ($quotation->print_parts_json[0]['price_per_color'] ?? 0))->toBe(25.0);
-    expect($quotation->print_parts_json[1]['color_count'])->toBe(3);
-    expect((float) ($quotation->print_parts_json[1]['price_per_color'] ?? 0))->toBe(20.0);
+    expect((float) ($quotation->print_parts_json[0]['unit_count'] ?? 0))->toBe(2.0);
+    expect((float) ($quotation->print_parts_json[0]['price_per_unit'] ?? 0))->toBe(25.0);
+    expect((float) ($quotation->print_parts_json[1]['unit_count'] ?? 0))->toBe(3.0);
+    expect((float) ($quotation->print_parts_json[1]['price_per_unit'] ?? 0))->toBe(20.0);
     expect($quotation->print_parts_json[1]['image_link'])->toBe('https://example.com/back-artwork.png');
+});
+
+it('accepts public update payload using print_parts key', function () {
+    Storage::fake('public');
+    Mail::fake();
+
+    [$quotation, $token] = createSharedQuotation('edit');
+
+    $payload = [
+        'print_parts' => json_encode([
+            [
+                'part_id' => 2,
+                'part' => 'Back',
+                'unit_count' => 4,
+                'price_per_unit' => 7.5,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
+                'image_input_type' => 'link',
+                'image_link' => 'https://example.com/back-print-parts.png',
+            ],
+        ]),
+    ];
+
+    $update = $this->withHeader('Accept', 'application/json')
+        ->put('/api/v2/share/quotations/' . $token->token, $payload);
+
+    $update->assertOk()
+        ->assertJsonPath('data.print_parts.0.part', 'Back')
+        ->assertJsonPath('data.print_parts.0.unit_count', 4)
+        ->assertJsonPath('data.print_parts.0.price_per_unit', 7.5)
+        ->assertJsonPath('data.print_parts.0.print_part_total', 30);
+
+    $quotation->refresh();
+
+    expect((float) ($quotation->print_parts_json[0]['unit_count'] ?? 0))->toBe(4.0);
+    expect((float) ($quotation->print_parts_json[0]['price_per_unit'] ?? 0))->toBe(7.5);
+    expect((float) ($quotation->print_parts_json[0]['print_part_total'] ?? 0))->toBe(30.0);
 });
 
 it('rejects public update for invalid, revoked, and expired tokens', function () {
@@ -272,8 +321,10 @@ it('rejects public update for invalid, revoked, and expired tokens', function ()
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 1,
-                'price_per_color' => 10,
+                'unit_count' => 1,
+                'price_per_unit' => 10,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'link',
                 'image_link' => 'https://example.com/front.png',
             ],
@@ -309,8 +360,10 @@ it('forbids public update when token permission is view', function () {
             [
                 'part_id' => 1,
                 'part' => 'Front',
-                'color_count' => 2,
-                'price_per_color' => 10,
+                'unit_count' => 2,
+                'price_per_unit' => 10,
+                'full_unit_count' => 0,
+                'price_per_full_unit' => 0,
                 'image_input_type' => 'link',
                 'image_link' => 'https://example.com/front.png',
             ],
@@ -324,5 +377,5 @@ it('forbids public update when token permission is view', function () {
 
     $quotation->refresh();
     expect($quotation->print_parts_json[0]['part'])->toBe('Front');
-    expect($quotation->print_parts_json[0]['color_price_total'])->toBe(5);
+    expect($quotation->print_parts_json[0]['print_part_total'])->toBe(5);
 });
