@@ -42,9 +42,15 @@ class Store extends FormRequest
             'addons_json' => ['nullable', 'string', $this->jsonStringRule('addons_json')],
             'breakdown_json' => ['nullable', 'string', $this->jsonStringRule('breakdown_json')],
             'print_parts_json' => ['nullable', 'string', $this->jsonStringRule('print_parts_json')],
-            'print_parts_files.*' => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'print_parts_psd' => 'nullable|file|mimes:psd|max:10240',
+
+            // File validation rules
+            'print_parts_files' => 'nullable|array',  
+            'print_parts_files.*' => 'nullable|array',  
+            'print_parts_files.*.*' => 'nullable|file|mimes:jpg,jpeg,png,webp,gif,bmp,pdf|max:10240',  
         ];
     }
+    
 
     private function jsonStringRule(string $field): Closure
     {

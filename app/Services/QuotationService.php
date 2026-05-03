@@ -35,6 +35,22 @@ class QuotationService
             $normalized['quotation_id'] = $this->generatePoCode('QUO');
             $normalized['user_id'] = Auth::id();
 
+            // Handle PSD file upload
+            if ($request->hasFile('print_parts_psd')) {
+                // Validate PSD file (10MB max size)
+                $validated = $request->validate([
+                'print_parts_psd' => 'nullable|file|mimes:psd|max:10240',  // PSD file validation
+                ]);
+
+            // Process the PSD file if it exists
+            if ($validated['print_parts_psd']) {
+                // Store PSD file in the 'quotation-psd-files' folder in the 'public' disk
+                $filePath = $validated['print_parts_psd']->store('quotation-psd-files', 'public');
+                // Save the file path in the $data array
+                $normalized['print_parts_psd'] = $filePath;
+            }
+        }
+
             $quotation = Quotation::create($normalized);
 
             // Generate PDF after creation
@@ -64,6 +80,22 @@ class QuotationService
     {
         return DB::transaction(function () use ($id, $data, $request) {
             $quotation = Quotation::findOrFail($id);
+
+            // Handle PSD file upload
+            if ($request->hasFile('print_parts_psd')) {
+                // Validate PSD file (10MB max size)
+                $validated = $request->validate([
+                'print_parts_psd' => 'nullable|file|mimes:psd|max:10240',  // PSD file validation
+                ]);
+
+            // Process the PSD file if it exists
+            if ($validated['print_parts_psd']) {
+                // Store PSD file in the 'quotation-psd-files' folder in the 'public' disk
+                $filePath = $validated['print_parts_psd']->store('quotation-psd-files', 'public');
+                // Save the file path in the $data array
+                $data['print_parts_psd'] = $filePath;
+            }
+        }
 
             if (array_key_exists('print_parts_json', $data) || array_key_exists('print_parts', $data) || ($request && $request->hasFile('print_parts_files'))) {
                 Log::info('Quotation public update incoming print parts payload', [
@@ -112,36 +144,88 @@ class QuotationService
 
     protected function normalizePayload(array $data, ?Request $request = null, ?Quotation $existing = null): array
     {
+        
         $hasPrintPartPayload = array_key_exists('print_parts_json', $data)
-            || array_key_exists('print_parts', $data)
-            || ($request && $request->hasFile('print_parts_files'));
+        || array_key_exists('print_parts', $data)
+        || ($request && $request->hasFile('print_parts_files'));
+
         $isPrintPartsOnlyUpdate = $existing
-            && $hasPrintPartPayload
-            && ! array_key_exists('item_config_json', $data);
+        && $hasPrintPartPayload
+        && !array_key_exists('item_config_json', $data);
+
         $hasIncomingPrintPartsMetadata = array_key_exists('print_parts_json', $data)
-            || array_key_exists('print_parts', $data);
+        || array_key_exists('print_parts', $data);
 
         $printPartsMetadata = $this->extractPrintPartsMetadata($data, $existing);
 
+        // If it's an update to print parts only
         if ($isPrintPartsOnlyUpdate) {
-            $resolvedPrintParts = $this->handlePrintParts($printPartsMetadata, $request, $existing, false);
-            $printPartsUnitTotal = $this->calculatePrintPartsTotal($resolvedPrintParts);
+        $resolvedPrintParts = $this->handlePrintParts($printPartsMetadata, $request, $existing, false);
+        $printPartsUnitTotal = $this->calculatePrintPartsTotal($resolvedPrintParts);
 
-            $existingItems = is_array($existing?->items_json) ? $existing->items_json : [];
-            $totalQuantity = collect($existingItems)->sum(fn ($row) => (float) ($row['quantity'] ?? 0));
-            $appliedPrintPartsTotal = round($printPartsUnitTotal * $totalQuantity, 2);
+        $existingItems = is_array($existing?->items_json) ? $existing->items_json : [];
+        $totalQuantity = collect($existingItems)->sum(fn ($row) => (float) ($row['quantity'] ?? 0));
+        $appliedPrintPartsTotal = round($printPartsUnitTotal * $totalQuantity, 2);
 
-            $existingBreakdown = is_array($existing?->breakdown_json) ? $existing->breakdown_json : [];
-            $normalizedBreakdown = array_merge($existingBreakdown, [
-                'print_parts_unit_total' => $printPartsUnitTotal,
-                'print_parts_total' => $appliedPrintPartsTotal,
-            ]);
+        $existingBreakdown = is_array($existing?->breakdown_json) ? $existing?->breakdown_json : [];
+        $normalizedBreakdown = array_merge($existingBreakdown, [
+            'print_parts_unit_total' => $printPartsUnitTotal,
+            'print_parts_total' => $appliedPrintPartsTotal,
+        ]);
 
-            return [
-                'print_parts_json' => $resolvedPrintParts,
-                'breakdown_json' => $normalizedBreakdown,
+        return [
+            'print_parts_json' => $resolvedPrintParts,
+            'breakdown_json' => $normalizedBreakdown,
             ];
         }
+
+        // Validate files
+        if ($request && $request->hasFile('print_parts_files')) {
+        // Validate the files
+        $validated = $request->validate([
+            'print_parts_files' => 'array',  // Ensure it's an array
+            'print_parts_files.*' => 'array', // Nested array for each part
+            'print_parts_files.*.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',  // Validate file types and size (max 10MB)
+        ]);
+
+        $files = [];
+        // Process valid files
+        foreach ($validated['print_parts_files'] as $filesArray) {
+            foreach ($filesArray as $file) {
+                if ($file && $file->isValid()) {
+                    $filePath = $file->store('quotation-print-parts', 'public');  // Store file in public storage
+                    $files[] = $filePath;  // Add the file path to the array
+                }
+            }
+        }
+
+        // Store the array of file paths as JSON
+        if (!empty($files)) {
+            $data['print_parts_files'] = json_encode($files);  // Save the file paths as JSON
+            }
+        }
+
+        if ($request && $request->hasFile('print_parts_psd')) {
+            // Validate the PSD file
+            $validated = $request->validate([
+            'print_parts_psd' => 'nullable|file|mimes:psd|max:10240',  // PSD file type and size validation
+        ]);
+
+        // Process and store the PSD file
+        if ($validated['print_parts_psd']) {
+            $filePath = $validated['print_parts_psd']->store('quotation-psd-files', 'public');  // Store PSD in the public storage
+            $data['print_parts_psd'] = $filePath;  // Save the file path in the data array
+            }
+       }
+
+        // Continue with the rest of the logic
+        // Handle other data like item_config_json, items_json, etc.
+        return $data;
+        
+        
+
+    
+
 
         $itemConfig = $this->decodeJsonField($data['item_config_json'] ?? ($existing?->item_config_json));
         $items = $this->decodeJsonField($data['items_json'] ?? ($existing?->items_json));
@@ -375,52 +459,56 @@ class QuotationService
 
     protected function handlePrintParts($printParts, ?Request $request = null, ?Quotation $quotation = null, bool $allowExistingImageFallback = true): array
     {
-        if (! is_array($printParts)) {
+        if (!is_array($printParts)) {
             return [];
-        }
+    }
 
         $result = [];
         $existingParts = $allowExistingImageFallback ? ($quotation?->print_parts_json ?? []) : [];
 
         foreach ($printParts as $index => $partData) {
-            if (! is_array($partData)) {
-                continue;
-            }
-
-            $partId = $partData['part_id'] ?? $partData['id'] ?? null;
-            $partName = $partData['part'] ?? $partData['name'] ?? null;
-            $colorCount = max(1, (int) ($partData['color_count'] ?? $partData['colorCount'] ?? 1));
-            $pricePerColor = (float) ($partData['price_per_color'] ?? $partData['pricePerColor'] ?? 0);
-
-            $imageInputType = $partData['image_input_type'] ?? $partData['imageInputType'] ?? null;
-            $imageLink = $partData['image_link'] ?? $partData['imageLink'] ?? null;
-            $imagePath = $existingParts[$index]['image'] ?? null;
-
-            if ($request && $request->hasFile("print_parts_files.{$index}")) {
-                $imagePath = $request->file("print_parts_files.{$index}")->store('quotation-print-parts', 'public');
-                $imageInputType = 'file';
-                $imageLink = null;
-            } elseif ($imageInputType === 'file' && is_string($imageLink) && $imageLink !== '') {
-                $imagePath = $imageLink;
-                $imageLink = null;
-            } elseif ($imageInputType === 'link') {
-                $imagePath = null;
-            }
-
-            $result[] = $this->buildPrintPartRow(
-                $partData,
-                $partId,
-                $partName,
-                $colorCount,
-                $pricePerColor,
-                $imageInputType,
-                $imageLink,
-                $imagePath
-            );
+        if (!is_array($partData)) {
+            continue;
         }
 
-        return $result;
+        $partId = $partData['part_id'] ?? $partData['id'] ?? null;
+        $partName = $partData['part'] ?? $partData['name'] ?? null;
+        $colorCount = max(1, (int) ($partData['color_count'] ?? $partData['colorCount'] ?? 1));
+        $pricePerColor = (float) ($partData['price_per_color'] ?? $partData['pricePerColor'] ?? 0);
+
+        $imageInputType = $partData['image_input_type'] ?? $partData['imageInputType'] ?? null;
+        $imageLink = $partData['image_link'] ?? $partData['imageLink'] ?? null;
+        $imagePath = $existingParts[$index]['image'] ?? null;
+
+        $files = [];
+        if ($request && $request->has('print_parts_files') && is_array($request->input('print_parts_files'))) {
+            foreach ($request->input('print_parts_files') as $index => $filesArray) {
+                foreach ($filesArray as $file) {
+                    if ($file && $file->isValid()) {
+                        // Store each file and add to the array
+                        $filePath = $file->store('quotation-print-parts', 'public');
+                        $files[] = $filePath;  // Add the path to the array
+                    }
+                }
+            }
+            // Store the array of files in the partData
+            $partData['files'] = $files;  // Add the array of file paths to part data
+        }
+
+        $result[] = $this->buildPrintPartRow(
+            $partData,
+            $partId,
+            $partName,
+            $colorCount,
+            $pricePerColor,
+            $imageInputType,
+            $imageLink,
+            $imagePath
+        );
     }
+
+    return $result;  // Return the result with the added files
+}
 
     protected function buildPrintPartRow(
         array $partData,

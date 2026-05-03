@@ -42,9 +42,15 @@ class Update extends FormRequest
             'addons_json' => ['sometimes', 'nullable', 'string', $this->jsonStringRule('addons_json')],
             'breakdown_json' => ['sometimes', 'nullable', 'string', $this->jsonStringRule('breakdown_json')],
             'print_parts_json' => ['sometimes', 'nullable', 'string', $this->jsonStringRule('print_parts_json')],
-            'print_parts_files.*' => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'print_parts_psd' => 'sometimes|nullable|file|mimes:psd|max:10240',
+
+            // File validation rules for print_parts_files
+            'print_parts_files' => 'nullable|array',  // File array validation
+            'print_parts_files.*' => 'nullable|array',  // Nested arrays for each print part
+            'print_parts_files.*.*' => 'nullable|file|mimes:jpg,jpeg,png,webp,gif,bmp,pdf|max:10240',  // Validate file types and size (max 10MB)
         ];
     }
+    
 
     private function jsonStringRule(string $field): Closure
     {

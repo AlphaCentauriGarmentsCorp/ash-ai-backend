@@ -21,7 +21,7 @@ class PublicUpdateRequest extends FormRequest
     {
         return [
             'print_parts_json' => ['nullable', $this->jsonOrArrayRule('print_parts_json')],
-            'print_parts_files.*' => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'print_parts_files.*' => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',  // Validation for image files
         ];
     }
 
@@ -29,6 +29,7 @@ class PublicUpdateRequest extends FormRequest
     {
         $printParts = $this->input('print_parts_json');
 
+        // Ensure print_parts_json is an indexed array if it's associative
         if (is_array($printParts) && ! array_is_list($printParts)) {
             $this->merge([
                 'print_parts_json' => array_values($printParts),
@@ -65,7 +66,6 @@ class PublicUpdateRequest extends FormRequest
         return [
             'print_parts_json' => 'The print_parts_json must be either a JSON string or array payload.',
             'print_parts_files.*.image' => 'Each print part image must be a valid image file.',
-            'print_parts_files.*.max' => 'Each image must not exceed 4MB.',
         ];
     }
 }

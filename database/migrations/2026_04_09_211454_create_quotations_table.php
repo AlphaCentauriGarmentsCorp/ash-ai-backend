@@ -31,6 +31,8 @@ return new class extends Migration
             $table->json('items_json')->nullable();
             $table->json('addons_json')->nullable();
             $table->json('breakdown_json')->nullable();
+            // Add the print_parts_files column to store multiple file paths
+            $table->json('print_parts_files')->nullable();  // Store multiple file paths as JSON array
             $table->string('status')->default('Pending');
 
             $table->timestamps();

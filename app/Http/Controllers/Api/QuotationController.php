@@ -29,17 +29,50 @@ class QuotationController extends Controller
 
     public function store(Store $request)
     {
-        $quotation = $this->service->store($request->validated(), $request);
+        // Prepare files as a JSON array before passing them to the service
+        $validated = $request->validated();
+        if ($request->has('print_parts_files')) {
+        $files = [];
+        foreach ($request->input('print_parts_files') as $filesArray) {
+            foreach ($filesArray as $file) {
+                if ($file && $file->isValid()) {
+                    $filePath = $file->store('quotation-print-parts', 'public');
+                    $files[] = $filePath;
+                }
+            }
+        }
+        // Add the files to the validated data
+        $validated['print_parts_files'] = json_encode($files);
+    }
 
-        return (new QuotationResource($quotation))->response()->setStatusCode(201);
+    $quotation = $this->service->store($validated, $request);
+
+    return (new QuotationResource($quotation))->response()->setStatusCode(201);
+
     }
 
     public function update(Update $request, $id)
     {
-        $quotation = $this->service->update($request->validated(), $id, $request);
-
-       return new QuotationResource($quotation);
+        // Prepare files as a JSON array before passing them to the service
+        $validated = $request->validated();
+        if ($request->has('print_parts_files')) {
+        $files = [];
+        foreach ($request->input('print_parts_files') as $filesArray) {
+            foreach ($filesArray as $file) {
+                if ($file && $file->isValid()) {
+                    $filePath = $file->store('quotation-print-parts', 'public');
+                    $files[] = $filePath;
+                }
+            }
+        }
+        // Add the files to the validated data
+        $validated['print_parts_files'] = json_encode($files);
     }
+
+    $quotation = $this->service->update($validated, $id, $request);
+
+    return new QuotationResource($quotation);
+   }
 
     public function show($id)
     {
