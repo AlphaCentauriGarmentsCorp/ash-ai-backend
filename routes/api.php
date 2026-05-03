@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ShippingMethodController;
 use App\Http\Controllers\Api\ApparelPatternPriceController;
 use App\Http\Controllers\Api\ApparelNecklineController;
+use App\Http\Controllers\Api\PantoneController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -256,6 +257,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/shipping-methods')->middleware('permission:access.shipping-methods')->controller(ShippingMethodController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/pantone')->middleware('permission:access.pantone')->controller(PantoneController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
