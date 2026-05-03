@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\OrdersController;
+use App\Http\Controllers\Api\TicketController;
 use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ApparelPartController;
@@ -123,6 +124,17 @@ Route::prefix('v2')->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/details/{po_code}', 'show');
+        });
+
+        Route::prefix('/tickets')->middleware('permission:access.tickets')->controller(TicketController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/from-roles', 'getFromRoles');
+            Route::get('/to-roles', 'getToRoles');
+            Route::get('/by-role/{role}', 'getByRole');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
         });
 
         Route::prefix('/pattern-type')->middleware('permission:access.dropdown-settings')->controller(PatternTypeController::class)->group(function () {
