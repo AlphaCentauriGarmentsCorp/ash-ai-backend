@@ -378,6 +378,25 @@ Route::prefix('v2')->group(function () {
 
     });
 
+    // ── Public Dropdown Access (NO authentication required) ──────────────────
+    // Read-only endpoints for public clients.
+    Route::prefix('/public')->group(function () {
+        Route::prefix('/pattern-type')->controller(PatternTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+
+        Route::prefix('/apparel-type')->controller(ApparelTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+
+        Route::prefix('/apparel-neckline')->controller(ApparelNecklineController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+    });
+
     // ── Public Share Access (NO authentication required) ──────────────────────
     // These routes are intentionally OUTSIDE the auth middleware.
     // Access is governed solely by the validity of the share token.

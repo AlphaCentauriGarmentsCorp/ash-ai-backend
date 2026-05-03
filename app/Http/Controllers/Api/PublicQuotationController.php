@@ -47,12 +47,12 @@ class PublicQuotationController extends Controller
     }
 
     /**
-     * Update print_parts_json via a valid edit-permission token.
+        * Update print parts via a valid edit-permission token.
      *
      * PUT /v2/share/quotations/{token}
      *
      * Accepted fields:
-        *   print_parts_json                           (JSON string)
+          *   print_parts or print_parts_json            (JSON string or array)
         *   print_parts_files[index]                   (file upload, optional)
      *
      * Triggers PDF regeneration and email notification (same as private update).
@@ -64,7 +64,18 @@ class PublicQuotationController extends Controller
         $validated = $request->validated();
         $data = [];
 
-        $incomingPrintParts = $request->input('print_parts_json');
+        $incomingPrintParts = $request->input('print_parts');
+        $incomingPrintPartsJson = null;
+
+        if ($incomingPrintParts === null || $incomingPrintParts === '') {
+            $incomingPrintParts = $request->input('print_parts_json');
+            if (array_key_exists('print_parts_json', $validated) && is_string($validated['print_parts_json']) && $validated['print_parts_json'] !== '') {
+                $incomingPrintPartsJson = $validated['print_parts_json'];
+            }
+        } elseif (array_key_exists('print_parts', $validated) && is_string($validated['print_parts']) && $validated['print_parts'] !== '') {
+            $incomingPrintPartsJson = $validated['print_parts'];
+        }
+
         if (is_array($incomingPrintParts)) {
             if (! array_is_list($incomingPrintParts)) {
                 $incomingPrintParts = array_values($incomingPrintParts);
@@ -72,9 +83,9 @@ class PublicQuotationController extends Controller
 
             $data['print_parts'] = $incomingPrintParts;
             $data['print_parts_json'] = json_encode($incomingPrintParts);
-        } elseif (array_key_exists('print_parts_json', $validated) && is_string($validated['print_parts_json']) && $validated['print_parts_json'] !== '') {
-            $data['print_parts_json'] = $validated['print_parts_json'];
-            $decoded = json_decode($validated['print_parts_json'], true);
+        } elseif (is_string($incomingPrintPartsJson) && $incomingPrintPartsJson !== '') {
+            $data['print_parts_json'] = $incomingPrintPartsJson;
+            $decoded = json_decode($incomingPrintPartsJson, true);
             if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
                 $data['print_parts'] = $decoded;
             }

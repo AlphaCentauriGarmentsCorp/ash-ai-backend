@@ -18,6 +18,9 @@ class Quotation extends Model
         'client_brand',
         'shirt_color',
         'apparel_neckline_id',
+        'print_method_id',
+        'special_print',
+        'print_area',
         'free_items',
         'notes',
         'subtotal',
@@ -34,6 +37,7 @@ class Quotation extends Model
     ];
 
     protected $casts = [
+        'print_method_id' => 'integer',
         'item_config_json' => 'array',
         'items_json'       => 'array',
         'addons_json'      => 'array',
