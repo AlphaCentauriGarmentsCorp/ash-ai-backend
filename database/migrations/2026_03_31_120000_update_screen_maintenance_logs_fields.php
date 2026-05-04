@@ -5,22 +5,23 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
+
     public function up(): void
     {
-        if (!Schema::hasTable('screen_maintenance_logs')) {
+        if (!Schema::hasTable('screen_maintenance')) {
             return;
         }
 
-        Schema::table('screen_maintenance_logs', function (Blueprint $table) {
-            if (!Schema::hasColumn('screen_maintenance_logs', 'notes')) {
+        Schema::table('screen_maintenance', function (Blueprint $table) {
+            if (!Schema::hasColumn('screen_maintenance', 'notes')) {
                 $table->string('notes')->nullable()->after('maintenance_type');
             }
 
-            if (!Schema::hasColumn('screen_maintenance_logs', 'materials_used')) {
+            if (!Schema::hasColumn('screen_maintenance', 'materials_used')) {
                 $table->string('materials_used')->nullable()->after('notes');
             }
 
-            if (Schema::hasColumn('screen_maintenance_logs', 'status')) {
+            if (Schema::hasColumn('screen_maintenance', 'status')) {
                 $table->dropColumn('status');
             }
         });
@@ -28,20 +29,20 @@ return new class extends Migration {
 
     public function down(): void
     {
-        if (!Schema::hasTable('screen_maintenance_logs')) {
+        if (!Schema::hasTable('screen_maintenance')) {
             return;
         }
 
-        Schema::table('screen_maintenance_logs', function (Blueprint $table) {
-            if (Schema::hasColumn('screen_maintenance_logs', 'materials_used')) {
+        Schema::table('screen_maintenance', function (Blueprint $table) {
+            if (Schema::hasColumn('screen_maintenance', 'materials_used')) {
                 $table->dropColumn('materials_used');
             }
 
-            if (Schema::hasColumn('screen_maintenance_logs', 'notes')) {
+            if (Schema::hasColumn('screen_maintenance', 'notes')) {
                 $table->dropColumn('notes');
             }
 
-            if (!Schema::hasColumn('screen_maintenance_logs', 'status')) {
+            if (!Schema::hasColumn('screen_maintenance', 'status')) {
                 $table->string('status')->default('Pending');
             }
         });

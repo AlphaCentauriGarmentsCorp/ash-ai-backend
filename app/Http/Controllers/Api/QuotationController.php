@@ -80,4 +80,26 @@ class QuotationController extends Controller
 
         return response()->json(['message' => 'Quotation deleted successfully']);
     }
+
+    /**
+     * Confirm a quotation and return pre-filled order payload.
+     * Sets quotation status to "Converted" (idempotent guard included).
+     */
+    public function confirm($id)
+    {
+        $result = $this->service->confirmAndConvert((int) $id);
+
+        if ($result['already_converted']) {
+            return response()->json([
+                'message' => 'This quotation has already been converted to an order.',
+                'quotation' => new QuotationResource($result['quotation']),
+            ], 409);
+        }
+
+        return response()->json([
+            'message'       => 'Quotation confirmed and ready to convert.',
+            'quotation'     => new QuotationResource($result['quotation']),
+            'order_payload' => $result['order_payload'],
+        ]);
+    }
 }

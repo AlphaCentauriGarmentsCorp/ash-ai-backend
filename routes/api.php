@@ -346,6 +346,7 @@ Route::prefix('v2')->group(function () {
                 Route::post('/', 'store');
                 Route::get('/{id}', 'show');
                 Route::get('/{id}/pdf', 'generatePDF');
+                Route::post('/{id}/confirm', 'confirm');
                 Route::put('/{id}', 'update');
                 Route::delete('/{id}', 'destroy');
             });

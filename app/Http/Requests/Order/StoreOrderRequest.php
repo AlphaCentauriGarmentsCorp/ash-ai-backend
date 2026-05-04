@@ -16,81 +16,40 @@ class StoreOrderRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Client & Order Info
-            'client' => 'required|exists:clients,id',
-            'company' => 'required|string|max:255',
-            'brand' => 'required|string|max:255',
-            'priority' => 'required|string',
-            'deadline' => 'required|date',
+            // Traceability
+            'quotation_id'        => 'nullable|integer|exists:quotations,id',
 
-            // Shipping
-            'courier' => 'required|string',
-            'method' => 'required|string',
-            'receiver_name' => 'required|string',
-            'contact_number' => 'required|string',
-            'street_address' => 'nullable|string',
-            'barangay_address' => 'nullable|string',
-            'city_address' => 'nullable|string',
-            'province_address' => 'nullable|string',
-            'postal_address' => 'nullable|string',
+            // Client
+            'client_id'           => 'nullable|integer|exists:clients,id',
+            'client_name'         => 'required|string|max:255',
+            'client_brand'        => 'nullable|string|max:255',
 
-            // Design & Apparel
-            'design_name' => 'required|string',
-            'apparel_type' => 'required|string',
-            'pattern_type' => 'required|string',
-            'service_type' => 'required|string',
-            'print_method' => 'required|string',
-            'print_service' => 'required|string',
-            'size_label' => 'required|string',
-            'print_label_placement' => 'required|string',
+            // Apparel config IDs
+            'apparel_type_id'     => 'nullable|integer',
+            'pattern_type_id'     => 'nullable|integer',
+            'apparel_neckline_id' => 'nullable|integer|exists:apparel_necklines,id',
+            'print_method_id'     => 'nullable|integer|exists:print_methods,id',
 
-            // Fabric
-            'fabric_type' => 'required|string',
-            'fabric_supplier' => 'required|string',
-            'fabric_color' => 'required|string',
-            'thread_color' => 'required|string',
-            'ribbing_color' => 'required|string',
+            // Shirt / Print details
+            'shirt_color'         => 'nullable|string|max:255',
+            'special_print'       => 'nullable|string|max:255',
+            'print_area'          => 'nullable|string|max:100',
+            'free_items'          => 'nullable|string|max:255',
+            'notes'               => 'nullable|string',
 
+            // Pricing
+            'discount_type'       => 'nullable|in:percentage,fixed',
+            'discount_price'      => 'nullable|numeric|min:0',
+            'discount_amount'     => 'nullable|numeric|min:0',
+            'subtotal'            => 'nullable|numeric|min:0',
+            'grand_total'         => 'nullable|numeric|min:0',
 
-            'placement_measurements' => 'nullable|string',
-            'notes' => 'nullable|string',
-
-            'freebie_items' => 'nullable|string',
-            'freebie_others' => 'nullable|string',
-            'freebie_color' => 'nullable|string',
-
-
-            // Payment
-            'payment_method' => 'nullable|string',
-            'payment_plan' => 'nullable|string',
-            'deposit_percentage' => 'nullable|numeric',
-
-            // Totals
-            'total_quantity' => 'required|integer',
-            'total_amount' => 'required|numeric',
-            'average_unit_price' => 'required|numeric',
-
-            // Files
-            'design_files.*' => 'file|mimes:pdf,jpg,png',
-            'design_mockup.*' => 'file|mimes:pdf,jpg,png',
-            'size_label_files.*' => 'file|mimes:pdf,jpg,png',
-            'freebies_files.*' => 'file|mimes:pdf,jpg,png',
-            'payments.*' => 'file|mimes:pdf,jpg,png',
-
-            // Arrays
-            'sizes' => 'required|array|min:1',
-            'sizes.*.name' => 'required|string',
-            'sizes.*.costPrice' => 'required|numeric',
-            'sizes.*.quantity' => 'required|numeric',
-
-            'samples' => 'required|array|min:1',
-            'samples.*.size' => 'required|string',
-            'samples.*.quantity' => 'required|integer',
-            'samples.*.unit_price' => 'required|numeric',
-            'samples.*.total_price' => 'required|numeric',
-
-
-            'selectedOptions' => 'nullable|array',
+            // JSON blobs
+            'item_config_json'    => 'nullable|string',
+            'items_json'          => 'nullable|string',
+            'addons_json'         => 'nullable|string',
+            'breakdown_json'      => 'nullable|string',
+            'print_parts_json'    => 'nullable|string',
         ];
     }
 
@@ -111,7 +70,7 @@ class StoreOrderRequest extends FormRequest
         throw new HttpResponseException(
             response()->json([
                 'message' => 'Validation failed',
-                'errors' => $errors,
+                'errors'  => $errors,
             ], 422)
         );
     }

@@ -7,72 +7,66 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class OrderResource extends JsonResource
 {
-
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
-            'po_code' => $this->po_code,
-            'client_id' => $this->client_id,
-            'client_brand' => $this->client_brand,
-            'deadline' => $this->deadline?->toDateString(),
-            'priority' => $this->priority,
-            'brand' => $this->brand,
+            'id'                  => $this->id,
+            'po_code'             => $this->po_code,
 
-            'courier' => $this->courier,
-            'method' => $this->method,
-            'receiver_name' => $this->receiver_name,
-            'receiver_contact' => $this->receiver_contact,
-            'address' => $this->address,
+            // Traceability
+            'quotation_id'        => $this->quotation_id,
+            'quotation'           => $this->whenLoaded('quotation'),
 
-            'design_name' => $this->design_name,
-            'apparel_type' => $this->apparel_type,
-            'pattern_type' => $this->pattern_type,
-            'service_type' => $this->service_type,
-            'print_method' => $this->print_method,
-            'print_service' => $this->print_service,
-            'size_label' => $this->size_label,
-            'print_label_placement' => $this->print_label_placement,
+            // Client
+            'client_id'           => $this->client_id,
+            'client_name'         => $this->client_name,
+            'client_brand'        => $this->client_brand,
+            'client'              => $this->whenLoaded('client'),
 
-            'fabric_type' => $this->fabric_type,
-            'fabric_supplier' => $this->fabric_supplier,
-            'fabric_color' => $this->fabric_color,
-            'thread_color' => $this->thread_color,
-            'ribbing_color' => $this->ribbing_color,
+            // Apparel config IDs
+            'apparel_type_id'     => $this->apparel_type_id,
+            'pattern_type_id'     => $this->pattern_type_id,
+            'apparel_neckline_id' => $this->apparel_neckline_id,
+            'print_method_id'     => $this->print_method_id,
 
-            'placement_measurements' => $this->placement_measurements,
-            'notes' => $this->notes,
-            'options' => $this->options,
+            // Shirt / Print details
+            'shirt_color'         => $this->shirt_color,
+            'special_print'       => $this->special_print,
+            'print_area'          => $this->print_area,
+            'free_items'          => $this->free_items,
+            'notes'               => $this->notes,
 
-            'freebie_items' => $this->freebie_items,
-            'freebie_color' => $this->freebie_color,
-            'freebie_others' => $this->freebie_others,
+            // Pricing
+            'discount_type'       => $this->discount_type,
+            'discount_price'      => $this->discount_price,
+            'discount_amount'     => $this->discount_amount,
+            'subtotal'            => $this->subtotal,
+            'grand_total'         => $this->grand_total,
 
-            'payment_method' => $this->payment_method,
-            'payment_plan' => $this->payment_plan,
-            'total_price' => $this->total_price,
-            'average_unit_price' => $this->average_unit_price,
-            'total_quantity' => $this->total_quantity,
-            'deposit' => $this->deposit,
+            // JSON blobs
+            'item_config'         => $this->item_config_json,
+            'items'               => $this->items_json,
+            'addons'              => $this->addons_json,
+            'breakdown'           => $this->breakdown_json,
+            'print_parts'         => $this->print_parts_json,
 
-            'design_files' => $this->design_files,
-            'design_mockup' => $this->design_mockup,
-            'size_label_files' => $this->size_label_files,
-            'freebies_files' => $this->freebies_files,
+            // QR / Barcode
+            'qr_path'             => $this->qr_path,
+            'barcode_path'        => $this->barcode_path,
 
-            'qr_path' => $this->qr_path,
-            'barcode_path' => $this->barcode_path,
+            'status'              => $this->status,
 
-            'items' => PoItemResource::collection($this->whenLoaded('items')),
-            'samples' => OrderSamples::collection($this->whenLoaded('samples')),
-            'client' => $this->whenLoaded('client'),
-            'orderStages'  => $this->whenLoaded('orderStages'),
-            'orderDesign'  => $this->whenLoaded('orderDesign'),
-            'screenAssignment'  => $this->whenLoaded('screenAssignment'),
-            'screenChecking'  => $this->whenLoaded('screenChecking'),
-            'status' => $this->status,
-            'created_at' => $this->created_at?->toDateTimeString(),
-            'updated_at' => $this->updated_at?->toDateTimeString(),
+            // Relations (loaded on demand)
+            'items_list'          => PoItemResource::collection($this->whenLoaded('items')),
+            'samples'             => OrderSamples::collection($this->whenLoaded('samples')),
+            'orderStages'         => $this->whenLoaded('orderStages'),
+            'orderDesign'         => $this->whenLoaded('orderDesign'),
+            'screenAssignment'    => $this->whenLoaded('screenAssignment'),
+            'screenChecking'      => $this->whenLoaded('screenChecking'),
+            'tickets'             => $this->whenLoaded('tickets'),
+
+            'created_at'          => $this->created_at?->toDateTimeString(),
+            'updated_at'          => $this->updated_at?->toDateTimeString(),
         ];
     }
 }

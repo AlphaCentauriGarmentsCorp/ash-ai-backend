@@ -13,56 +13,65 @@ class Order extends Model
 
     protected $fillable = [
         'po_code',
+        'quotation_id',
+
+        // Client
         'client_id',
+        'client_name',
         'client_brand',
-        'deadline',
-        'priority',
-        'brand',
 
-        'courier',
-        'method',
-        'receiver_name',
-        'receiver_contact',
-        'address',
+        // Apparel config IDs (from quotation)
+        'apparel_type_id',
+        'pattern_type_id',
+        'apparel_neckline_id',
+        'print_method_id',
 
-        'design_name',
-        'apparel_type',
-        'pattern_type',
-        'service_type',
-        'print_method',
-        'print_service',
-        'size_label',
-        'print_label_placement',
-
-        'fabric_type',
-        'fabric_supplier',
-        'fabric_color',
-        'thread_color',
-        'ribbing_color',
-
-        'placement_measurements',
+        // Shirt / Print details
+        'shirt_color',
+        'special_print',
+        'print_area',
+        'free_items',
         'notes',
-        'options',
 
-        'freebie_items',
-        'freebie_color',
-        'freebie_others',
+        // Pricing & discount
+        'discount_type',
+        'discount_price',
+        'discount_amount',
+        'subtotal',
+        'grand_total',
 
-        'payment_method',
-        'payment_plan',
-        'total_price',
-        'average_unit_price',
-        'total_quantity',
-        'deposit',
+        // JSON blobs (carried from quotation)
+        'item_config_json',
+        'items_json',
+        'addons_json',
+        'breakdown_json',
+        'print_parts_json',
 
-        'design_files',
-        'design_mockup',
-        'size_label_files',
-        'freebies_files',
-
+        // QR / Barcode
         'qr_path',
         'barcode_path',
+
+        'status',
     ];
+
+    protected $casts = [
+        'item_config_json' => 'array',
+        'items_json'       => 'array',
+        'addons_json'      => 'array',
+        'breakdown_json'   => 'array',
+        'print_parts_json' => 'array',
+        'subtotal'         => 'decimal:2',
+        'discount_price'   => 'decimal:2',
+        'discount_amount'  => 'decimal:2',
+        'grand_total'      => 'decimal:2',
+    ];
+
+    // ── Relationships ──────────────────────────────────────────────────────────
+
+    public function quotation()
+    {
+        return $this->belongsTo(Quotation::class);
+    }
 
     public function client()
     {
@@ -99,9 +108,8 @@ class Order extends Model
         return $this->hasMany(ScreenChecking::class);
     }
 
-    protected $casts = [
-        'deadline' => 'date',
-        'total_price' => 'decimal:2',
-        'average_unit_price' => 'decimal:2',
-    ];
+    public function tickets()
+    {
+        return $this->hasMany(Ticket::class);
+    }
 }
