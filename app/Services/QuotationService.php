@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\ApparelNeckline;
 use App\Models\ApparelPatternPrice;
+use App\Models\PrintMethod;
 use App\Models\Quotation;
 use Illuminate\Database\Eloquent\Collection;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -47,10 +48,9 @@ class QuotationService
 
             Storage::disk('public')->put($filePath, $pdf->output());
 
-            // Only update pdf_path if the column exists in the DB
-            if (\Illuminate\Support\Facades\Schema::hasColumn('quotations', 'pdf_path')) {
-                $quotation->update(['pdf_path' => $filePath]);
-            }
+            $quotation->update([
+                'pdf_path' => $filePath
+            ]);
 
             // Send email if client_email exists
             if (!empty($quotation->client_email)) {
@@ -123,6 +123,7 @@ class QuotationService
             || array_key_exists('print_parts', $data);
 
         $printPartsMetadata = $this->extractPrintPartsMetadata($data, $existing);
+        [$printMethodId, $specialPrint, $printArea] = $this->resolvePrintMethodFields($data, $existing);
 
         if ($isPrintPartsOnlyUpdate) {
             $resolvedPrintParts = $this->handlePrintParts($printPartsMetadata, $request, $existing, false);
@@ -139,6 +140,9 @@ class QuotationService
             ]);
 
             return [
+                'print_method_id' => $printMethodId,
+                'special_print' => $specialPrint,
+                'print_area' => $printArea,
                 'print_parts_json' => $resolvedPrintParts,
                 'breakdown_json' => $normalizedBreakdown,
             ];
@@ -292,22 +296,14 @@ class QuotationService
         return [
             'client_id' => $data['client_id'] ?? $existing?->client_id,
             'client_name' => $data['client_name'] ?? $existing?->client_name,
-            'apparel_type_id' => isset($data['apparel_type_id']) && $data['apparel_type_id'] !== ''
-                ? (int) $data['apparel_type_id']
-                : ($itemConfig['apparel_type_id'] ?? $existing?->apparel_type_id),
-            'pattern_type_id' => isset($data['pattern_type_id']) && $data['pattern_type_id'] !== ''
-                ? (int) $data['pattern_type_id']
-                : ($itemConfig['pattern_type_id'] ?? $existing?->pattern_type_id),
             'client_email' => $data['client_email'] ?? $existing?->client_email,
             'client_facebook' => $data['client_facebook'] ?? $existing?->client_facebook,
             'client_brand' => $data['client_brand'] ?? $existing?->client_brand,
             'shirt_color' => $data['shirt_color'] ?? $existing?->shirt_color,
             'apparel_neckline_id' => $apparelNecklineId,
-            'print_method_id' => isset($data['print_method_id']) && $data['print_method_id'] !== ''
-                ? (int) $data['print_method_id']
-                : ($existing?->print_method_id),
-            'special_print' => $data['special_print'] ?? $existing?->special_print,
-            'print_area' => $data['print_area'] ?? $existing?->print_area ?? 'Regular',
+            'print_method_id' => $printMethodId,
+            'special_print' => $specialPrint,
+            'print_area' => $printArea,
             'free_items' => $data['free_items'] ?? $existing?->free_items,
             'notes' => $data['notes'] ?? $existing?->notes,
             'discount_type' => $discountType,
@@ -337,10 +333,12 @@ class QuotationService
                 return 0.0;
             }
 
-            $colorCount = (float) ($partData['color_count'] ?? $partData['colorCount'] ?? 0);
-            $pricePerColor = (float) ($partData['price_per_color'] ?? $partData['pricePerColor'] ?? 0);
+            $unitCount = (float) ($partData['unit_count'] ?? 0);
+            $pricePerUnit = (float) ($partData['price_per_unit'] ?? 0);
+            $fullUnitCount = (float) ($partData['full_unit_count'] ?? 0);
+            $pricePerFullUnit = (float) ($partData['price_per_full_unit'] ?? 0);
 
-            return round($colorCount * $pricePerColor, 2);
+            return round(($unitCount * $pricePerUnit) + ($fullUnitCount * $pricePerFullUnit), 2);
         }, $printParts)), 2);
     }
 
@@ -399,13 +397,15 @@ class QuotationService
                 continue;
             }
 
-            $partId = $partData['part_id'] ?? $partData['id'] ?? null;
-            $partName = $partData['part'] ?? $partData['name'] ?? null;
-            $colorCount = max(1, (int) ($partData['color_count'] ?? $partData['colorCount'] ?? 1));
-            $pricePerColor = (float) ($partData['price_per_color'] ?? $partData['pricePerColor'] ?? 0);
+            $partId = $partData['part_id'] ?? null;
+            $partName = $partData['part'] ?? null;
+            $unitCount = max(0, (float) ($partData['unit_count'] ?? 0));
+            $pricePerUnit = max(0, (float) ($partData['price_per_unit'] ?? 0));
+            $fullUnitCount = max(0, (float) ($partData['full_unit_count'] ?? 0));
+            $pricePerFullUnit = max(0, (float) ($partData['price_per_full_unit'] ?? 0));
 
-            $imageInputType = $partData['image_input_type'] ?? $partData['imageInputType'] ?? null;
-            $imageLink = $partData['image_link'] ?? $partData['imageLink'] ?? null;
+            $imageInputType = $partData['image_input_type'] ?? null;
+            $imageLink = $partData['image_link'] ?? null;
             $imagePath = $existingParts[$index]['image'] ?? null;
 
             if ($request && $request->hasFile("print_parts_files.{$index}")) {
@@ -423,8 +423,10 @@ class QuotationService
                 $partData,
                 $partId,
                 $partName,
-                $colorCount,
-                $pricePerColor,
+                $unitCount,
+                $pricePerUnit,
+                $fullUnitCount,
+                $pricePerFullUnit,
                 $imageInputType,
                 $imageLink,
                 $imagePath
@@ -438,28 +440,53 @@ class QuotationService
         array $partData,
         mixed $partId,
         mixed $partName,
-        int $colorCount,
-        float $pricePerColor,
+        float $unitCount,
+        float $pricePerUnit,
+        float $fullUnitCount,
+        float $pricePerFullUnit,
         mixed $imageInputType,
         mixed $imageLink,
         mixed $imagePath
     ): array {
+        $unitPriceTotal = round($unitCount * $pricePerUnit, 2);
+        $fullUnitPriceTotal = round($fullUnitCount * $pricePerFullUnit, 2);
+
         return array_merge($partData, [
             'part_id' => $partId,
-            'id' => $partId,
             'part' => $partName,
-            'name' => $partName,
-            'color_count' => $colorCount,
-            'colorCount' => $colorCount,
-            'price_per_color' => $pricePerColor,
-            'pricePerColor' => $pricePerColor,
+            'unit_count' => $unitCount,
+            'price_per_unit' => $pricePerUnit,
+            'full_unit_count' => $fullUnitCount,
+            'price_per_full_unit' => $pricePerFullUnit,
             'image_input_type' => $imageInputType,
-            'imageInputType' => $imageInputType,
             'image_link' => $imageLink,
-            'imageLink' => $imageLink,
-            'color_price_total' => round($colorCount * $pricePerColor, 2),
+            'unit_price_total' => $unitPriceTotal,
+            'full_unit_price_total' => $fullUnitPriceTotal,
+            'print_part_total' => round($unitPriceTotal + $fullUnitPriceTotal, 2),
             'image' => $imagePath,
         ]);
+    }
+
+    protected function resolvePrintMethodFields(array $data, ?Quotation $existing = null): array
+    {
+        $printMethodId = $data['print_method_id'] ?? $existing?->print_method_id;
+        $specialPrint = $data['special_print'] ?? $existing?->special_print;
+        $printArea = $data['print_area'] ?? $existing?->print_area;
+
+        if (! $printMethodId) {
+            return [null, null, null];
+        }
+
+        $printMethod = PrintMethod::find($printMethodId);
+        if (! $printMethod) {
+            throw ValidationException::withMessages(['print_method_id' => 'The selected print method is invalid.']);
+        }
+
+        if (strcasecmp(trim((string) $printMethod->name), 'silkscreen') !== 0) {
+            return [$printMethodId, null, null];
+        }
+
+        return [$printMethodId, $specialPrint, $printArea];
     }
 
     protected function generatePoCode(string $prefix = 'QUO'): string
@@ -512,29 +539,29 @@ class QuotationService
             : ($quotation->item_config_json ?? []);
 
         $orderPayload = [
-            'quotation_id'       => $quotation->id,
-            'client_id'          => $quotation->client_id,
-            'client_name'        => $quotation->client_name,
-            'client_brand'       => $quotation->client_brand,
-            'apparel_type_id'    => $quotation->apparel_type_id ?? ($itemConfig['apparel_type_id'] ?? null),
-            'pattern_type_id'    => $quotation->pattern_type_id ?? ($itemConfig['pattern_type_id'] ?? null),
-            'apparel_neckline_id'=> $quotation->apparel_neckline_id,
-            'print_method_id'    => $quotation->print_method_id,
-            'shirt_color'        => $quotation->shirt_color,
-            'special_print'      => $quotation->special_print,
-            'print_area'         => $quotation->print_area,
-            'free_items'         => $quotation->free_items,
-            'notes'              => $quotation->notes,
-            'discount_type'      => $quotation->discount_type,
-            'discount_price'     => $quotation->discount_price,
-            'discount_amount'    => $quotation->discount_amount,
-            'subtotal'           => $quotation->subtotal,
-            'grand_total'        => $quotation->grand_total,
-            'item_config_json'   => $quotation->item_config_json,
-            'items_json'         => $quotation->items_json,
-            'addons_json'        => $quotation->addons_json,
-            'breakdown_json'     => $quotation->breakdown_json,
-            'print_parts_json'   => $quotation->print_parts_json,
+            'quotation_id'        => $quotation->id,
+            'client_id'           => $quotation->client_id,
+            'client_name'         => $quotation->client_name,
+            'client_brand'        => $quotation->client_brand,
+            'apparel_type_id'     => $quotation->apparel_type_id ?? ($itemConfig['apparel_type_id'] ?? null),
+            'pattern_type_id'     => $quotation->pattern_type_id ?? ($itemConfig['pattern_type_id'] ?? null),
+            'apparel_neckline_id' => $quotation->apparel_neckline_id,
+            'print_method_id'     => $quotation->print_method_id,
+            'shirt_color'         => $quotation->shirt_color,
+            'special_print'       => $quotation->special_print,
+            'print_area'          => $quotation->print_area,
+            'free_items'          => $quotation->free_items,
+            'notes'               => $quotation->notes,
+            'discount_type'       => $quotation->discount_type,
+            'discount_price'      => $quotation->discount_price,
+            'discount_amount'     => $quotation->discount_amount,
+            'subtotal'            => $quotation->subtotal,
+            'grand_total'         => $quotation->grand_total,
+            'item_config_json'    => $quotation->item_config_json,
+            'items_json'          => $quotation->items_json,
+            'addons_json'         => $quotation->addons_json,
+            'breakdown_json'      => $quotation->breakdown_json,
+            'print_parts_json'    => $quotation->print_parts_json,
         ];
 
         return [
