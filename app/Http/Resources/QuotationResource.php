@@ -23,6 +23,8 @@ class QuotationResource extends JsonResource
             'client_email' => $this->client_email,
             'client_facebook' => $this->client_facebook,
             'client_brand' => $this->client_brand,
+            'apparel_type_id' => $this->apparel_type_id,
+            'pattern_type_id' => $this->pattern_type_id,
             'shirt_color' => $this->shirt_color,
             'apparel_neckline_id' => $this->apparel_neckline_id,
             'print_method_id' => $this->print_method_id,
@@ -45,6 +47,7 @@ class QuotationResource extends JsonResource
             'print_parts_total' => $this->breakdown_json['print_parts_total'] ?? null,
             'print_parts' => $this->print_parts_json,
 
+            'pdf_path' => $this->pdf_path,
             'status' => $this->status,
             'user' => $this->whenLoaded('user'),
             'created_at' => $this->created_at,

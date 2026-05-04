@@ -516,4 +516,58 @@ class QuotationService
 
         return $quotation->delete();
     }
+
+    /**
+     * Confirm a quotation and return its data shaped for Order pre-filling.
+     * Changes quotation status to "Converted" (one-time only).
+     */
+    public function confirmAndConvert(int $id): array
+    {
+        $quotation = Quotation::findOrFail($id);
+
+        if ($quotation->status === 'Converted') {
+            return [
+                'already_converted' => true,
+                'quotation' => $quotation,
+            ];
+        }
+
+        $quotation->update(['status' => 'Converted']);
+
+        $itemConfig = is_string($quotation->item_config_json)
+            ? json_decode($quotation->item_config_json, true)
+            : ($quotation->item_config_json ?? []);
+
+        $orderPayload = [
+            'quotation_id'        => $quotation->id,
+            'client_id'           => $quotation->client_id,
+            'client_name'         => $quotation->client_name,
+            'client_brand'        => $quotation->client_brand,
+            'apparel_type_id'     => $quotation->apparel_type_id ?? ($itemConfig['apparel_type_id'] ?? null),
+            'pattern_type_id'     => $quotation->pattern_type_id ?? ($itemConfig['pattern_type_id'] ?? null),
+            'apparel_neckline_id' => $quotation->apparel_neckline_id,
+            'print_method_id'     => $quotation->print_method_id,
+            'shirt_color'         => $quotation->shirt_color,
+            'special_print'       => $quotation->special_print,
+            'print_area'          => $quotation->print_area,
+            'free_items'          => $quotation->free_items,
+            'notes'               => $quotation->notes,
+            'discount_type'       => $quotation->discount_type,
+            'discount_price'      => $quotation->discount_price,
+            'discount_amount'     => $quotation->discount_amount,
+            'subtotal'            => $quotation->subtotal,
+            'grand_total'         => $quotation->grand_total,
+            'item_config_json'    => $quotation->item_config_json,
+            'items_json'          => $quotation->items_json,
+            'addons_json'         => $quotation->addons_json,
+            'breakdown_json'      => $quotation->breakdown_json,
+            'print_parts_json'    => $quotation->print_parts_json,
+        ];
+
+        return [
+            'already_converted' => false,
+            'quotation'         => $quotation,
+            'order_payload'     => $orderPayload,
+        ];
+    }
 }

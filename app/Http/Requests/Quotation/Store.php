@@ -30,6 +30,8 @@ class Store extends FormRequest
             'client_email' => 'nullable|email|max:255',
             'client_facebook' => 'nullable|string|max:255',
             'client_brand' => 'nullable|string|max:255',
+            'apparel_type_id' => 'nullable|integer',
+            'pattern_type_id' => 'nullable|integer',
             'shirt_color' => 'nullable|string|max:255',
             'apparel_neckline_id' => 'nullable|integer|exists:apparel_necklines,id',
             'print_method_id' => 'nullable|integer|exists:print_methods,id',

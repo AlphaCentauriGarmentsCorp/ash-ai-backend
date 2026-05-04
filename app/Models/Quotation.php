@@ -16,6 +16,8 @@ class Quotation extends Model
         'client_email',
         'client_facebook',
         'client_brand',
+        'apparel_type_id',
+        'pattern_type_id',
         'shirt_color',
         'apparel_neckline_id',
         'print_method_id',
@@ -33,6 +35,7 @@ class Quotation extends Model
         'addons_json',
         'breakdown_json',
         'print_parts_json',
+        'pdf_path',
         'status',
     ];
 
@@ -53,5 +56,10 @@ class Quotation extends Model
     public function shareTokens()
     {
         return $this->hasMany(QuotationShareToken::class, 'quotation_id');
+    }
+
+    public function tickets()
+    {
+        return $this->hasMany(Ticket::class);
     }
 }
