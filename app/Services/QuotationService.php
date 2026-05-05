@@ -29,7 +29,7 @@ class QuotationService
     }
 
     public function store(array $data, ?Request $request = null): Quotation
-    {
+{
         return DB::transaction(function () use ($data, $request) {
             $normalized = $this->normalizePayload($data, $request);
             $normalized['quotation_id'] = $this->generatePoCode('QUO');
@@ -37,26 +37,29 @@ class QuotationService
 
             // Handle PSD file upload
             if ($request->hasFile('print_parts_psd')) {
-                // Validate PSD file (10MB max size)
-                $validated = $request->validate([
+            $validated = $request->validate([
                 'print_parts_psd' => 'nullable|file|mimes:psd|max:10240',  // PSD file validation
-                ]);
-
-            // Process the PSD file if it exists
+            ]);
             if ($validated['print_parts_psd']) {
-                // Store PSD file in the 'quotation-psd-files' folder in the 'public' disk
                 $filePath = $validated['print_parts_psd']->store('quotation-psd-files', 'public');
-                // Save the file path in the $data array
                 $normalized['print_parts_psd'] = $filePath;
             }
         }
 
+            // Calculate total square inches and total price based on length, width, and price per square inch
+            if (isset($normalized['length'], $normalized['width'], $normalized['price_per_square_inch'])) {
+            $totalSquareInches = $normalized['length'] * $normalized['width'];  // length * width
+            $totalPrice = $totalSquareInches * $normalized['price_per_square_inch'];  // total square inches * price per square inch
+
+            $normalized['total_square_inches'] = $totalSquareInches;
+            $normalized['total_price'] = $totalPrice;
+        }
+
+            // Create the quotation
             $quotation = Quotation::create($normalized);
 
             // Generate PDF after creation
-            $pdf = Pdf::loadView('pdf', [
-                'quotation' => $quotation
-            ]);
+            $pdf = Pdf::loadView('pdf', ['quotation' => $quotation]);
 
             $fileName = $quotation->quotation_id . '.pdf';
             $filePath = "quotations/{$fileName}";
@@ -64,40 +67,35 @@ class QuotationService
             Storage::disk('public')->put($filePath, $pdf->output());
 
             $quotation->update([
-                'pdf_path' => $filePath
+               'pdf_path' => $filePath
             ]);
 
             // Send email if client_email exists
             if (!empty($quotation->client_email)) {
                 Mail::to($quotation->client_email)->send(new QuotationPdfMail($filePath));
-            }
+        }
 
             return $quotation->fresh();
-        });
-    }
+    });
+}
 
-    public function update(array $data, int $id, ?Request $request = null): Quotation
-    {
-        return DB::transaction(function () use ($id, $data, $request) {
+        public function update(array $data, int $id, ?Request $request = null): Quotation
+        {
+            return DB::transaction(function () use ($id, $data, $request) {
             $quotation = Quotation::findOrFail($id);
 
             // Handle PSD file upload
             if ($request->hasFile('print_parts_psd')) {
-                // Validate PSD file (10MB max size)
-                $validated = $request->validate([
+            $validated = $request->validate([
                 'print_parts_psd' => 'nullable|file|mimes:psd|max:10240',  // PSD file validation
-                ]);
-
-            // Process the PSD file if it exists
+            ]);
             if ($validated['print_parts_psd']) {
-                // Store PSD file in the 'quotation-psd-files' folder in the 'public' disk
                 $filePath = $validated['print_parts_psd']->store('quotation-psd-files', 'public');
-                // Save the file path in the $data array
                 $data['print_parts_psd'] = $filePath;
             }
         }
 
-            if (array_key_exists('print_parts_json', $data) || array_key_exists('print_parts', $data) || ($request && $request->hasFile('print_parts_files'))) {
+        if (array_key_exists('print_parts_json', $data) || array_key_exists('print_parts', $data) || ($request && $request->hasFile('print_parts_files'))) {
                 Log::info('Quotation public update incoming print parts payload', [
                     'quotation_id' => $quotation->id,
                     'print_parts_json' => $data['print_parts_json'] ?? null,
@@ -105,16 +103,17 @@ class QuotationService
                 ]);
             }
 
-            $normalized = $this->normalizePayload($data, $request, $quotation);
+            // Calculate total square inches and total price based on length, width, and price per square inch
+            if (isset($data['length'], $data['width'], $data['price_per_square_inch'])) {
+                $totalSquareInches = $data['length'] * $data['width'];  // length * width
+                $totalPrice = $totalSquareInches * $data['price_per_square_inch'];  // total square inches * price per square inch
 
-            if (array_key_exists('print_parts_json', $normalized)) {
-                Log::info('Quotation public update normalized print parts before save', [
-                    'quotation_id' => $quotation->id,
-                    'print_parts_json' => $normalized['print_parts_json'],
-                ]);
+                $data['total_square_inches'] = $totalSquareInches;
+                $data['total_price'] = $totalPrice;
             }
 
-            $quotation->update($normalized);
+            // Normalize and save the updated data
+            $normalized = $this->normalizePayload($data, $request, $quotation);
 
             if (array_key_exists('print_parts_json', $normalized)) {
                 Log::info('Quotation public update saved print parts', [
@@ -122,25 +121,24 @@ class QuotationService
                     'print_parts_json' => $quotation->fresh()->print_parts_json,
                 ]);
             }
+           $quotation->update($normalized);
 
-            // Regenerate PDF after update
-            $pdf = Pdf::loadView('pdf', [
-                'quotation' => $quotation->fresh()
-            ]);
+           // Regenerate PDF after update
+           $pdf = Pdf::loadView('pdf', ['quotation' => $quotation->fresh()]);
 
-            $fileName = $quotation->quotation_id . '.pdf';
-            $filePath = "quotations/{$fileName}";
+           $fileName = $quotation->quotation_id . '.pdf';
+           $filePath = "quotations/{$fileName}";
+  
+           // Overwrite existing PDF
+           Storage::disk('public')->put($filePath, $pdf->output());
 
-            //Overwrite existing PDF
-            Storage::disk('public')->put($filePath, $pdf->output());
+           if (!empty($quotation->client_email)) {
+           Mail::to($quotation->client_email)->send(new QuotationPdfMail($filePath));
+           }
 
-            if (!empty($quotation->client_email)) {
-                Mail::to($quotation->client_email)->send(new QuotationPdfMail($filePath));
-            }
-
-            return $quotation->fresh();
-        });
-    }
+           return $quotation->fresh();
+    });
+}
 
     protected function normalizePayload(array $data, ?Request $request = null, ?Quotation $existing = null): array
     {
@@ -225,6 +223,25 @@ class QuotationService
         
 
     
+
+    {
+            // Get length, width, and price per square inch from the request or existing data
+            $length = $data['length'] ?? $existing?->length;
+            $width = $data['width'] ?? $existing?->width;
+            $pricePerSquareInch = $data['price_per_square_inch'] ?? $existing?->price_per_square_inch;
+
+            // Calculate total square inches and total price based on the new logic
+            if ($length && $width && $pricePerSquareInch) {
+            $totalSquareInches = $length * $width;  // Calculate total square inches
+            $totalPrice = $totalSquareInches * $pricePerSquareInch;  // Calculate total price based on price per square inch
+
+            // Add the calculated values to the data
+            $data['total_square_inches'] = $totalSquareInches;
+            $data['total_price'] = $totalPrice;
+        }
+
+            return $data;
+    }
 
 
         $itemConfig = $this->decodeJsonField($data['item_config_json'] ?? ($existing?->item_config_json));

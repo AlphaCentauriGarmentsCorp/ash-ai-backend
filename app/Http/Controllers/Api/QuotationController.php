@@ -26,53 +26,58 @@ class QuotationController extends Controller
         $printTypes = $this->service->getAll();
         return QuotationResource::collection($printTypes);
     }
+public function store(Store $request)
+{
+    $validated = $request->validated();
 
-    public function store(Store $request)
-    {
-        // Prepare files as a JSON array before passing them to the service
-        $validated = $request->validated();
-        if ($request->has('print_parts_files')) {
+    // Ensure that print_parts_files is included and processed
+    if ($request->has('print_parts_files')) {
         $files = [];
         foreach ($request->input('print_parts_files') as $filesArray) {
             foreach ($filesArray as $file) {
                 if ($file && $file->isValid()) {
-                    $filePath = $file->store('quotation-print-parts', 'public');
-                    $files[] = $filePath;
+                    $filePath = $file->store('quotation-print-parts', 'public'); // Store file in 'quotation-print-parts' folder
+                    $files[] = $filePath; // Add the file path to the array
                 }
             }
         }
-        // Add the files to the validated data
+        // Add the file paths as JSON to the validated data
         $validated['print_parts_files'] = json_encode($files);
     }
 
+    // Create the quotation using the service layer
     $quotation = $this->service->store($validated, $request);
 
+    // Return the response with the newly created quotation
     return (new QuotationResource($quotation))->response()->setStatusCode(201);
-
-    }
+}
 
     public function update(Update $request, $id)
     {
-        // Prepare files as a JSON array before passing them to the service
-        $validated = $request->validated();
+    $validated = $request->validated();
+
         if ($request->has('print_parts_files')) {
-        $files = [];
-        foreach ($request->input('print_parts_files') as $filesArray) {
-            foreach ($filesArray as $file) {
-                if ($file && $file->isValid()) {
-                    $filePath = $file->store('quotation-print-parts', 'public');
-                    $files[] = $filePath;
+            $files = [];
+            foreach ($request->input('print_parts_files') as $filesArray) {
+                foreach ($filesArray as $file) {
+                    if ($file && $file->isValid()) {
+                        $filePath = $file->store('quotation-print-parts', 'public');
+                        $files[] = $filePath;
                 }
             }
         }
-        // Add the files to the validated data
-        $validated['print_parts_files'] = json_encode($files);
+        
+            $validated['print_parts_files'] = json_encode($files);
+
+        }
+
+        // Update the quotation with new data
+        $quotation = $this->service->update($validated, $id, $request);
+
+        return new QuotationResource($quotation);
+
     }
 
-    $quotation = $this->service->update($validated, $id, $request);
-
-    return new QuotationResource($quotation);
-   }
 
     public function show($id)
     {
