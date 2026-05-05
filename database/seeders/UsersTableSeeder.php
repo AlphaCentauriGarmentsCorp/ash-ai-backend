@@ -16,6 +16,7 @@ class UsersTableSeeder extends Seeder
         Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
         Role::firstOrCreate(['name' => 'csr', 'guard_name' => 'web']);
         Role::firstOrCreate(['name' => 'customer', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'graphic_artist', 'guard_name' => 'web']);
 
         $superadmin = User::updateOrCreate(
             ['email' => 'superadmin@com'],
@@ -106,5 +107,23 @@ class UsersTableSeeder extends Seeder
             ]
         );
         $sorbetesCustomer->syncRoles(['customer']);
+
+        $graphicArtist = User::updateOrCreate(
+            ['email' => 'artist@com'],
+            [
+                'name' => 'Graphic Artist',
+                'username' => 'graphicartist',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['graphic_artist'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $graphicArtist->syncRoles(['graphic_artist']);
     }
 }
