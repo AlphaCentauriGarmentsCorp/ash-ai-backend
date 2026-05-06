@@ -20,7 +20,8 @@ class OrdersController extends Controller
 
     public function index()
     {
-        $orders = Order::with('client')->latest()->get();
+        $orders = Order::with(['client', 'apparelType', 'patternType', 'printMethod'])
+            ->latest()->get();
         return OrderResource::collection($orders);
     }
 
@@ -28,6 +29,10 @@ class OrdersController extends Controller
     {
         $order = Order::with([
             'client',
+            'apparelType',
+            'patternType',
+            'printMethod',
+            'apparelNeckline',
             'quotation',
             'items',
             'orderStages',
