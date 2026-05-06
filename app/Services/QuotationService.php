@@ -4,8 +4,6 @@ namespace App\Services;
 
 use App\Models\ApparelNeckline;
 use App\Models\ApparelPatternPrice;
-use App\Models\ApparelType;
-use App\Models\PatternType;
 use App\Models\PrintMethod;
 use App\Models\Quotation;
 use Illuminate\Database\Eloquent\Collection;
@@ -540,6 +538,8 @@ class QuotationService
             ];
         }
 
+        $quotation->update(['status' => 'Converted']);
+
         $itemConfig = is_string($quotation->item_config_json)
             ? json_decode($quotation->item_config_json, true)
             : ($quotation->item_config_json ?? []);
@@ -555,20 +555,17 @@ class QuotationService
         $printMethodName = null;
 
         if ($apparelTypeId) {
-            $at = ApparelType::find($apparelTypeId);
+            $at = \App\Models\ApparelType::find($apparelTypeId);
             $apparelTypeName = $at?->name;
         }
         if ($patternTypeId) {
-            $pt = PatternType::find($patternTypeId);
+            $pt = \App\Models\PatternType::find($patternTypeId);
             $patternTypeName = $pt?->name;
         }
         if ($printMethodId) {
-            $pm = PrintMethod::find($printMethodId);
+            $pm = \App\Models\PrintMethod::find($printMethodId);
             $printMethodName = $pm?->name;
         }
-
-        // Mark as Converted only after all lookups succeed
-        $quotation->update(['status' => 'Converted']);
 
         $orderPayload = [
             'quotation_id'        => $quotation->id,

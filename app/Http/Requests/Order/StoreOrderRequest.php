@@ -21,7 +21,7 @@ class StoreOrderRequest extends FormRequest
 
             // Client
             'client_id'           => 'nullable|integer|exists:clients,id',
-            'client_name'         => 'required|string|max:255',
+            'client_name'         => 'nullable|string|max:255',
             'client_brand'        => 'nullable|string|max:255',
 
             // Apparel config IDs
