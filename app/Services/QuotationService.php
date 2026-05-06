@@ -293,12 +293,18 @@ class QuotationService
         $discountAmount = max(0, $discountAmount);
         $grandTotal = round($subtotal - $discountAmount, 2);
 
+        // Resolve apparel_type_id and pattern_type_id from item_config_json or direct payload
+        $apparelTypeId  = $itemConfig['apparel_type_id']  ?? $data['apparel_type_id']  ?? $existing?->apparel_type_id;
+        $patternTypeId  = $itemConfig['pattern_type_id']  ?? $data['pattern_type_id']  ?? $existing?->pattern_type_id;
+
         return [
             'client_id' => $data['client_id'] ?? $existing?->client_id,
             'client_name' => $data['client_name'] ?? $existing?->client_name,
             'client_email' => $data['client_email'] ?? $existing?->client_email,
             'client_facebook' => $data['client_facebook'] ?? $existing?->client_facebook,
             'client_brand' => $data['client_brand'] ?? $existing?->client_brand,
+            'apparel_type_id' => $apparelTypeId,
+            'pattern_type_id' => $patternTypeId,
             'shirt_color' => $data['shirt_color'] ?? $existing?->shirt_color,
             'apparel_neckline_id' => $apparelNecklineId,
             'print_method_id' => $printMethodId,
@@ -538,15 +544,41 @@ class QuotationService
             ? json_decode($quotation->item_config_json, true)
             : ($quotation->item_config_json ?? []);
 
+        // Resolve IDs (apparel_type_id / pattern_type_id may live in item_config_json)
+        $apparelTypeId = $quotation->apparel_type_id ?? ($itemConfig['apparel_type_id'] ?? null);
+        $patternTypeId = $quotation->pattern_type_id ?? ($itemConfig['pattern_type_id'] ?? null);
+        $printMethodId = $quotation->print_method_id;
+
+        // Resolve human-readable names so the frontend can populate dropdowns by name
+        $apparelTypeName = null;
+        $patternTypeName = null;
+        $printMethodName = null;
+
+        if ($apparelTypeId) {
+            $at = \App\Models\ApparelType::find($apparelTypeId);
+            $apparelTypeName = $at?->name;
+        }
+        if ($patternTypeId) {
+            $pt = \App\Models\PatternType::find($patternTypeId);
+            $patternTypeName = $pt?->name;
+        }
+        if ($printMethodId) {
+            $pm = \App\Models\PrintMethod::find($printMethodId);
+            $printMethodName = $pm?->name;
+        }
+
         $orderPayload = [
             'quotation_id'        => $quotation->id,
             'client_id'           => $quotation->client_id,
             'client_name'         => $quotation->client_name,
             'client_brand'        => $quotation->client_brand,
-            'apparel_type_id'     => $quotation->apparel_type_id ?? ($itemConfig['apparel_type_id'] ?? null),
-            'pattern_type_id'     => $quotation->pattern_type_id ?? ($itemConfig['pattern_type_id'] ?? null),
+            'apparel_type_id'     => $apparelTypeId,
+            'pattern_type_id'     => $patternTypeId,
+            'apparel_type_name'   => $apparelTypeName,
+            'pattern_type_name'   => $patternTypeName,
             'apparel_neckline_id' => $quotation->apparel_neckline_id,
-            'print_method_id'     => $quotation->print_method_id,
+            'print_method_id'     => $printMethodId,
+            'print_method_name'   => $printMethodName,
             'shirt_color'         => $quotation->shirt_color,
             'special_print'       => $quotation->special_print,
             'print_area'          => $quotation->print_area,
