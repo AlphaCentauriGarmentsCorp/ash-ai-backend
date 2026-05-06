@@ -9,9 +9,22 @@ class OrderResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        // Resolve names from relations (eager-loaded) or fall back to raw IDs
+        $apparelTypeName   = $this->whenLoaded('apparelType',  fn() => $this->apparelType?->name);
+        $patternTypeName   = $this->whenLoaded('patternType',  fn() => $this->patternType?->name);
+        $printMethodName   = $this->whenLoaded('printMethod',  fn() => $this->printMethod?->name);
+        $necklineName      = $this->whenLoaded('apparelNeckline', fn() => $this->apparelNeckline?->name);
+
+        // Resolved client name (relation takes priority over stored string)
+        $clientName = $this->whenLoaded('client',
+            fn() => $this->client?->name ?? $this->client_name,
+            $this->client_name
+        );
+
         return [
             'id'                  => $this->id,
             'po_code'             => $this->po_code,
+            'status'              => $this->status,
 
             // Traceability
             'quotation_id'        => $this->quotation_id,
@@ -19,15 +32,19 @@ class OrderResource extends JsonResource
 
             // Client
             'client_id'           => $this->client_id,
-            'client_name'         => $this->client_name,
+            'client_name'         => $clientName,
             'client_brand'        => $this->client_brand,
             'client'              => $this->whenLoaded('client'),
 
-            // Apparel config IDs
+            // Apparel config — IDs + resolved names
             'apparel_type_id'     => $this->apparel_type_id,
             'pattern_type_id'     => $this->pattern_type_id,
             'apparel_neckline_id' => $this->apparel_neckline_id,
             'print_method_id'     => $this->print_method_id,
+            'apparel_type'        => $apparelTypeName,
+            'pattern_type'        => $patternTypeName,
+            'print_method'        => $printMethodName,
+            'apparel_neckline'    => $necklineName,
 
             // Shirt / Print details
             'shirt_color'         => $this->shirt_color,
@@ -43,20 +60,18 @@ class OrderResource extends JsonResource
             'subtotal'            => $this->subtotal,
             'grand_total'         => $this->grand_total,
 
-            // JSON blobs
-            'item_config'         => $this->item_config_json,
-            'items'               => $this->items_json,
-            'addons'              => $this->addons_json,
-            'breakdown'           => $this->breakdown_json,
-            'print_parts'         => $this->print_parts_json,
+            // JSON blobs — cast to array by model, always arrays here
+            'items_json'          => $this->items_json   ?? [],
+            'addons_json'         => $this->addons_json  ?? [],
+            'breakdown_json'      => $this->breakdown_json ?? [],
+            'print_parts_json'    => $this->print_parts_json ?? [],
+            'item_config_json'    => $this->item_config_json ?? [],
 
             // QR / Barcode
             'qr_path'             => $this->qr_path,
             'barcode_path'        => $this->barcode_path,
 
-            'status'              => $this->status,
-
-            // Relations (loaded on demand)
+            // Relations
             'items_list'          => PoItemResource::collection($this->whenLoaded('items')),
             'samples'             => OrderSamples::collection($this->whenLoaded('samples')),
             'orderStages'         => $this->whenLoaded('orderStages'),

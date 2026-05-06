@@ -78,6 +78,26 @@ class Order extends Model
         return $this->belongsTo(Client::class);
     }
 
+    public function apparelType()
+    {
+        return $this->belongsTo(ApparelType::class);
+    }
+
+    public function patternType()
+    {
+        return $this->belongsTo(PatternType::class);
+    }
+
+    public function printMethod()
+    {
+        return $this->belongsTo(PrintMethod::class);
+    }
+
+    public function apparelNeckline()
+    {
+        return $this->belongsTo(ApparelNeckline::class);
+    }
+
     public function items()
     {
         return $this->hasMany(PoItem::class);
