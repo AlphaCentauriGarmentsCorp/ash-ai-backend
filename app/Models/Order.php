@@ -13,89 +13,64 @@ class Order extends Model
 
     protected $fillable = [
         'po_code',
-        'quotation_id',
-
-        // Client
         'client_id',
-        'client_name',
         'client_brand',
+        'deadline',
+        'priority',
+        'brand',
 
-        // Apparel config IDs (from quotation)
-        'apparel_type_id',
-        'pattern_type_id',
-        'apparel_neckline_id',
-        'print_method_id',
+        'courier',
+        'method',
+        'receiver_name',
+        'receiver_contact',
+        'address',
 
-        // Shirt / Print details
-        'shirt_color',
-        'special_print',
-        'print_area',
-        'free_items',
+        'design_name',
+        'apparel_type',
+        'pattern_type',
+        'service_type',
+        'print_method',
+        'print_service',
+        'size_label',
+        'print_label_placement',
+
+        'fabric_type',
+        'fabric_supplier',
+        'fabric_color',
+        'thread_color',
+        'ribbing_color',
+
+        'placement_measurements',
         'notes',
+        'options',
 
-        // Pricing & discount
-        'discount_type',
-        'discount_price',
-        'discount_amount',
-        'subtotal',
-        'grand_total',
+        'freebie_items',
+        'freebie_color',
+        'freebie_others',
 
-        // JSON blobs (carried from quotation)
-        'item_config_json',
-        'items_json',
-        'addons_json',
-        'breakdown_json',
-        'print_parts_json',
+        'payment_method',
+        'payment_plan',
+        'total_price',
+        'average_unit_price',
+        'total_quantity',
+        'deposit',
 
-        // QR / Barcode
+        'design_files',
+        'design_mockup',
+        'size_label_files',
+        'freebies_files',
+
         'qr_path',
         'barcode_path',
 
-        'status',
+        'workflow_status',
+        'delayed_at',
+        'current_stage_id',
     ];
-
-    protected $casts = [
-        'item_config_json' => 'array',
-        'items_json'       => 'array',
-        'addons_json'      => 'array',
-        'breakdown_json'   => 'array',
-        'print_parts_json' => 'array',
-        'subtotal'         => 'decimal:2',
-        'discount_price'   => 'decimal:2',
-        'discount_amount'  => 'decimal:2',
-        'grand_total'      => 'decimal:2',
-    ];
-
-    // ── Relationships ──────────────────────────────────────────────────────────
-
-    public function quotation()
-    {
-        return $this->belongsTo(Quotation::class);
-    }
 
     public function client()
     {
         return $this->belongsTo(Client::class);
-    }
-
-    public function apparelType()
-    {
-        return $this->belongsTo(ApparelType::class);
-    }
-
-    public function patternType()
-    {
-        return $this->belongsTo(PatternType::class);
-    }
-
-    public function printMethod()
-    {
-        return $this->belongsTo(PrintMethod::class);
-    }
-
-    public function apparelNeckline()
-    {
-        return $this->belongsTo(ApparelNeckline::class);
     }
 
     public function items()
@@ -113,6 +88,11 @@ class Order extends Model
         return $this->hasMany(OrderStage::class);
     }
 
+    public function currentStage()
+    {
+        return $this->belongsTo(OrderStage::class, 'current_stage_id');
+    }
+
     public function orderDesign()
     {
         return $this->hasOne(OrderDesign::class);
@@ -128,8 +108,10 @@ class Order extends Model
         return $this->hasMany(ScreenChecking::class);
     }
 
-    public function tickets()
-    {
-        return $this->hasMany(Ticket::class);
-    }
+    protected $casts = [
+        'deadline' => 'date',
+        'total_price' => 'decimal:2',
+        'average_unit_price' => 'decimal:2',
+        'delayed_at' => 'datetime',
+    ];
 }

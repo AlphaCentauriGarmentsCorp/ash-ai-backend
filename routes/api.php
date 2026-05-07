@@ -7,7 +7,6 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\OrdersController;
-use App\Http\Controllers\Api\TicketController;
 use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ApparelPartController;
@@ -124,17 +123,6 @@ Route::prefix('v2')->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/details/{po_code}', 'show');
-        });
-
-        Route::prefix('/tickets')->middleware('permission:access.tickets')->controller(TicketController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::get('/from-roles', 'getFromRoles');
-            Route::get('/to-roles', 'getToRoles');
-            Route::get('/by-role/{role}', 'getByRole');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show');
-            Route::put('/{id}', 'update');
-            Route::delete('/{id}', 'destroy');
         });
 
         Route::prefix('/pattern-type')->middleware('permission:access.dropdown-settings')->controller(PatternTypeController::class)->group(function () {
@@ -300,8 +288,35 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/order-stages')->middleware('permission:access.order-stages')->controller(OrderStagesController::class)->group(function () {
-            Route::post('/', 'store');
+        // ── Order Stages ───────────────────────────────────────────────
+        // Read-only stage data is accessible to anyone with access.orders
+        // (every production role has this). Mutations require the
+        // action.advance-stage permission.
+        Route::prefix('/order-stages')->controller(OrderStagesController::class)->group(function () {
+
+            // Read endpoints
+            Route::middleware('permission:access.orders')->group(function () {
+                Route::get('/workflow', 'workflow');
+                Route::get('/order/{orderId}', 'indexForOrder');
+
+                // Legacy "ensure initialized" call. Treated as read-ish – idempotent.
+                Route::post('/', 'store');
+            });
+
+            // Mutation endpoints – any role that owns a stage can advance it.
+            Route::middleware('permission:action.advance-stage')->group(function () {
+                Route::post('/{id}/complete', 'complete');
+                Route::post('/{id}/for-approval', 'forApproval');
+                Route::post('/{id}/delay', 'delay');
+                Route::post('/{id}/hold', 'hold');
+                Route::post('/{id}/resume', 'resume');
+                Route::post('/{id}/notes', 'note');
+            });
+
+            // Assignment is reserved for managers only.
+            Route::middleware('permission:action.assign-stages')->group(function () {
+                Route::post('/{id}/assign', 'assign');
+            });
         });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
@@ -367,7 +382,6 @@ Route::prefix('v2')->group(function () {
                 Route::post('/', 'store');
                 Route::get('/{id}', 'show');
                 Route::get('/{id}/pdf', 'generatePDF');
-                Route::post('/{id}/confirm', 'confirm');
                 Route::put('/{id}', 'update');
                 Route::delete('/{id}', 'destroy');
             });
@@ -389,25 +403,6 @@ Route::prefix('v2')->group(function () {
             });
         });
 
-    });
-
-    // ── Public Dropdown Access (NO authentication required) ──────────────────
-    // Read-only endpoints for public clients.
-    Route::prefix('/public')->group(function () {
-        Route::prefix('/pattern-type')->controller(PatternTypeController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::get('/{id}', 'show');
-        });
-
-        Route::prefix('/apparel-type')->controller(ApparelTypeController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::get('/{id}', 'show');
-        });
-
-        Route::prefix('/apparel-neckline')->controller(ApparelNecklineController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::get('/{id}', 'show');
-        });
     });
 
     // ── Public Share Access (NO authentication required) ──────────────────────

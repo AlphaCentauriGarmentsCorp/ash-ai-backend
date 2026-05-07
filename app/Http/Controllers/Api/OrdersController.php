@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use App\Services\OrderService;
 use App\Http\Resources\OrderResource;
 use App\Http\Requests\Order\StoreOrderRequest;
+use App\Http\Requests\Order\OrderUpdateRequest;
 
 class OrdersController extends Controller
 {
@@ -18,41 +19,38 @@ class OrdersController extends Controller
         $this->service = $service;
     }
 
+
     public function index()
     {
-        $orders = Order::with(['client', 'apparelType', 'patternType', 'printMethod'])
-            ->latest()->get();
+        $orders = Order::get();
+
         return OrderResource::collection($orders);
     }
+
 
     public function show($po_code)
     {
         $order = Order::with([
             'client',
-            'apparelType',
-            'patternType',
-            'printMethod',
-            'apparelNeckline',
-            'quotation',
             'items',
-            'orderStages',
+            'orderStages' => fn ($q) => $q->orderBy('sequence'),
             'orderDesign.placements',
             'screenAssignment.screen',
             'screenChecking.items',
             'samples',
-            'tickets',
         ])->where('po_code', $po_code)->first();
 
         if (!$order) {
             return response()->json(['message' => 'Order not found'], 404);
         }
-
         return new OrderResource($order);
     }
 
+
     public function store(StoreOrderRequest $request)
     {
-        $order = $this->service->store($request->validated(), $request);
-        return (new OrderResource($order))->response()->setStatusCode(201);
+        $order = $this->service->store($request->validated());
+
+        return new OrderResource($order);
     }
 }
