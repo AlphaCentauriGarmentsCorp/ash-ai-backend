@@ -17,6 +17,14 @@ class UsersTableSeeder extends Seeder
         Role::firstOrCreate(['name' => 'csr', 'guard_name' => 'web']);
         Role::firstOrCreate(['name' => 'customer', 'guard_name' => 'web']);
         Role::firstOrCreate(['name' => 'graphic_artist', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'finance', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'logistics', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'screen_maker', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'cutter', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'printer', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'sewer', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'qa', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'packer', 'guard_name' => 'web']);
 
         $superadmin = User::updateOrCreate(
             ['email' => 'superadmin@com'],
@@ -125,5 +133,149 @@ class UsersTableSeeder extends Seeder
             ]
         );
         $graphicArtist->syncRoles(['graphic_artist']);
+
+        $finance = User::updateOrCreate(
+            ['email' => 'finance@com'],
+            [
+                'name' => 'Finance User',
+                'username' => 'finance',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['finance'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $finance->syncRoles(['finance']);
+
+        $logistics = User::updateOrCreate(
+            ['email' => 'logistics@com'],
+            [
+                'name' => 'Logistics User',
+                'username' => 'logistics',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['logistics'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $logistics->syncRoles(['logistics']);
+
+        $screenMaker = User::updateOrCreate(
+            ['email' => 'screenmaker@com'],
+            [
+                'name' => 'Screen Maker',
+                'username' => 'screenmaker',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['screen_maker'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $screenMaker->syncRoles(['screen_maker']);
+
+        $cutter = User::updateOrCreate(
+            ['email' => 'cutter@com'],
+            [
+                'name' => 'Cutter',
+                'username' => 'cutter',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['cutter'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $cutter->syncRoles(['cutter']);
+
+        $printer = User::updateOrCreate(
+            ['email' => 'printer@com'],
+            [
+                'name' => 'Printer',
+                'username' => 'printer',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['printer'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $printer->syncRoles(['printer']);
+
+        $sewer = User::updateOrCreate(
+            ['email' => 'sewer@com'],
+            [
+                'name' => 'Sewer',
+                'username' => 'sewer',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['sewer'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $sewer->syncRoles(['sewer']);
+
+        $qa = User::updateOrCreate(
+            ['email' => 'qa@com'],
+            [
+                'name' => 'QA User',
+                'username' => 'qa',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['qa'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $qa->syncRoles(['qa']);
+
+        $packer = User::updateOrCreate(
+            ['email' => 'packer@com'],
+            [
+                'name' => 'Packer User',
+                'username' => 'packer',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'avatar' => null,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'last_verified' => Carbon::now(),
+                'domain_role' => ['packer'],
+                'domain_access' => ['ash'],
+            ]
+        );
+        $packer->syncRoles(['packer']);
     }
 }
