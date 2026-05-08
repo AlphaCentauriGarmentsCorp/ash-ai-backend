@@ -27,6 +27,40 @@ class OrdersController extends Controller
         return OrderResource::collection($orders);
     }
 
+    /**
+     * Phase 3 — Lightweight order list for the Material Request order picker.
+     *
+     * Returns only orders that currently have an active workflow stage
+     * (i.e., not yet completed and not cancelled), with a minimal
+     * payload: id, po_code, client_brand, client_name, current stage label.
+     * Used by the New Material Request form.
+     */
+    public function withActiveStage()
+    {
+        $orders = Order::query()
+            ->whereNotNull('current_stage_id')
+            ->whereNotIn('workflow_status', ['completed', 'cancelled'])
+            ->with(['currentStage:id,stage,sequence,status'])
+            ->orderByDesc('id')
+            ->get(['id', 'po_code', 'client_brand', 'client_name', 'workflow_status', 'current_stage_id']);
+
+        return response()->json([
+            'data' => $orders->map(fn ($o) => [
+                'id'              => $o->id,
+                'po_code'         => $o->po_code,
+                'client_brand'    => $o->client_brand,
+                'client_name'     => $o->client_name,
+                'workflow_status' => $o->workflow_status,
+                'current_stage'   => $o->currentStage ? [
+                    'id'       => $o->currentStage->id,
+                    'stage'    => $o->currentStage->stage,
+                    'sequence' => $o->currentStage->sequence,
+                    'status'   => $o->currentStage->status,
+                ] : null,
+            ]),
+        ]);
+    }
+
 
     public function show($po_code)
     {

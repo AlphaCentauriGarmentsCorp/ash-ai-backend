@@ -124,6 +124,10 @@ Route::prefix('v2')->group(function () {
 
         Route::prefix('/orders')->middleware('permission:access.orders')->controller(OrdersController::class)->group(function () {
             Route::get('/', 'index');
+            // Phase 3 — lightweight picker for MR creation; only orders
+            // with an active stage. Falls inside the same access.orders
+            // gate since the user needs to see orders to pick from.
+            Route::get('/with-active-stage', 'withActiveStage');
             Route::post('/', 'store');
             Route::get('/details/{po_code}', 'show');
         });
