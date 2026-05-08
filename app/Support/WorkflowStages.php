@@ -195,6 +195,35 @@ final class WorkflowStages
     }
 
     /**
+     * Returns the phase classification for a stage slug, used by Phase 4
+     * reporting to group cycle-time and production counts:
+     *   - 'sample'      = sample-production stages only
+     *   - 'mass'        = mass-production stages only
+     *   - 'preprod'     = inquiry / quotation / payment-verification stages
+     *   - 'delivery'    = delivery / closeout stages
+     *   - null when the slug is unknown
+     *
+     * Sample/Mass reports filter by this — pre-production and delivery
+     * stages are correctly excluded from production-cycle metrics.
+     */
+    public static function phaseFor(string $key): ?string
+    {
+        $stage = self::find($key);
+        if (! $stage) {
+            return null;
+        }
+
+        if (! empty($stage['sample'])) return 'sample';
+        if (! empty($stage['mass']))   return 'mass';
+
+        $group = $stage['group'] ?? '';
+        if ($group === 'Pre-Production') return 'preprod';
+        if ($group === 'Delivery')       return 'delivery';
+
+        return null;
+    }
+
+    /**
      * Returns the stage that comes after the given one, or null when the
      * given stage is the final one in the workflow.
      */

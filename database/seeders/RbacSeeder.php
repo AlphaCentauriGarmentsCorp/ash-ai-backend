@@ -106,12 +106,24 @@ class RbacSeeder extends Seeder
             'purchase_requests.cancel',
         ];
 
+        // Phase 4 fine-grained Stage Inputs + Subcontract permissions.
+        $stageInputPermissions = [
+            'stage_inputs.view',
+            'stage_inputs.log_waste',     // production roles
+            'stage_inputs.log_reject',    // QA only
+            'stage_inputs.log_subcontract', // sewer / cutter / printer / manager
+            'stage_inputs.delete',        // managers only — for accidents
+            // Reports endpoints (production summary, per-order timeline).
+            'access.reports',
+        ];
+
         $allPermissions = array_merge(
             $accessPermissions,
             $portalPermissions,
             $actionPermissions,
             $materialRequestPermissions,
             $purchaseRequestPermissions,
+            $stageInputPermissions,
         );
 
         foreach ($allPermissions as $permission) {
@@ -157,6 +169,32 @@ class RbacSeeder extends Seeder
             'purchase_requests.approve',
         ]);
 
+        // Phase 4 bundles ------------------------------------------------
+
+        // Production roles can view + log waste + log subcontract on
+        // their own stage. Reject is QA-only; delete is manager-only.
+        $productionStageBundle = [
+            'stage_inputs.view',
+            'stage_inputs.log_waste',
+            'stage_inputs.log_subcontract',
+        ];
+
+        // QA role: view + log reject (the QA-specific action).
+        $qaStageBundle = [
+            'stage_inputs.view',
+            'stage_inputs.log_reject',
+        ];
+
+        // Manager-tier: everything plus delete + reports access.
+        $managerStageBundle = [
+            'stage_inputs.view',
+            'stage_inputs.log_waste',
+            'stage_inputs.log_reject',
+            'stage_inputs.log_subcontract',
+            'stage_inputs.delete',
+            'access.reports',
+        ];
+
         // -------------------------------------------------------------------
         // 2. ROLES + PERMISSION ASSIGNMENT
         // -------------------------------------------------------------------
@@ -178,6 +216,7 @@ class RbacSeeder extends Seeder
                 ],
                 $managerMrBundle,
                 $managerPrBundle,
+                $managerStageBundle,
             ),
 
             // ============ CUSTOMER SUPPORT (CSR) ============
@@ -228,6 +267,7 @@ class RbacSeeder extends Seeder
                     'action.request-materials',
                 ],
                 $productionMrBundle,
+                $productionStageBundle,
             ),
 
             // ============ SCREEN MAKER ============
@@ -245,6 +285,7 @@ class RbacSeeder extends Seeder
                     'action.request-materials',
                 ],
                 $productionMrBundle,
+                $productionStageBundle,
             ),
 
             // ============ PURCHASING / MATERIAL PREP ============
@@ -296,6 +337,7 @@ class RbacSeeder extends Seeder
                     'action.request-materials',
                 ],
                 $productionMrBundle,
+                $productionStageBundle,
             ),
 
             // ============ PRINTER (Sample + Mass) ============
@@ -311,6 +353,7 @@ class RbacSeeder extends Seeder
                     'action.request-materials',
                 ],
                 $productionMrBundle,
+                $productionStageBundle,
             ),
 
             // ============ SEWER (Sample + Mass) ============
@@ -327,17 +370,21 @@ class RbacSeeder extends Seeder
                     'action.manage-subcontract',
                 ],
                 $productionMrBundle,
+                $productionStageBundle,
             ),
 
             // ============ QUALITY ASSURANCE ============
-            'quality_assurance' => [
-                'access.orders',
-                'access.notifications',
-                'portal.qa',
-                'action.upload-photos',
-                'action.advance-stage',
-                'action.approve-samples',
-            ],
+            'quality_assurance' => array_merge(
+                [
+                    'access.orders',
+                    'access.notifications',
+                    'portal.qa',
+                    'action.upload-photos',
+                    'action.advance-stage',
+                    'action.approve-samples',
+                ],
+                $qaStageBundle,
+            ),
 
             // ============ PACKER ============
             'packer' => [
@@ -384,6 +431,7 @@ class RbacSeeder extends Seeder
                     'action.request-materials',
                 ],
                 $productionMrBundle,
+                $productionStageBundle,
             ),
 
             // ============ EXTERNAL SUBCONTRACT PARTNER ============
