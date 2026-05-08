@@ -214,14 +214,15 @@ class PurchaseRequestsController extends Controller
     protected function generateAdHocCode(): string
     {
         $year = now()->year;
+        $count = PurchaseRequest::whereYear('created_at', $year)->count();
 
-        $last = PurchaseRequest::whereYear('created_at', $year)
-            ->lockForUpdate()
-            ->selectRaw("CAST(SUBSTRING_INDEX(pr_code, '-', -1) AS UNSIGNED) AS num")
-            ->orderByDesc('num')
-            ->value('num');
+        for ($i = 1; $i <= 1000; $i++) {
+            $candidate = sprintf('PR-%d-%06d', $year, $count + $i);
+            if (! PurchaseRequest::where('pr_code', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
 
-        $next = ($last ?? 0) + 1;
-        return sprintf('PR-%d-%06d', $year, $next);
+        return sprintf('PR-%d-%06d-%s', $year, $count + 1, substr(md5(uniqid()), 0, 6));
     }
 }

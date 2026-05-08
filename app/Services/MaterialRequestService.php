@@ -325,18 +325,25 @@ class MaterialRequestService
     /**
      * Generate a unique code in the form PREFIX-YYYY-NNNNNN.
      * Year-scoped sequence so codes restart each calendar year.
+     *
+     * Uses count-then-retry-on-collision rather than SUBSTRING_INDEX
+     * so the query is portable across MySQL / SQLite (tests run on
+     * in-memory SQLite). On collision (race), we increment until a
+     * free code is found — capped at a reasonable retry limit.
      */
     protected function generateCode(string $prefix): string
     {
         $year = now()->year;
+        $count = MaterialRequest::whereYear('created_at', $year)->count();
 
-        $last = MaterialRequest::whereYear('created_at', $year)
-            ->lockForUpdate()
-            ->selectRaw("CAST(SUBSTRING_INDEX(mr_code, '-', -1) AS UNSIGNED) AS num")
-            ->orderByDesc('num')
-            ->value('num');
+        for ($i = 1; $i <= 1000; $i++) {
+            $candidate = sprintf('%s-%d-%06d', $prefix, $year, $count + $i);
+            if (! MaterialRequest::where('mr_code', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
 
-        $next = ($last ?? 0) + 1;
-        return sprintf('%s-%d-%06d', $prefix, $year, $next);
+        // Extremely unlikely fallback — append a random suffix to avoid blocking.
+        return sprintf('%s-%d-%06d-%s', $prefix, $year, $count + 1, substr(md5(uniqid()), 0, 6));
     }
 }

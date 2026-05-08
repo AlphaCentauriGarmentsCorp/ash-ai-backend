@@ -250,14 +250,15 @@ class PurchaseRequestService
     protected function generateCode(string $prefix): string
     {
         $year = now()->year;
+        $count = PurchaseRequest::whereYear('created_at', $year)->count();
 
-        $last = PurchaseRequest::whereYear('created_at', $year)
-            ->lockForUpdate()
-            ->selectRaw("CAST(SUBSTRING_INDEX(pr_code, '-', -1) AS UNSIGNED) AS num")
-            ->orderByDesc('num')
-            ->value('num');
+        for ($i = 1; $i <= 1000; $i++) {
+            $candidate = sprintf('%s-%d-%06d', $prefix, $year, $count + $i);
+            if (! PurchaseRequest::where('pr_code', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
 
-        $next = ($last ?? 0) + 1;
-        return sprintf('%s-%d-%06d', $prefix, $year, $next);
+        return sprintf('%s-%d-%06d-%s', $prefix, $year, $count + 1, substr(md5(uniqid()), 0, 6));
     }
 }
