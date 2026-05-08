@@ -28,6 +28,13 @@ use Illuminate\Validation\ValidationException;
  */
 class OrderStagesService
 {
+    protected NotificationService $notifications;
+
+    public function __construct(NotificationService $notifications)
+    {
+        $this->notifications = $notifications;
+    }
+
     /**
      * Bulk-create every stage for a freshly stored Order. The first stage
      * is set to in_progress, the rest pending.
@@ -147,7 +154,7 @@ class OrderStagesService
      */
     public function markComplete(int $stageId, ?string $notes = null): ?OrderStage
     {
-        return DB::transaction(function () use ($stageId, $notes) {
+        $result = DB::transaction(function () use ($stageId, $notes) {
             /** @var OrderStage $stage */
             $stage = OrderStage::lockForUpdate()->findOrFail($stageId);
 
@@ -206,8 +213,24 @@ class OrderStagesService
                 $this->refreshOrderCache($order);
             }
 
-            return $next?->fresh();
+            return [
+                'order' => $order,
+                'next'  => $next?->fresh(),
+                'wasLastStage' => $next === null,
+            ];
         });
+
+        // Notifications fire AFTER the transaction so we don't block the
+        // commit and so we don't roll them back on a hypothetical retry.
+        if ($result['next']) {
+            $this->notifications->stageInProgress($result['next']);
+        }
+
+        if ($result['wasLastStage'] && $result['order']) {
+            $this->notifications->orderCompleted($result['order']);
+        }
+
+        return $result['next'];
     }
 
     /**
@@ -215,7 +238,7 @@ class OrderStagesService
      */
     public function markForApproval(int $stageId, ?string $notes = null): OrderStage
     {
-        return DB::transaction(function () use ($stageId, $notes) {
+        $stage = DB::transaction(function () use ($stageId, $notes) {
             /** @var OrderStage $stage */
             $stage = OrderStage::lockForUpdate()->findOrFail($stageId);
 
@@ -232,6 +255,10 @@ class OrderStagesService
 
             return $stage->fresh();
         });
+
+        $this->notifications->stageForApproval($stage, $notes);
+
+        return $stage;
     }
 
     /**
@@ -240,7 +267,7 @@ class OrderStagesService
      */
     public function markDelayed(int $stageId, string $reason): OrderStage
     {
-        return DB::transaction(function () use ($stageId, $reason) {
+        $stage = DB::transaction(function () use ($stageId, $reason) {
             /** @var OrderStage $stage */
             $stage = OrderStage::lockForUpdate()->findOrFail($stageId);
 
@@ -260,6 +287,10 @@ class OrderStagesService
 
             return $stage->fresh();
         });
+
+        $this->notifications->stageDelayed($stage, $reason);
+
+        return $stage;
     }
 
     /**
@@ -267,7 +298,7 @@ class OrderStagesService
      */
     public function markOnHold(int $stageId, ?string $reason = null): OrderStage
     {
-        return DB::transaction(function () use ($stageId, $reason) {
+        $stage = DB::transaction(function () use ($stageId, $reason) {
             /** @var OrderStage $stage */
             $stage = OrderStage::lockForUpdate()->findOrFail($stageId);
 
@@ -278,6 +309,10 @@ class OrderStagesService
 
             return $stage->fresh();
         });
+
+        $this->notifications->stageOnHold($stage, $reason);
+
+        return $stage;
     }
 
     /**
@@ -315,12 +350,21 @@ class OrderStagesService
         /** @var OrderStage $stage */
         $stage = OrderStage::findOrFail($stageId);
 
+        $previousAssignee = $stage->assigned_to;
+
         $stage->update([
             'assigned_to'   => $userId,
             'assigned_role' => $role ?: $stage->assigned_role,
         ]);
 
-        return $stage->fresh();
+        $stage = $stage->fresh();
+
+        // Only notify if the assignee actually changed and there's a target user.
+        if ($userId && $userId !== $previousAssignee) {
+            $this->notifications->stageAssigned($stage, $userId);
+        }
+
+        return $stage;
     }
 
     /**

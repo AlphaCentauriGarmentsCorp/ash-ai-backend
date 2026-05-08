@@ -5,6 +5,17 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
+/**
+ * Order — the production-ready record produced when a Quotation is
+ * converted to an Order. The schema is intentionally a minimal,
+ * quotation-derived shape: financials, FK-based apparel/pattern/print
+ * method references, and JSON blobs that carry over from the source
+ * quotation.
+ *
+ * Production-time details (courier, fabric, payment, files) live on
+ * downstream tables (order_stages, order_designs, order_samples,
+ * po_items, etc.) rather than here.
+ */
 class Order extends Model
 {
     use HasFactory;
@@ -12,65 +23,98 @@ class Order extends Model
     protected $table = 'orders';
 
     protected $fillable = [
+        // Linkage
+        'quotation_id',
         'po_code',
+
+        // Client
         'client_id',
+        'client_name',
         'client_brand',
-        'deadline',
-        'priority',
-        'brand',
 
-        'courier',
-        'method',
-        'receiver_name',
-        'receiver_contact',
-        'address',
+        // Apparel + print method (FK-based, like quotations)
+        'apparel_type_id',
+        'pattern_type_id',
+        'apparel_neckline_id',
+        'print_method_id',
 
-        'design_name',
-        'apparel_type',
-        'pattern_type',
-        'service_type',
-        'print_method',
-        'print_service',
-        'size_label',
-        'print_label_placement',
+        // Print details
+        'shirt_color',
+        'special_print',
+        'print_area',
 
-        'fabric_type',
-        'fabric_supplier',
-        'fabric_color',
-        'thread_color',
-        'ribbing_color',
-
-        'placement_measurements',
+        // Misc descriptive
+        'free_items',
         'notes',
-        'options',
 
-        'freebie_items',
-        'freebie_color',
-        'freebie_others',
+        // Financials
+        'discount_type',
+        'discount_price',
+        'discount_amount',
+        'subtotal',
+        'grand_total',
 
-        'payment_method',
-        'payment_plan',
-        'total_price',
-        'average_unit_price',
-        'total_quantity',
-        'deposit',
+        // JSON carry-over from the quotation
+        'item_config_json',
+        'items_json',
+        'addons_json',
+        'breakdown_json',
+        'print_parts_json',
 
-        'design_files',
-        'design_mockup',
-        'size_label_files',
-        'freebies_files',
-
+        // Artifacts
         'qr_path',
         'barcode_path',
 
+        // Status + Phase 1 workflow tracking
+        'status',
         'workflow_status',
         'delayed_at',
         'current_stage_id',
     ];
 
+    protected $casts = [
+        'discount_price'   => 'decimal:2',
+        'discount_amount'  => 'decimal:2',
+        'subtotal'         => 'decimal:2',
+        'grand_total'      => 'decimal:2',
+        'item_config_json' => 'array',
+        'items_json'       => 'array',
+        'addons_json'      => 'array',
+        'breakdown_json'   => 'array',
+        'print_parts_json' => 'array',
+        'delayed_at'       => 'datetime',
+    ];
+
+    // ── Relations ────────────────────────────────────────────────────────
+
     public function client()
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function quotation()
+    {
+        return $this->belongsTo(Quotation::class, 'quotation_id');
+    }
+
+    public function apparelType()
+    {
+        return $this->belongsTo(ApparelType::class, 'apparel_type_id');
+    }
+
+    public function patternType()
+    {
+        return $this->belongsTo(PatternType::class, 'pattern_type_id');
+    }
+
+    public function apparelNeckline()
+    {
+        return $this->belongsTo(ApparelNeckline::class, 'apparel_neckline_id');
+    }
+
+    public function printMethod()
+    {
+        return $this->belongsTo(PrintMethod::class, 'print_method_id');
     }
 
     public function items()
@@ -107,11 +151,4 @@ class Order extends Model
     {
         return $this->hasMany(ScreenChecking::class);
     }
-
-    protected $casts = [
-        'deadline' => 'date',
-        'total_price' => 'decimal:2',
-        'average_unit_price' => 'decimal:2',
-        'delayed_at' => 'datetime',
-    ];
 }
