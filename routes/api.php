@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\ScreenController;
 use App\Http\Controllers\Api\OrderStagesController;
+use App\Http\Controllers\Api\NotificationsController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
@@ -319,6 +320,19 @@ Route::prefix('v2')->group(function () {
             });
         });
 
+        // ── Notifications (Phase 2) ────────────────────────────────────
+        // All endpoints are scoped to the current user automatically.
+        // No special permission required – every authenticated user can
+        // read & manage their own notifications.
+        Route::prefix('/notifications')->controller(NotificationsController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/recent', 'recent');
+            Route::get('/unread-count', 'unreadCount');
+            Route::post('/{id}/read', 'markRead')->whereNumber('id');
+            Route::post('/read-all', 'markAllRead');
+            Route::delete('/{id}', 'destroy')->whereNumber('id');
+        });
+
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
             Route::post('/', 'store');
         });
@@ -384,6 +398,12 @@ Route::prefix('v2')->group(function () {
                 Route::get('/{id}/pdf', 'generatePDF');
                 Route::put('/{id}', 'update');
                 Route::delete('/{id}', 'destroy');
+
+                // Phase 2 / order-form fix: convert a quotation into an order.
+                // Marks the quotation Converted and returns an `order_payload`
+                // the frontend uses to prefill /orders/new. Returns 409 if
+                // the quotation is already converted.
+                Route::post('/{id}/confirm', 'confirm');
             });
 
             // ── Share Token Management (authenticated) ────────────────────────

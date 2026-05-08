@@ -26,9 +26,52 @@ use Illuminate\Validation\ValidationException;
 // ---------------------------------------------------------------------
 beforeEach(function () {
     // Build only the tables our tests touch. This is the minimum subset
-    // required for OrderStagesService to function.
-    Schema::dropIfExists('order_stages');
-    Schema::dropIfExists('orders');
+    // required for OrderStagesService to function (which now also depends
+    // on NotificationService — that calls into Spatie's role lookup, so
+    // we add the minimum schema for that as well).
+    foreach ([
+        'notifications',
+        'model_has_roles',
+        'roles',
+        'order_stages',
+        'orders',
+        'users',
+    ] as $t) {
+        Schema::dropIfExists($t);
+    }
+
+    Schema::create('users', function (Blueprint $table) {
+        $table->id();
+        $table->string('name');
+        $table->string('email')->unique();
+        $table->string('password')->default('hashed');
+        $table->timestamps();
+    });
+
+    // Spatie Permission – minimum tables for User::role(...) to work.
+    Schema::create('roles', function (Blueprint $table) {
+        $table->id();
+        $table->string('name');
+        $table->string('guard_name')->default('web');
+        $table->timestamps();
+    });
+    Schema::create('model_has_roles', function (Blueprint $table) {
+        $table->unsignedBigInteger('role_id');
+        $table->string('model_type');
+        $table->unsignedBigInteger('model_id');
+        $table->primary(['role_id', 'model_id', 'model_type']);
+    });
+
+    Schema::create('notifications', function (Blueprint $table) {
+        $table->id();
+        $table->unsignedBigInteger('user_id');
+        $table->string('type', 64);
+        $table->string('title');
+        $table->text('body')->nullable();
+        $table->json('data')->nullable();
+        $table->timestamp('read_at')->nullable();
+        $table->timestamps();
+    });
 
     Schema::create('orders', function (Blueprint $table) {
         $table->id();
@@ -101,11 +144,42 @@ beforeEach(function () {
         $table->index(['order_id', 'sequence']);
         $table->index(['order_id', 'status']);
     });
+
+    // Pre-seed every role NotificationService may query during stage
+    // transitions. Spatie's User::role([...]) throws if any role in the
+    // list doesn't exist – seeding empties keeps the lookup valid.
+    $roles = [
+        'superadmin', 'admin', 'general_manager',
+        'csr', 'finance', 'purchasing', 'warehouse_manager',
+        'graphic_artist', 'screen_maker', 'sample_maker',
+        'cutter', 'printer', 'sewer', 'quality_assurance',
+        'packer', 'driver', 'logistics',
+    ];
+    foreach ($roles as $role) {
+        \Illuminate\Support\Facades\DB::table('roles')->insert([
+            'name'       => $role,
+            'guard_name' => 'web',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    // Flush Spatie's permission cache so freshly-inserted roles are
+    // picked up immediately during the test run.
+    app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 });
 
 afterEach(function () {
-    Schema::dropIfExists('order_stages');
-    Schema::dropIfExists('orders');
+    foreach ([
+        'notifications',
+        'model_has_roles',
+        'roles',
+        'order_stages',
+        'orders',
+        'users',
+    ] as $t) {
+        Schema::dropIfExists($t);
+    }
 });
 
 // ---------------------------------------------------------------------
