@@ -28,6 +28,8 @@ use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\ScreenController;
 use App\Http\Controllers\Api\OrderStagesController;
 use App\Http\Controllers\Api\NotificationsController;
+use App\Http\Controllers\Api\MaterialRequestsController;
+use App\Http\Controllers\Api\PurchaseRequestsController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
@@ -332,6 +334,40 @@ Route::prefix('v2')->group(function () {
             Route::post('/read-all', 'markAllRead');
             Route::delete('/{id}', 'destroy')->whereNumber('id');
         });
+
+        // ── Material Requests (Phase 3) ────────────────────────────────
+        // Production roles create MRs against their order's active stage;
+        // managers approve/reject. Permissions are checked per-route so a
+        // creator can list+view their own without holding the manager
+        // approve permission.
+        Route::prefix('/material-requests')
+            ->middleware('permission:access.material-requests')
+            ->controller(MaterialRequestsController::class)
+            ->group(function () {
+                Route::get('/',      'index')->middleware('permission:material_requests.view');
+                Route::get('/{id}',  'show')->whereNumber('id')->middleware('permission:material_requests.view');
+                Route::post('/',     'store')->middleware('permission:material_requests.create');
+                Route::post('/{id}/approve', 'approve')->whereNumber('id')->middleware('permission:material_requests.approve');
+                Route::post('/{id}/reject',  'reject')->whereNumber('id')->middleware('permission:material_requests.reject');
+            });
+
+        // ── Purchase Requests (Phase 3) ────────────────────────────────
+        // Auto-spawned by MR approval when stock is short, OR ad-hoc
+        // created by purchasing/manager. Lifecycle: pending → approved →
+        // ordered → received (each transition is its own endpoint).
+        Route::prefix('/purchase-requests')
+            ->middleware('permission:access.purchase-requests')
+            ->controller(PurchaseRequestsController::class)
+            ->group(function () {
+                Route::get('/',      'index')->middleware('permission:purchase_requests.view');
+                Route::get('/{id}',  'show')->whereNumber('id')->middleware('permission:purchase_requests.view');
+                Route::post('/',     'store')->middleware('permission:purchase_requests.create');
+                Route::post('/{id}/approve',       'approve')->whereNumber('id')->middleware('permission:purchase_requests.approve');
+                Route::post('/{id}/mark-ordered',  'markOrdered')->whereNumber('id')->middleware('permission:purchase_requests.mark_ordered');
+                Route::post('/{id}/mark-received', 'markReceived')->whereNumber('id')->middleware('permission:purchase_requests.mark_received');
+                Route::post('/{id}/cancel',        'cancel')->whereNumber('id')->middleware('permission:purchase_requests.cancel');
+            });
+
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
             Route::post('/', 'store');

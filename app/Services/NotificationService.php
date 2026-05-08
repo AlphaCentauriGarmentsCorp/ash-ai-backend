@@ -185,11 +185,24 @@ class NotificationService
     }
 
     /**
-     * A material/purchase request was created (Phase 3 entry-point).
-     * → Notify purchasing + warehouse_manager + managers.
+     * A material request was created.
+     * → Notify managers + purchasing + warehouse_manager.
+     *
+     * Accepts either an Order (legacy v1 signature) or a MaterialRequest
+     * so callers in Phase 3+ can pass the full MR for richer context.
+     * The two shapes converge on the same payload.
      */
-    public function materialRequestCreated(Order $order, array $extra = []): void
+    public function materialRequestCreated($subject, array $extra = []): void
     {
+        // Resolve the underlying Order regardless of input type.
+        $order = $subject instanceof Order
+            ? $subject
+            : ($subject->order ?? null);
+
+        if (! $order) {
+            return; // nothing to dispatch about
+        }
+
         $recipients = $this->collectRecipients(
             roles: array_merge(
                 $this->managerRoles,
@@ -197,13 +210,173 @@ class NotificationService
             ),
         );
 
+        // If the subject was an MR, surface its code in the body.
+        $title = $subject instanceof \App\Models\MaterialRequest && $subject->mr_code
+            ? "New material request: {$subject->mr_code} (Order {$order->po_code})"
+            : "New material request: {$order->po_code}";
+
+        $body = $extra['summary']
+            ?? ($subject instanceof \App\Models\MaterialRequest && $subject->reason
+                ? $subject->reason
+                : 'A new material request was created.');
+
+        $data = array_merge($this->orderContext($order), $extra);
+        if ($subject instanceof \App\Models\MaterialRequest) {
+            $data['material_request_id'] = $subject->id;
+            $data['mr_code'] = $subject->mr_code;
+            $data['link'] = "/material-requests/{$subject->id}";
+        }
+
         $this->dispatch($recipients, [
             'type'  => 'material_request.created',
-            'title' => "New material request: {$order->po_code}",
-            'body'  => $extra['summary'] ?? 'A new material request was created.',
-            'data'  => array_merge($this->orderContext($order), $extra),
+            'title' => $title,
+            'body'  => $body,
+            'data'  => $data,
         ]);
     }
+
+    /**
+     * A material request was approved or rejected.
+     * → Notify the requester + managers (so they have visibility).
+     *
+     * `$decision` is one of: approved | rejected | auto_pr.
+     */
+    public function materialRequestDecided(\App\Models\MaterialRequest $mr, string $decision): void
+    {
+        $order = $mr->order;
+        if (! $order) {
+            return;
+        }
+
+        // Requester always gets pinged so they know.
+        $recipients = $this->collectRecipients(
+            roles: $this->managerRoles,
+            assignedUserId: $mr->requested_by_user_id,
+        );
+
+        $verb = match ($decision) {
+            'approved' => 'approved',
+            'rejected' => 'rejected',
+            'auto_pr'  => 'approved (auto-PR triggered)',
+            default    => $decision,
+        };
+
+        $body = $decision === 'rejected' && $mr->rejection_reason
+            ? "Reason: {$mr->rejection_reason}"
+            : "Material request {$mr->mr_code} for order {$order->po_code} was {$verb}.";
+
+        $this->dispatch($recipients, [
+            'type'  => "material_request.{$decision}",
+            'title' => "Material request {$verb}: {$mr->mr_code}",
+            'body'  => $body,
+            'data'  => array_merge($this->orderContext($order), [
+                'material_request_id' => $mr->id,
+                'mr_code'             => $mr->mr_code,
+                'decision'            => $decision,
+                'link'                => "/material-requests/{$mr->id}",
+            ]),
+        ]);
+    }
+
+    /**
+     * A purchase request was created (auto-spawned from MR or manual).
+     * → Notify managers + purchasing.
+     */
+    public function purchaseRequestCreated(\App\Models\PurchaseRequest $pr): void
+    {
+        $order = $pr->order;
+        if (! $order) {
+            return;
+        }
+
+        $recipients = $this->collectRecipients(
+            roles: array_merge($this->managerRoles, ['purchasing', 'warehouse_manager']),
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'purchase_request.created',
+            'title' => "New purchase request: {$pr->pr_code}",
+            'body'  => "Order {$order->po_code} – pending approval.",
+            'data'  => array_merge($this->orderContext($order), [
+                'purchase_request_id' => $pr->id,
+                'pr_code'             => $pr->pr_code,
+                'total_amount'        => $pr->total_amount,
+                'link'                => "/purchase-requests/{$pr->id}",
+            ]),
+        ]);
+    }
+
+    /**
+     * A purchase request was approved, ordered, or cancelled.
+     * → Notify purchasing + originating MR's requester.
+     *
+     * `$decision` is one of: approved | ordered | cancelled.
+     */
+    public function purchaseRequestDecided(\App\Models\PurchaseRequest $pr, string $decision): void
+    {
+        $order = $pr->order;
+        if (! $order) {
+            return;
+        }
+
+        // Notify purchasing + original MR requester (if any).
+        $assignedUserId = $pr->materialRequest?->requested_by_user_id;
+
+        $recipients = $this->collectRecipients(
+            roles: array_merge($this->managerRoles, ['purchasing', 'warehouse_manager']),
+            assignedUserId: $assignedUserId,
+        );
+
+        $title = match ($decision) {
+            'approved'  => "Purchase request approved: {$pr->pr_code}",
+            'ordered'   => "Purchase request ordered: {$pr->pr_code}",
+            'cancelled' => "Purchase request cancelled: {$pr->pr_code}",
+            default     => "Purchase request {$decision}: {$pr->pr_code}",
+        };
+
+        $this->dispatch($recipients, [
+            'type'  => "purchase_request.{$decision}",
+            'title' => $title,
+            'body'  => "Order {$order->po_code}",
+            'data'  => array_merge($this->orderContext($order), [
+                'purchase_request_id' => $pr->id,
+                'pr_code'             => $pr->pr_code,
+                'decision'            => $decision,
+                'link'                => "/purchase-requests/{$pr->id}",
+            ]),
+        ]);
+    }
+
+    /**
+     * A purchase request's goods were marked as received.
+     * → Notify managers + purchasing + warehouse + the original requester.
+     */
+    public function purchaseRequestReceived(\App\Models\PurchaseRequest $pr): void
+    {
+        $order = $pr->order;
+        if (! $order) {
+            return;
+        }
+
+        $assignedUserId = $pr->materialRequest?->requested_by_user_id;
+
+        $recipients = $this->collectRecipients(
+            roles: array_merge($this->managerRoles, ['purchasing', 'warehouse_manager']),
+            assignedUserId: $assignedUserId,
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'purchase_request.received',
+            'title' => "Goods received: {$pr->pr_code}",
+            'body'  => "Stock has been updated for order {$order->po_code}.",
+            'data'  => array_merge($this->orderContext($order), [
+                'purchase_request_id' => $pr->id,
+                'pr_code'             => $pr->pr_code,
+                'link'                => "/purchase-requests/{$pr->id}",
+            ]),
+        ]);
+    }
+
 
     /**
      * A new order was created.

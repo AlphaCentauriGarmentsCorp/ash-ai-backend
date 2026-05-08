@@ -14,9 +14,11 @@ use Spatie\Permission\PermissionRegistrar;
  * defined in the ASH AI master brief (see ASH-AI-Process.pdf §7 + §9).
  *
  * Permission naming conventions:
- *   access.*  – legacy/admin module access (clients, orders, suppliers, etc.)
- *   portal.*  – role-specific portal landing pages (sewer, cutter, printer, …)
- *   action.*  – cross-cutting capabilities (request materials, advance stages, …)
+ *   access.*            – legacy/admin module access (clients, orders, …)
+ *   portal.*            – role-specific portal landing pages (sewer, cutter, …)
+ *   action.*            – cross-cutting capabilities (request materials, …)
+ *   material_requests.* – Phase 3 fine-grained MR permissions
+ *   purchase_requests.* – Phase 3 fine-grained PR permissions
  */
 class RbacSeeder extends Seeder
 {
@@ -51,6 +53,9 @@ class RbacSeeder extends Seeder
             'access.tickets',
             'access.notifications',
             'access.reports',
+            // Phase 3: MR/PR module access
+            'access.material-requests',
+            'access.purchase-requests',
         ];
 
         $portalPermissions = [
@@ -83,10 +88,30 @@ class RbacSeeder extends Seeder
             'action.process-purchase',      // Purchaser – buy materials, pay supplier
         ];
 
+        // Phase 3 fine-grained MR permissions.
+        $materialRequestPermissions = [
+            'material_requests.view',
+            'material_requests.create',     // production roles, on their active stage
+            'material_requests.approve',    // managers + admin + super
+            'material_requests.reject',     // managers + admin + super
+        ];
+
+        // Phase 3 fine-grained PR permissions.
+        $purchaseRequestPermissions = [
+            'purchase_requests.view',
+            'purchase_requests.create',
+            'purchase_requests.approve',
+            'purchase_requests.mark_ordered',
+            'purchase_requests.mark_received',
+            'purchase_requests.cancel',
+        ];
+
         $allPermissions = array_merge(
             $accessPermissions,
             $portalPermissions,
-            $actionPermissions
+            $actionPermissions,
+            $materialRequestPermissions,
+            $purchaseRequestPermissions,
         );
 
         foreach ($allPermissions as $permission) {
@@ -95,6 +120,42 @@ class RbacSeeder extends Seeder
                 'guard_name' => 'web',
             ]);
         }
+
+        // -------------------------------------------------------------------
+        // Permission bundles for Phase 3 — expressed as small reusable sets
+        // so each role's intent stays readable below.
+        // -------------------------------------------------------------------
+
+        // Production roles get: view + create their own MRs.
+        $productionMrBundle = [
+            'access.material-requests',
+            'material_requests.view',
+            'material_requests.create',
+        ];
+
+        // Manager-tier MR bundle = production + approve/reject.
+        $managerMrBundle = array_merge($productionMrBundle, [
+            'material_requests.approve',
+            'material_requests.reject',
+        ]);
+
+        // Purchasing role gets full PR lifecycle + read-only MR
+        // (so they can see what triggered the PR).
+        $purchasingPrBundle = [
+            'access.purchase-requests',
+            'purchase_requests.view',
+            'purchase_requests.create',
+            'purchase_requests.mark_ordered',
+            'purchase_requests.mark_received',
+            'purchase_requests.cancel',
+            'access.material-requests',
+            'material_requests.view',
+        ];
+
+        // Manager-tier PR bundle adds approval to the purchasing bundle.
+        $managerPrBundle = array_merge($purchasingPrBundle, [
+            'purchase_requests.approve',
+        ]);
 
         // -------------------------------------------------------------------
         // 2. ROLES + PERMISSION ASSIGNMENT
@@ -114,7 +175,9 @@ class RbacSeeder extends Seeder
                     'action.approve-quotation',
                     'action.assign-stages',
                     'action.manage-subcontract',
-                ]
+                ],
+                $managerMrBundle,
+                $managerPrBundle,
             ),
 
             // ============ CUSTOMER SUPPORT (CSR) ============
@@ -135,103 +198,136 @@ class RbacSeeder extends Seeder
             ],
 
             // ============ FINANCE ============
-            'finance' => [
-                'access.orders',
-                'access.quotations',
-                'access.payment-methods',
-                'access.tickets',
-                'access.notifications',
-                'access.reports',
-                'portal.finance',
-                'action.advance-stage',
-                'action.verify-payment',
-            ],
+            'finance' => array_merge(
+                [
+                    'access.orders',
+                    'access.quotations',
+                    'access.payment-methods',
+                    'access.tickets',
+                    'access.notifications',
+                    'access.reports',
+                    'portal.finance',
+                    'action.advance-stage',
+                    'action.verify-payment',
+                ],
+                // Finance gets read-only MR/PR for visibility into spending.
+                ['access.material-requests', 'material_requests.view'],
+                ['access.purchase-requests', 'purchase_requests.view'],
+            ),
 
             // ============ GRAPHIC ARTIST ============
-            'graphic_artist' => [
-                'access.orders',
-                'access.graphic-design',
-                'access.pantone',
-                'access.notifications',
-                'portal.graphic-artist',
-                'action.upload-photos',
-                'action.advance-stage',
-                'action.request-materials',
-            ],
+            'graphic_artist' => array_merge(
+                [
+                    'access.orders',
+                    'access.graphic-design',
+                    'access.pantone',
+                    'access.notifications',
+                    'portal.graphic-artist',
+                    'action.upload-photos',
+                    'action.advance-stage',
+                    'action.request-materials',
+                ],
+                $productionMrBundle,
+            ),
 
             // ============ SCREEN MAKER ============
-            'screen_maker' => [
-                'access.orders',
-                'access.screens',
-                'access.screen-making',
-                'access.screen-checking',
-                'access.screen-maintenance',
-                'access.notifications',
-                'portal.screen-maker',
-                'action.upload-photos',
-                'action.advance-stage',
-                'action.request-materials',
-            ],
+            'screen_maker' => array_merge(
+                [
+                    'access.orders',
+                    'access.screens',
+                    'access.screen-making',
+                    'access.screen-checking',
+                    'access.screen-maintenance',
+                    'access.notifications',
+                    'portal.screen-maker',
+                    'action.upload-photos',
+                    'action.advance-stage',
+                    'action.request-materials',
+                ],
+                $productionMrBundle,
+            ),
 
             // ============ PURCHASING / MATERIAL PREP ============
-            'purchasing' => [
-                'access.orders',
-                'access.suppliers',
-                'access.materials',
-                'access.payment-methods',
-                'access.notifications',
-                'portal.material-prep',
-                'action.process-purchase',
-                'action.advance-stage',
-            ],
+            'purchasing' => array_merge(
+                [
+                    'access.orders',
+                    'access.suppliers',
+                    'access.materials',
+                    'access.payment-methods',
+                    'access.notifications',
+                    'portal.material-prep',
+                    'action.process-purchase',
+                    'action.advance-stage',
+                ],
+                $purchasingPrBundle,
+            ),
 
             // ============ WAREHOUSE MANAGER ============
-            'warehouse_manager' => [
-                'access.orders',
-                'access.suppliers',
-                'access.materials',
-                'access.equipment',
-                'access.notifications',
-                'portal.warehouse',
-                'action.upload-photos',
-                'action.advance-stage',
-            ],
+            'warehouse_manager' => array_merge(
+                [
+                    'access.orders',
+                    'access.suppliers',
+                    'access.materials',
+                    'access.equipment',
+                    'access.notifications',
+                    'portal.warehouse',
+                    'action.upload-photos',
+                    'action.advance-stage',
+                ],
+                // Warehouse needs to mark PR as received + decrement/increment stock.
+                [
+                    'access.purchase-requests',
+                    'purchase_requests.view',
+                    'purchase_requests.mark_received',
+                    'access.material-requests',
+                    'material_requests.view',
+                ],
+            ),
 
             // ============ CUTTER (Sample + Mass) ============
-            'cutter' => [
-                'access.orders',
-                'access.materials',
-                'access.notifications',
-                'portal.cutter',
-                'action.upload-photos',
-                'action.advance-stage',
-                'action.request-materials',
-            ],
+            'cutter' => array_merge(
+                [
+                    'access.orders',
+                    'access.materials',
+                    'access.notifications',
+                    'portal.cutter',
+                    'action.upload-photos',
+                    'action.advance-stage',
+                    'action.request-materials',
+                ],
+                $productionMrBundle,
+            ),
 
             // ============ PRINTER (Sample + Mass) ============
-            'printer' => [
-                'access.orders',
-                'access.materials',
-                'access.screens',
-                'access.notifications',
-                'portal.printer',
-                'action.upload-photos',
-                'action.advance-stage',
-                'action.request-materials',
-            ],
+            'printer' => array_merge(
+                [
+                    'access.orders',
+                    'access.materials',
+                    'access.screens',
+                    'access.notifications',
+                    'portal.printer',
+                    'action.upload-photos',
+                    'action.advance-stage',
+                    'action.request-materials',
+                ],
+                $productionMrBundle,
+            ),
 
             // ============ SEWER (Sample + Mass) ============
-            'sewer' => [
-                'access.orders',
-                'access.materials',
-                'access.sewing-subcontractor',
-                'access.notifications',
-                'portal.sewer',
-                'action.upload-photos',
-                'action.advance-stage',
-                'action.request-materials',
-                'action.manage-subcontract',
-            ],
+            'sewer' => array_merge(
+                [
+                    'access.orders',
+                    'access.materials',
+                    'access.sewing-subcontractor',
+                    'access.notifications',
+                    'portal.sewer',
+                    'action.upload-photos',
+                    'action.advance-stage',
+                    'action.request-materials',
+                    'action.manage-subcontract',
+                ],
+                $productionMrBundle,
+            ),
 
             // ============ QUALITY ASSURANCE ============
             'quality_assurance' => [
@@ -261,9 +357,7 @@ class RbacSeeder extends Seeder
                 'action.advance-stage',
             ],
 
-            // ============ LOGISTICS (send to subcontract / dispatch) ============
-            // Combines courier coordination + driver dispatch.
-            // NOTE: separate from `driver` to allow office-side logistics staff.
+            // ============ LOGISTICS ============
             'logistics' => [
                 'access.orders',
                 'access.courier-list',
@@ -276,25 +370,23 @@ class RbacSeeder extends Seeder
                 'action.manage-subcontract',
             ],
 
-            // ============ SAMPLE MAKER (legacy umbrella role) ============
-            // Kept for backwards compatibility with existing frontend roleAccess
-            // map. Treat as a multi-portal staffer who can do cutting/printing/sewing
-            // for samples only.
-            'sample_maker' => [
-                'access.orders',
-                'access.materials',
-                'access.notifications',
-                'portal.cutter',
-                'portal.printer',
-                'portal.sewer',
-                'action.upload-photos',
-                'action.advance-stage',
-                'action.request-materials',
-            ],
+            // ============ SAMPLE MAKER ============
+            'sample_maker' => array_merge(
+                [
+                    'access.orders',
+                    'access.materials',
+                    'access.notifications',
+                    'portal.cutter',
+                    'portal.printer',
+                    'portal.sewer',
+                    'action.upload-photos',
+                    'action.advance-stage',
+                    'action.request-materials',
+                ],
+                $productionMrBundle,
+            ),
 
             // ============ EXTERNAL SUBCONTRACT PARTNER ============
-            // Limited read access – they can see orders sent to them and
-            // upload completed photos.
             'subcontract' => [
                 'access.orders',
                 'access.notifications',
@@ -303,7 +395,6 @@ class RbacSeeder extends Seeder
             ],
 
             // ============ END CUSTOMER ============
-            // Only used for public quotation/order-status views.
             'customer' => [],
         ];
 
@@ -319,7 +410,6 @@ class RbacSeeder extends Seeder
         // -------------------------------------------------------------------
         // 3. CACHE RESET
         // -------------------------------------------------------------------
-        // Spatie caches the permission map – clear it after a fresh seed.
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }
