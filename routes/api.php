@@ -30,6 +30,9 @@ use App\Http\Controllers\Api\OrderStagesController;
 use App\Http\Controllers\Api\NotificationsController;
 use App\Http\Controllers\Api\MaterialRequestsController;
 use App\Http\Controllers\Api\PurchaseRequestsController;
+use App\Http\Controllers\Api\StageInputsController;
+use App\Http\Controllers\Api\SubcontractController;
+use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
@@ -371,6 +374,53 @@ Route::prefix('v2')->group(function () {
                 Route::post('/{id}/mark-received', 'markReceived')->whereNumber('id')->middleware('permission:purchase_requests.mark_received');
                 Route::post('/{id}/cancel',        'cancel')->whereNumber('id')->middleware('permission:purchase_requests.cancel');
             });
+
+        // ── Stage Inputs (Phase 4) ─────────────────────────────────────
+        // Waste and reject logging against an order_stage. Photo upload
+        // accepted as multipart/form-data on POST.
+        Route::prefix('/stage-inputs')
+            ->controller(StageInputsController::class)
+            ->group(function () {
+                // Waste — production roles + managers
+                Route::get('/waste',           'indexWaste')->middleware('permission:stage_inputs.view');
+                Route::post('/waste',          'storeWaste')->middleware('permission:stage_inputs.log_waste');
+                Route::delete('/waste/{id}',   'destroyWaste')->whereNumber('id')->middleware('permission:stage_inputs.delete');
+
+                // Reject — QA only (+ managers)
+                Route::get('/reject',          'indexReject')->middleware('permission:stage_inputs.view');
+                Route::post('/reject',         'storeReject')->middleware('permission:stage_inputs.log_reject');
+                Route::delete('/reject/{id}',  'destroyReject')->whereNumber('id')->middleware('permission:stage_inputs.delete');
+            });
+
+        // ── Subcontract Assignments (Phase 4) ─────────────────────────
+        // Lifecycle: pending → out → returned (or cancelled before return).
+        Route::prefix('/subcontract-assignments')
+            ->controller(SubcontractController::class)
+            ->group(function () {
+                Route::get('/',                  'index')->middleware('permission:stage_inputs.view');
+                Route::get('/{id}',              'show')->whereNumber('id')->middleware('permission:stage_inputs.view');
+                Route::post('/',                 'store')->middleware('permission:stage_inputs.log_subcontract');
+                Route::post('/{id}/mark-sent',   'markSent')->whereNumber('id')->middleware('permission:stage_inputs.log_subcontract');
+                Route::post('/{id}/mark-returned', 'markReturned')->whereNumber('id')->middleware('permission:stage_inputs.log_subcontract');
+                Route::post('/{id}/cancel',      'cancel')->whereNumber('id')->middleware('permission:stage_inputs.log_subcontract');
+            });
+
+        // ── Reports (Phase 4) ──────────────────────────────────────────
+        // Production-summary (aggregated counts + cycle times) and
+        // per-order timeline. Phase 6 dashboards consume these.
+        Route::prefix('/reports')
+            ->middleware('permission:access.reports')
+            ->controller(ReportsController::class)
+            ->group(function () {
+                Route::get('/production-summary', 'productionSummary');
+            });
+
+        // Per-order timeline — under the orders prefix so it inherits
+        // existing access.orders + reads naturally as
+        // /api/v2/orders/{id}/production-timeline.
+        Route::get('/orders/{id}/production-timeline', [ReportsController::class, 'orderTimeline'])
+            ->whereNumber('id')
+            ->middleware(['permission:access.orders', 'permission:access.reports']);
 
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
