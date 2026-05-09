@@ -554,4 +554,126 @@ class NotificationService
             'link'     => "/order/{$order->po_code}",
         ];
     }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Phase 4 — Stage Inputs / Subcontract notifications
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * Production user logged waste against a stage.
+     * → Notify managers + CSR (so customer-affecting losses are visible).
+     */
+    public function stageWasteLogged(\App\Models\StageWasteLog $log): void
+    {
+        $stage = OrderStage::find($log->order_stage_id);
+        if (! $stage) {
+            return;
+        }
+
+        $recipients = $this->collectRecipients(
+            roles: array_merge($this->managerRoles, ['csr']),
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'stage.waste_logged',
+            'title' => "Waste logged: {$this->stageLabel($stage)}",
+            'body'  => "{$log->quantity_pcs} pieces logged as waste"
+                . ($log->notes ? " — {$log->notes}" : ''),
+            'data'  => array_merge($this->stageContext($stage), [
+                'waste_log_id' => $log->id,
+                'quantity_pcs' => $log->quantity_pcs,
+            ]),
+        ]);
+    }
+
+    /**
+     * QA logged a reject against a stage.
+     * → Notify managers + CSR + the user assigned to that stage
+     *   (so they know their work was flagged).
+     */
+    public function stageRejectLogged(\App\Models\StageRejectLog $log): void
+    {
+        $stage = OrderStage::find($log->order_stage_id);
+        if (! $stage) {
+            return;
+        }
+
+        $recipients = $this->collectRecipients(
+            roles: array_merge($this->managerRoles, ['csr']),
+            assignedUserId: $stage->assigned_to,
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'stage.reject_logged',
+            'title' => "Reject logged: {$this->stageLabel($stage)}",
+            'body'  => "{$log->quantity_pcs} pieces rejected by QA"
+                . ($log->notes ? " — {$log->notes}" : ''),
+            'data'  => array_merge($this->stageContext($stage), [
+                'reject_log_id' => $log->id,
+                'quantity_pcs'  => $log->quantity_pcs,
+            ]),
+        ]);
+    }
+
+    /**
+     * A stage was sent to a subcontractor.
+     * → Notify managers + the user assigned to that stage.
+     */
+    public function subcontractAssigned(\App\Models\StageSubcontractAssignment $assignment): void
+    {
+        $stage = OrderStage::find($assignment->order_stage_id);
+        if (! $stage) {
+            return;
+        }
+
+        $vendorName = $assignment->subcontractor?->name ?? 'Unspecified vendor';
+
+        $recipients = $this->collectRecipients(
+            roles: $this->managerRoles,
+            assignedUserId: $stage->assigned_to,
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'subcontract.assigned',
+            'title' => "Subcontracted: {$this->stageLabel($stage)}",
+            'body'  => "{$assignment->quantity_pcs} pcs sent to {$vendorName}",
+            'data'  => array_merge($this->stageContext($stage), [
+                'subcontract_assignment_id' => $assignment->id,
+                'subcontractor_id'          => $assignment->subcontractor_id,
+                'quantity_pcs'              => $assignment->quantity_pcs,
+                'status'                    => $assignment->status,
+            ]),
+        ]);
+    }
+
+    /**
+     * Subcontractor returned the work; QA can now inspect.
+     * → Notify managers + QA + the user assigned to that stage.
+     */
+    public function subcontractReturned(\App\Models\StageSubcontractAssignment $assignment): void
+    {
+        $stage = OrderStage::find($assignment->order_stage_id);
+        if (! $stage) {
+            return;
+        }
+
+        $vendorName = $assignment->subcontractor?->name ?? 'Unspecified vendor';
+
+        $recipients = $this->collectRecipients(
+            roles: array_merge($this->managerRoles, ['quality_assurance']),
+            assignedUserId: $stage->assigned_to,
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'subcontract.returned',
+            'title' => "Subcontract returned: {$this->stageLabel($stage)}",
+            'body'  => "{$vendorName} returned {$assignment->quantity_pcs} pcs — ready for QA",
+            'data'  => array_merge($this->stageContext($stage), [
+                'subcontract_assignment_id' => $assignment->id,
+                'subcontractor_id'          => $assignment->subcontractor_id,
+                'quantity_pcs'              => $assignment->quantity_pcs,
+                'status'                    => $assignment->status,
+            ]),
+        ]);
+    }
 }

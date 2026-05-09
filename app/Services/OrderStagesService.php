@@ -4,7 +4,10 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderStage;
+use App\Models\StageAuditLog;
+use App\Support\WorkCalendar;
 use App\Support\WorkflowStages;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -121,6 +124,31 @@ class OrderStagesService
                 }
             }
 
+            // Phase 4 — write a 'started' audit row for any stage that's
+            // now in_progress but doesn't have one yet. Covers both the
+            // initial-create-with-status='in_progress' path AND the
+            // fallback promotion above. Idempotent: re-runs of
+            // initializeForOrder won't write duplicates.
+            $inProgressStages = OrderStage::where('order_id', $order->id)
+                ->where('status', OrderStage::STATUS_IN_PROGRESS)
+                ->get();
+
+            foreach ($inProgressStages as $ip) {
+                $hasStartedAudit = StageAuditLog::where('order_stage_id', $ip->id)
+                    ->where('action', StageAuditLog::ACTION_STARTED)
+                    ->exists();
+
+                if (! $hasStartedAudit) {
+                    $this->writeAudit(
+                        $ip,
+                        StageAuditLog::ACTION_STARTED,
+                        OrderStage::STATUS_PENDING,
+                        OrderStage::STATUS_IN_PROGRESS,
+                        null,
+                    );
+                }
+            }
+
             // 7. Refresh the order's cached current_stage_id + workflow_status
             $this->refreshOrderCache($order);
         });
@@ -186,11 +214,21 @@ class OrderStagesService
                 ]);
             }
 
+            $previousStatus = $stage->status;
+
             $stage->update([
                 'status'       => OrderStage::STATUS_COMPLETED,
                 'completed_at' => now(),
                 'notes'        => $notes ?? $stage->notes,
             ]);
+
+            $this->writeAudit(
+                $stage->fresh(),
+                StageAuditLog::ACTION_COMPLETED,
+                $previousStatus,
+                OrderStage::STATUS_COMPLETED,
+                $notes,
+            );
 
             // Promote the next pending stage to in_progress.
             $next = OrderStage::where('order_id', $stage->order_id)
@@ -204,6 +242,14 @@ class OrderStagesService
                         'status'     => OrderStage::STATUS_IN_PROGRESS,
                         'started_at' => now(),
                     ]);
+
+                    $this->writeAudit(
+                        $next->fresh(),
+                        StageAuditLog::ACTION_STARTED,
+                        OrderStage::STATUS_PENDING,
+                        OrderStage::STATUS_IN_PROGRESS,
+                        null,
+                    );
                 }
             }
 
@@ -248,10 +294,20 @@ class OrderStagesService
                 ]);
             }
 
+            $previousStatus = $stage->status;
+
             $stage->update([
                 'status' => OrderStage::STATUS_FOR_APPROVAL,
                 'notes'  => $notes ?? $stage->notes,
             ]);
+
+            $this->writeAudit(
+                $stage->fresh(),
+                StageAuditLog::ACTION_FOR_APPROVAL,
+                $previousStatus,
+                OrderStage::STATUS_FOR_APPROVAL,
+                $notes,
+            );
 
             return $stage->fresh();
         });
@@ -271,11 +327,21 @@ class OrderStagesService
             /** @var OrderStage $stage */
             $stage = OrderStage::lockForUpdate()->findOrFail($stageId);
 
+            $previousStatus = $stage->status;
+
             $stage->update([
                 'status'     => OrderStage::STATUS_DELAYED,
                 'delayed_at' => now(),
                 'notes'      => $reason,
             ]);
+
+            $this->writeAudit(
+                $stage->fresh(),
+                StageAuditLog::ACTION_DELAYED,
+                $previousStatus,
+                OrderStage::STATUS_DELAYED,
+                $reason,
+            );
 
             // Mirror on the order itself for fast lookups.
             // Only set delayed_at if the order doesn't already have one – we
@@ -302,10 +368,20 @@ class OrderStagesService
             /** @var OrderStage $stage */
             $stage = OrderStage::lockForUpdate()->findOrFail($stageId);
 
+            $previousStatus = $stage->status;
+
             $stage->update([
                 'status' => OrderStage::STATUS_ON_HOLD,
                 'notes'  => $reason ?? $stage->notes,
             ]);
+
+            $this->writeAudit(
+                $stage->fresh(),
+                StageAuditLog::ACTION_ON_HOLD,
+                $previousStatus,
+                OrderStage::STATUS_ON_HOLD,
+                $reason,
+            );
 
             return $stage->fresh();
         });
@@ -333,10 +409,20 @@ class OrderStagesService
                 ]);
             }
 
+            $previousStatus = $stage->status;
+
             $stage->update([
                 'status'     => OrderStage::STATUS_IN_PROGRESS,
                 'started_at' => $stage->started_at ?: now(),
             ]);
+
+            $this->writeAudit(
+                $stage->fresh(),
+                StageAuditLog::ACTION_RESUMED,
+                $previousStatus,
+                OrderStage::STATUS_IN_PROGRESS,
+                null,
+            );
 
             return $stage->fresh();
         });
@@ -388,5 +474,77 @@ class OrderStagesService
         return OrderStage::where('order_id', $orderId)
             ->where('status', OrderStage::STATUS_DELAYED)
             ->exists();
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Phase 4 — audit log writer
+    //
+    // Every state transition appends a row to stage_audit_logs inside
+    // the same DB transaction as the state change, so the two can't
+    // drift. On terminal transitions ('completed' / 'cancelled') we
+    // also look up the matching 'started' row and compute the
+    // wall-clock + business-hours duration from it.
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * Write an audit row for a stage transition.
+     *
+     * MUST be called inside the same DB transaction as the state change.
+     *
+     * @param OrderStage  $stage      the stage being transitioned (post-update)
+     * @param string      $action     StageAuditLog::ACTION_*
+     * @param string|null $fromStatus status before the transition
+     * @param string|null $toStatus   status after the transition
+     * @param string|null $notes      optional reason (e.g., delay reason)
+     */
+    protected function writeAudit(
+        OrderStage $stage,
+        string $action,
+        ?string $fromStatus,
+        ?string $toStatus,
+        ?string $notes = null,
+    ): StageAuditLog {
+        $userId = Auth::id();
+
+        $durationSeconds = null;
+        $businessSeconds = null;
+
+        // For terminal transitions, find the most recent 'started' row
+        // for this stage and compute durations from it.
+        $isTerminal = in_array($action, [
+            StageAuditLog::ACTION_COMPLETED,
+            StageAuditLog::ACTION_CANCELLED,
+        ], true);
+
+        if ($isTerminal) {
+            $startedRow = StageAuditLog::where('order_stage_id', $stage->id)
+                ->where('action', StageAuditLog::ACTION_STARTED)
+                ->orderByDesc('id')
+                ->first();
+
+            if ($startedRow && $startedRow->created_at) {
+                $now = now();
+                // abs() guards against Carbon 3's signed diffInSeconds
+                // behavior (see WorkCalendar for context).
+                $durationSeconds = abs($now->diffInSeconds($startedRow->created_at));
+                $businessSeconds = WorkCalendar::businessSecondsBetween(
+                    $startedRow->created_at,
+                    $now,
+                );
+            }
+        }
+
+        return StageAuditLog::create([
+            'order_id'                  => $stage->order_id,
+            'order_stage_id'            => $stage->id,
+            'user_id'                   => $userId,
+            'action'                    => $action,
+            'from_status'               => $fromStatus,
+            'to_status'                 => $toStatus,
+            'duration_seconds'          => $durationSeconds,
+            'business_duration_seconds' => $businessSeconds,
+            'notes'                     => $notes,
+            'created_at'                => now(),
+        ]);
     }
 }
