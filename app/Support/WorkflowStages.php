@@ -240,4 +240,49 @@ final class WorkflowStages
         }
         return null;
     }
+
+    /**
+     * Phase 5-A — Map a portal role slug to the stage keys it works on.
+     *
+     * Used by PortalAssignmentService to filter "what's assigned to me?"
+     * queries. Note: a role here is a PORTAL role (cutter, printer, sewer)
+     * which may not match the workflow stage's `role` field. For example,
+     * sample_creation has role='sample_maker' in the workflow, but Cutter,
+     * Printer, and Sewer all do sub-tasks within sample_creation. So a
+     * cutter user is assigned via OrderStage.assigned_to (user-id), not
+     * by stage role.
+     *
+     * The stages listed below are the stages where this portal CAN
+     * appear — i.e., the right kind of work happens there.
+     *
+     * Returns array of stage slugs.
+     */
+    public static function stagesForPortalRole(string $portalRole): array
+    {
+        return match ($portalRole) {
+            'csr' => [
+                'inquiry', 'quotation', 'quotation_approval',
+                'sample_approval', 'order_completed', 'client_notification',
+            ],
+            'finance'         => ['payment_verification_sample'],
+            'graphic_artist'  => ['graphic_artwork'],
+            'screen_maker'    => ['screen_making'],
+            'sample_maker'    => ['sample_creation'],
+            // Cutter / Printer / Sewer all do sub-tasks within sample_creation
+            // and mass_production. They get assigned individually via
+            // OrderStage.assigned_to when the work happens.
+            'cutter'          => ['sample_creation', 'mass_production'],
+            'printer'         => ['sample_creation', 'mass_production'],
+            'sewer'           => ['sample_creation', 'mass_production'],
+            'quality_assurance', 'qa' => ['quality_control'],
+            'packer'          => ['packing'],
+            'logistics'       => ['delivery'],
+            'general_manager' => ['mass_production'],
+            // Material prep is not stage-bound — it tracks PR fulfilment.
+            // Returns empty so my-active falls back to the default
+            // (no stage-based assignment, which is correct).
+            'material_prep', 'purchasing', 'warehouse_manager' => [],
+            default => [],
+        };
+    }
 }

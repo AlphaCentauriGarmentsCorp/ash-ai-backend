@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\OrdersController;
+use App\Http\Controllers\Api\TicketController;
 use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ApparelPartController;
@@ -27,12 +28,6 @@ use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\ScreenController;
 use App\Http\Controllers\Api\OrderStagesController;
-use App\Http\Controllers\Api\NotificationsController;
-use App\Http\Controllers\Api\MaterialRequestsController;
-use App\Http\Controllers\Api\PurchaseRequestsController;
-use App\Http\Controllers\Api\StageInputsController;
-use App\Http\Controllers\Api\SubcontractController;
-use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
@@ -48,6 +43,15 @@ use App\Http\Controllers\Api\ShippingMethodController;
 use App\Http\Controllers\Api\ApparelPatternPriceController;
 use App\Http\Controllers\Api\ApparelNecklineController;
 use App\Http\Controllers\Api\PantoneController;
+
+// Phase 3/4/5 — workflow, MR/PR, stage inputs, reports, portals
+use App\Http\Controllers\Api\NotificationsController;
+use App\Http\Controllers\Api\MaterialRequestsController;
+use App\Http\Controllers\Api\PurchaseRequestsController;
+use App\Http\Controllers\Api\StageInputsController;
+use App\Http\Controllers\Api\SubcontractController;
+use App\Http\Controllers\Api\ReportsController;
+use App\Http\Controllers\Api\PortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -83,10 +87,8 @@ Route::prefix('v2')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
 
         Route::post('logout', [AuthController::class, 'logout']);
+        Route::get('/me', [AuthController::class, 'me']);
 
-        Route::get('/me', function (Request $request) {
-            return response()->json(Auth::user());
-        });
     });
 
     Route::middleware(['auth:sanctum', 'frontend.access:ash'])->group(function () {
@@ -133,6 +135,17 @@ Route::prefix('v2')->group(function () {
             Route::get('/with-active-stage', 'withActiveStage');
             Route::post('/', 'store');
             Route::get('/details/{po_code}', 'show');
+        });
+
+        Route::prefix('/tickets')->middleware('permission:access.tickets')->controller(TicketController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/from-roles', 'getFromRoles');
+            Route::get('/to-roles', 'getToRoles');
+            Route::get('/by-role/{role}', 'getByRole');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
         });
 
         Route::prefix('/pattern-type')->middleware('permission:access.dropdown-settings')->controller(PatternTypeController::class)->group(function () {
@@ -298,7 +311,7 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        // ── Order Stages ───────────────────────────────────────────────
+        // ── Order Stages (Phase 1) ─────────────────────────────────────
         // Read-only stage data is accessible to anyone with access.orders
         // (every production role has this). Mutations require the
         // action.advance-stage permission.
@@ -422,6 +435,15 @@ Route::prefix('v2')->group(function () {
             ->whereNumber('id')
             ->middleware(['permission:access.orders', 'permission:access.reports']);
 
+        // ── Role Portals (Phase 5-A) ───────────────────────────────────
+        // Each portal calls /portal/{role}/my-active on mount to find
+        // its currently-active assignment. The portal.{role} permission
+        // gates access to the FRONTEND route via permissionAccessMap.
+        // Slugs accept either underscores (cutter, screen_maker) or
+        // hyphens (graphic-artist, screen-maker) — both map to the
+        // same backend role.
+        Route::get('/portal/{role}/my-active', [PortalController::class, 'myActive'])
+            ->where('role', '[a-z_-]+');
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
             Route::post('/', 'store');
@@ -486,14 +508,9 @@ Route::prefix('v2')->group(function () {
                 Route::post('/', 'store');
                 Route::get('/{id}', 'show');
                 Route::get('/{id}/pdf', 'generatePDF');
+                Route::post('/{id}/confirm', 'confirm');
                 Route::put('/{id}', 'update');
                 Route::delete('/{id}', 'destroy');
-
-                // Phase 2 / order-form fix: convert a quotation into an order.
-                // Marks the quotation Converted and returns an `order_payload`
-                // the frontend uses to prefill /orders/new. Returns 409 if
-                // the quotation is already converted.
-                Route::post('/{id}/confirm', 'confirm');
             });
 
             // ── Share Token Management (authenticated) ────────────────────────
@@ -513,6 +530,25 @@ Route::prefix('v2')->group(function () {
             });
         });
 
+    });
+
+    // ── Public Dropdown Access (NO authentication required) ──────────────────
+    // Read-only endpoints for public clients.
+    Route::prefix('/public')->group(function () {
+        Route::prefix('/pattern-type')->controller(PatternTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+
+        Route::prefix('/apparel-type')->controller(ApparelTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+
+        Route::prefix('/apparel-neckline')->controller(ApparelNecklineController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
     });
 
     // ── Public Share Access (NO authentication required) ──────────────────────

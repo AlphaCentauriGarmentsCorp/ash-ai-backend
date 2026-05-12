@@ -60,8 +60,43 @@ it('includes roles and permissions in the auth payload', function () {
             'token',
         ]);
 
-    expect($response->json('user.roles'))->toContain('admin');
+    expect($response->json('user.roles'))->toBeArray();
+    expect($response->json('user.roles.0.name'))->toBe('admin');
+    expect($response->json('user.roles.0.permissions'))->toContain('access.rbac');
     expect($response->json('user.permissions'))->toContain('access.rbac');
+    expect($response->json('user.all_permissions'))->toContain('access.rbac');
+    expect($response->json('user.permission_names.access.rbac'))->toBeTrue();
+});
+
+it('returns permissions and role metadata from me', function () {
+    $user = makeAshUser(['admin'], ['access.rbac']);
+
+    $this->actingAs($user, 'sanctum');
+
+    $response = $this->getJson('/api/v2/me');
+
+    $response->assertOk()
+        ->assertJsonStructure([
+            'id',
+            'name',
+            'email',
+            'avatar',
+            'roles' => [
+                ['id', 'name', 'guard_name', 'permissions'],
+            ],
+            'role_names',
+            'permissions',
+            'all_permissions',
+            'permission_names',
+            'domain_role',
+            'domain_access',
+            'created_at',
+            'updated_at',
+        ]);
+
+    expect($response->json('permissions'))->toContain('access.rbac');
+    expect($response->json('roles.0.name'))->toBe('admin');
+    expect($response->json('roles.0.permissions'))->toContain('access.rbac');
 });
 
 it('forbids access to permission-protected routes without the permission', function () {

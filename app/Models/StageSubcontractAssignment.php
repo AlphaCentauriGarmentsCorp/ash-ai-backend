@@ -25,14 +25,21 @@ class StageSubcontractAssignment extends Model
         'sent_at',
         'returned_at',
         'notes',
+        // Phase 5-A — extended subcontract tracking
+        'payment_terms',
+        'agreed_price_per_sample',
+        'waybill_number',
+        'gc_chat_link',
+        'vendor_contact_number',
     ];
 
     protected $casts = [
-        'quantity_pcs' => 'integer',
-        'rate_per_pcs' => 'decimal:2',
-        'total_amount' => 'decimal:2',
-        'sent_at'      => 'datetime',
-        'returned_at'  => 'datetime',
+        'quantity_pcs'            => 'integer',
+        'rate_per_pcs'            => 'decimal:2',
+        'total_amount'            => 'decimal:2',
+        'agreed_price_per_sample' => 'decimal:2',
+        'sent_at'                 => 'datetime',
+        'returned_at'             => 'datetime',
     ];
 
     public function order(): BelongsTo
