@@ -43,8 +43,6 @@ use App\Http\Controllers\Api\ShippingMethodController;
 use App\Http\Controllers\Api\ApparelPatternPriceController;
 use App\Http\Controllers\Api\ApparelNecklineController;
 use App\Http\Controllers\Api\PantoneController;
-
-// Phase 3/4/5 — workflow, MR/PR, stage inputs, reports, portals
 use App\Http\Controllers\Api\NotificationsController;
 use App\Http\Controllers\Api\MaterialRequestsController;
 use App\Http\Controllers\Api\PurchaseRequestsController;
@@ -52,6 +50,7 @@ use App\Http\Controllers\Api\StageInputsController;
 use App\Http\Controllers\Api\SubcontractController;
 use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\PortalController;
+use App\Http\Controllers\Api\CutterPortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -444,6 +443,25 @@ Route::prefix('v2')->group(function () {
         // same backend role.
         Route::get('/portal/{role}/my-active', [PortalController::class, 'myActive'])
             ->where('role', '[a-z_-]+');
+
+        // ── Cutter Portal (Phase 5-B) ─────────────────────────────────
+        // Per-portal endpoints for fabric tracking, sample uploads, and
+        // the aggregated portal-context fetch. All gated by portal.cutter.
+        Route::prefix('/portal/cutter')
+            ->middleware('permission:portal.cutter')
+            ->controller(CutterPortalController::class)
+            ->group(function () {
+                Route::get('/context/{orderStageId}',  'showContext')->whereNumber('orderStageId');
+
+                // Fabric logs — JSON
+                Route::post('/fabric-logs',            'storeFabricLog');
+                Route::delete('/fabric-logs/{id}',     'destroyFabricLog')->whereNumber('id');
+
+                // Sample uploads — multipart
+                Route::post('/sample-uploads',         'storeSampleUpload');
+                Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');
+                Route::delete('/sample-uploads/{id}',  'destroySampleUpload')->whereNumber('id');
+            });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
             Route::post('/', 'store');
