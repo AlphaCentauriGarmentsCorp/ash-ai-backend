@@ -43,6 +43,8 @@ use App\Http\Controllers\Api\ShippingMethodController;
 use App\Http\Controllers\Api\ApparelPatternPriceController;
 use App\Http\Controllers\Api\ApparelNecklineController;
 use App\Http\Controllers\Api\PantoneController;
+
+// Phase 3/4/5 — workflow, MR/PR, stage inputs, reports, portals
 use App\Http\Controllers\Api\NotificationsController;
 use App\Http\Controllers\Api\MaterialRequestsController;
 use App\Http\Controllers\Api\PurchaseRequestsController;
@@ -51,6 +53,7 @@ use App\Http\Controllers\Api\SubcontractController;
 use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\PortalController;
 use App\Http\Controllers\Api\CutterPortalController;
+use App\Http\Controllers\Api\PrinterPortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -456,6 +459,25 @@ Route::prefix('v2')->group(function () {
                 // Fabric logs — JSON
                 Route::post('/fabric-logs',            'storeFabricLog');
                 Route::delete('/fabric-logs/{id}',     'destroyFabricLog')->whereNumber('id');
+
+                // Sample uploads — multipart
+                Route::post('/sample-uploads',         'storeSampleUpload');
+                Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');
+                Route::delete('/sample-uploads/{id}',  'destroySampleUpload')->whereNumber('id');
+            });
+
+        // ── Printer Portal (Phase 5-C) ────────────────────────────────
+        // Same shape as Cutter but for ink tracking. Sample uploads
+        // reuse the shared SampleUploadService via PrinterPortalController.
+        Route::prefix('/portal/printer')
+            ->middleware('permission:portal.printer')
+            ->controller(PrinterPortalController::class)
+            ->group(function () {
+                Route::get('/context/{orderStageId}',  'showContext')->whereNumber('orderStageId');
+
+                // Ink logs — JSON
+                Route::post('/ink-logs',               'storeInkLog');
+                Route::delete('/ink-logs/{id}',        'destroyInkLog')->whereNumber('id');
 
                 // Sample uploads — multipart
                 Route::post('/sample-uploads',         'storeSampleUpload');
