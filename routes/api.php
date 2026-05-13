@@ -55,6 +55,7 @@ use App\Http\Controllers\Api\PortalController;
 use App\Http\Controllers\Api\CutterPortalController;
 use App\Http\Controllers\Api\PrinterPortalController;
 use App\Http\Controllers\Api\SewerPortalController;
+use App\Http\Controllers\Api\ScreenMakerPortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -509,6 +510,16 @@ Route::prefix('v2')->group(function () {
                 Route::post('/sample-uploads',         'storeSampleUpload');
                 Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');
                 Route::delete('/sample-uploads/{id}',  'destroySampleUpload')->whereNumber('id');
+            });
+
+        // ── Screen Maker Portal (Phase 5-F) ───────────────────────────
+        // Mostly read-only. Notes + mark-as-done go through existing
+        // OrderStagesController endpoints.
+        Route::prefix('/portal/screen-maker')
+            ->middleware('permission:portal.screen-maker')
+            ->controller(ScreenMakerPortalController::class)
+            ->group(function () {
+                Route::get('/context/{orderStageId}', 'showContext')->whereNumber('orderStageId');
             });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
