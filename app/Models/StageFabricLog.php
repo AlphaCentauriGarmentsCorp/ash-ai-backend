@@ -13,6 +13,7 @@ class StageFabricLog extends Model
         'order_id',
         'order_stage_id',
         'logged_by_user_id',
+        'material_type',
         'fabric_used_kg',
         'waste_kg',
         'usable_remaining_kg',

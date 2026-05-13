@@ -4,33 +4,46 @@ namespace App\Services;
 
 use App\Models\MaterialRequest;
 use App\Models\Order;
+use App\Models\OrderDesign;
 use App\Models\OrderStage;
 use App\Models\StageAuditLog;
 use App\Models\StageFabricLog;
 use App\Models\StageSampleUpload;
 use App\Models\StageSubcontractAssignment;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Phase 5-B — Cutter Portal data aggregator.
+ * Phase 5-E — Sewer Portal data aggregator.
  *
- * Builds the full portal context for one (order, stage) pair:
- *   1. Order details (PO, client, brand, garment, color, qty, deadline)
- *   2. Size chart & pattern guide
- *   3. Fabric & waste tracking (existing logs + running totals)
- *   4. Material requests for this stage (from Phase 3)
- *   5. Sample uploads (existing photos + statuses)
- *   6. Recent activity (last N audit log entries for this stage)
+ * Sewer is the most subcontract-heavy portal — most sewing is outsourced.
+ * Service returns both in-house tracking data AND subcontract info; the
+ * frontend branches based on stage.service_type.
  *
- * Called by CutterPortalController::context() to drive the page render.
+ * Sections (per Sewer.png mockup):
+ *   1. Order Details (reuse from shared OrderDetailsSection)
+ *   2. Sample Details — design/style, sample type, size, fabric, notes from GA
+ *   3. Measurements & Reference — size chart + pattern layout
+ *   4. Subcontract Details — when outsourced (uses SubcontractModeView)
+ *   5. Subcontract Tracking — same component
+ *   6. Materials & Usage — multi-material tracking (main fabric, rib/trim, thread, etc.)
+ *   7. Request Material / Items (reuse from shared MaterialRequestsSection)
+ *   8. Sample Output & Upload (Sewer-specific component)
  */
-class CutterPortalService
+class SewerPortalService
 {
     /**
-     * Resolve the full Cutter portal payload for a stage.
-     *
-     * @throws ValidationException if stage doesn't belong to a cutting context
+     * Material types Sewer can log usage against.
      */
+    public const MATERIAL_TYPES = [
+        'main_fabric',
+        'rib_trim',
+        'thread',
+        'interfacing',
+        'other',
+        'waste',
+    ];
+
     public function buildContext(int $orderStageId): array
     {
         $stage = OrderStage::find($orderStageId);
@@ -43,7 +56,7 @@ class CutterPortalService
         $eligibleStages = ['sample_creation', 'mass_production'];
         if (! in_array($stage->stage, $eligibleStages, true)) {
             throw ValidationException::withMessages([
-                'order_stage_id' => "Stage '{$stage->stage}' is not a cutter portal stage.",
+                'order_stage_id' => "Stage '{$stage->stage}' is not a sewer portal stage.",
             ]);
         }
 
@@ -54,30 +67,25 @@ class CutterPortalService
             ]);
         }
 
-        // Phase = 'sample' or 'mass' based on stage slug.
         $phase = $stage->stage === 'sample_creation' ? 'sample' : 'mass';
 
         return [
-            'order'           => $this->orderDetails($order),
-            'stage'           => $this->stageContext($stage, $phase),
-            'size_chart'      => $this->sizeChart($order),
-            'fabric_tracking' => $this->fabricTracking($stage),
-            'material_requests' => $this->materialRequestsForStage($stage),
-            'sample_uploads'  => $this->sampleUploads($stage),
-            'activity_log'    => $this->recentActivity($stage, 10),
-            'subcontract'     => $this->subcontractInfo($stage),
+            'order'              => $this->orderDetails($order),
+            'stage'              => $this->stageContext($stage, $phase),
+            'sample_details'     => $this->sampleDetails($order),
+            'measurements'       => $this->measurements($order),
+            'materials_usage'    => $this->materialsUsage($stage),
+            'material_requests'  => $this->materialRequestsForStage($stage),
+            'sample_uploads'     => $this->sampleUploads($stage),
+            'activity_log'       => $this->recentActivity($stage, 10),
+            'subcontract'        => $this->subcontractInfo($stage),
         ];
     }
 
     // ── Section builders ────────────────────────────────────────────
 
-    /**
-     * Top section — order info as the portal needs it.
-     */
     protected function orderDetails(Order $order): array
     {
-        // items_json may be cast to array by the model OR may be a raw
-        // JSON string in some contexts. Handle both defensively.
         $items = $this->itemsAsArray($order);
         $totalPcs = 0;
         foreach ($items as $item) {
@@ -98,9 +106,6 @@ class CutterPortalService
         ];
     }
 
-    /**
-     * Stage-specific context (status, started_at, phase).
-     */
     protected function stageContext(OrderStage $stage, string $phase): array
     {
         return [
@@ -108,7 +113,7 @@ class CutterPortalService
             'stage'        => $stage->stage,
             'sequence'     => $stage->sequence,
             'status'       => $stage->status,
-            'phase'        => $phase,                  // 'sample' | 'mass'
+            'phase'        => $phase,
             'service_type' => $stage->service_type ?? OrderStage::SERVICE_IN_HOUSE,
             'started_at'   => $stage->started_at?->toDateTimeString(),
             'completed_at' => $stage->completed_at?->toDateTimeString(),
@@ -118,13 +123,43 @@ class CutterPortalService
     }
 
     /**
-     * Size chart from items_json. Each item has its size + quantity.
+     * Sample details — design/style, fabric, sample type, GA notes.
+     * Pulled from order + design records.
      */
-    protected function sizeChart(Order $order): array
+    protected function sampleDetails(Order $order): array
     {
-        $items = $this->itemsAsArray($order);
+        $design = OrderDesign::where('order_id', $order->id)->first();
 
-        return collect($items)
+        return [
+            'design_notes'    => $design?->notes,
+            'design_size_label' => $design?->size_label,
+            // Sample-specific fields from the order itself
+            'shirt_color'     => $order->shirt_color,
+            'special_print'   => $order->special_print,
+            'print_area'      => $order->print_area,
+            // Items_json carries the size info but we surface a primary
+            // size summary for the sample portal.
+            'sizes'           => collect($this->itemsAsArray($order))
+                ->pluck('size')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all(),
+        ];
+    }
+
+    /**
+     * Measurements + reference layout. We don't have a dedicated size
+     * chart table — the per-order sizes live in items_json. Pattern
+     * reference image comes from the design record if present.
+     */
+    protected function measurements(Order $order): array
+    {
+        $design = OrderDesign::where('order_id', $order->id)
+            ->with('placements')
+            ->first();
+
+        $sizes = collect($this->itemsAsArray($order))
             ->map(fn ($i) => [
                 'size'     => $i['size'] ?? null,
                 'quantity' => (int) ($i['quantity'] ?? 0),
@@ -132,50 +167,61 @@ class CutterPortalService
             ->filter(fn ($i) => $i['size'] !== null)
             ->values()
             ->all();
+
+        $referencePlacements = $design
+            ? $design->placements->map(fn ($p) => [
+                'id'           => $p->id,
+                'type'         => $p->type,
+                'mockup_image' => $p->mockup_image,
+                'mockup_url'   => $p->mockup_image
+                    ? Storage::disk('public')->url($p->mockup_image)
+                    : null,
+            ])->all()
+            : [];
+
+        return [
+            'sizes'                => $sizes,
+            'reference_placements' => $referencePlacements,
+        ];
     }
 
     /**
-     * Normalize items_json to an array regardless of whether the model
-     * cast is active.
+     * Materials & Usage — multi-material breakdown.
      *
-     * - If the Order model casts items_json to 'array' (current case),
-     *   $order->items_json is already an array → return as-is.
-     * - If somehow accessed before the cast applies (raw query, mocked
-     *   model, etc.), it'll be a JSON string → decode.
-     * - If null/missing → return [].
+     * Pulls all stage_fabric_logs rows for this stage, groups by
+     * material_type, returns per-material totals + the raw rows.
      */
-    protected function itemsAsArray(Order $order): array
-    {
-        $raw = $order->items_json;
-
-        if (is_array($raw)) {
-            return $raw;
-        }
-
-        if (is_string($raw) && $raw !== '') {
-            $decoded = json_decode($raw, true);
-            return is_array($decoded) ? $decoded : [];
-        }
-
-        return [];
-    }
-
-    /**
-     * All fabric logs for this stage + running totals.
-     */
-    protected function fabricTracking(OrderStage $stage): array
+    protected function materialsUsage(OrderStage $stage): array
     {
         $logs = StageFabricLog::where('order_stage_id', $stage->id)
             ->with('loggedBy:id,name')
             ->orderBy('id', 'desc')
             ->get();
 
+        // Per-material totals
+        $byType = $logs->groupBy(fn ($l) => $l->material_type ?? 'unspecified')
+            ->map(fn ($group, $type) => [
+                'material_type' => $type,
+                'used_kg'       => round((float) $group->sum('fabric_used_kg'), 2),
+                'waste_kg'      => round((float) $group->sum('waste_kg'), 2),
+                'remaining_kg'  => round(
+                    (float) $group->sum('fabric_used_kg')
+                    - (float) $group->sum('waste_kg'),
+                    2
+                ),
+                'entry_count'   => $group->count(),
+            ])
+            ->values()
+            ->all();
+
+        // Grand totals across all materials
         $totalUsed  = (float) $logs->sum('fabric_used_kg');
         $totalWaste = (float) $logs->sum('waste_kg');
 
         return [
-            'logs'                  => $logs->map(fn ($l) => [
+            'logs' => $logs->map(fn ($l) => [
                 'id'                  => $l->id,
+                'material_type'       => $l->material_type,
                 'fabric_used_kg'      => (float) $l->fabric_used_kg,
                 'waste_kg'            => (float) $l->waste_kg,
                 'usable_remaining_kg' => (float) $l->usable_remaining_kg,
@@ -187,22 +233,17 @@ class CutterPortalService
                 ] : null,
                 'created_at'          => $l->created_at?->toDateTimeString(),
             ])->all(),
-            'totals' => [
-                'fabric_used_kg'      => round($totalUsed, 2),
-                'waste_kg'            => round($totalWaste, 2),
-                'usable_remaining_kg' => round($totalUsed - $totalWaste, 2),
+            'by_material' => $byType,
+            'grand_totals' => [
+                'used_kg'  => round($totalUsed, 2),
+                'waste_kg' => round($totalWaste, 2),
+                'remaining_kg' => round($totalUsed - $totalWaste, 2),
             ],
         ];
     }
 
     /**
-     * Material requests filed against this stage (from Phase 3).
-     * Just a summary list — the full MR data is fetched via Phase 3 endpoints.
-     *
-     * NOTE: Phase 3 migration uses `stage_id` (not `order_stage_id`)
-     * for the foreign key to order_stages. Also: priority and needed_by
-     * columns don't exist in the Phase 3 schema — the mockup shows them
-     * but they're not yet supported by the data layer.
+     * Material requests — uses Phase 3's `stage_id` column.
      */
     protected function materialRequestsForStage(OrderStage $stage): array
     {
@@ -221,7 +262,7 @@ class CutterPortalService
     }
 
     /**
-     * Sample uploads (front + back photos) for this stage.
+     * Sample uploads — shared with Cutter/Printer.
      */
     protected function sampleUploads(OrderStage $stage): array
     {
@@ -234,10 +275,10 @@ class CutterPortalService
                 'photo_front_path'  => $u->photo_front_path,
                 'photo_back_path'   => $u->photo_back_path,
                 'photo_front_url'   => $u->photo_front_path
-                    ? \Illuminate\Support\Facades\Storage::disk('public')->url($u->photo_front_path)
+                    ? Storage::disk('public')->url($u->photo_front_path)
                     : null,
                 'photo_back_url'    => $u->photo_back_path
-                    ? \Illuminate\Support\Facades\Storage::disk('public')->url($u->photo_back_path)
+                    ? Storage::disk('public')->url($u->photo_back_path)
                     : null,
                 'remarks'           => $u->remarks,
                 'sample_status'     => $u->sample_status,
@@ -251,9 +292,6 @@ class CutterPortalService
             ->all();
     }
 
-    /**
-     * Recent audit-log entries for this stage.
-     */
     protected function recentActivity(OrderStage $stage, int $limit): array
     {
         return StageAuditLog::where('order_stage_id', $stage->id)
@@ -273,8 +311,8 @@ class CutterPortalService
     }
 
     /**
-     * Phase 5-D — Active subcontract assignment for this stage, if any.
-     * Returns null when service_type is 'in_house'.
+     * Subcontract info — surfaces vendor + tracking when subcontracted.
+     * Includes Phase 5-E's new expected_return_at and turnover_method.
      */
     protected function subcontractInfo(OrderStage $stage): ?array
     {
@@ -309,14 +347,34 @@ class CutterPortalService
             'rate_per_pcs'          => (float) $assignment->rate_per_pcs,
             'total_amount'          => (float) $assignment->total_amount,
             'payment_terms'         => $assignment->payment_terms,
+            'agreed_price_per_sample' => $assignment->agreed_price_per_sample
+                ? (float) $assignment->agreed_price_per_sample : null,
             'waybill_number'        => $assignment->waybill_number,
             'gc_chat_link'          => $assignment->gc_chat_link,
             'vendor_contact_number' => $assignment->vendor_contact_number,
             'notes'                 => $assignment->notes,
             'vendor' => $vendor ? [
-                'id'   => $vendor->id,
-                'name' => $vendor->name ?? null,
+                'id'             => $vendor->id,
+                'name'           => $vendor->name ?? null,
+                'address'        => $vendor->address ?? null,
+                'contact_number' => $vendor->contact_number ?? null,
             ] : null,
         ];
+    }
+
+    /**
+     * items_json defensive helper.
+     */
+    protected function itemsAsArray(Order $order): array
+    {
+        $raw = $order->items_json;
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+        return [];
     }
 }

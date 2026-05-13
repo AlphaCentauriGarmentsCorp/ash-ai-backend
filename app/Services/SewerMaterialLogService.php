@@ -10,20 +10,31 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Phase 5-B — Manages stage_fabric_logs writes for the Cutter portal.
+ * Phase 5-E — Sewer-specific material logging.
  *
- * usable_remaining_kg is computed at write-time as fabric_used - waste
- * so reads stay cheap.
+ * Writes to the same stage_fabric_logs table as Cutter but with a
+ * required material_type tag. This lets Sewer track main fabric, rib/trim,
+ * thread, interfacing, and waste separately while reusing the same
+ * underlying schema and audit trail.
  */
-class FabricLogService
+class SewerMaterialLogService
 {
     /**
-     * @param array{order_id:int,order_stage_id:int,fabric_used_kg:float,waste_kg?:float,fabric_roll_id?:string|null,notes?:string|null} $data
+     * @param array{
+     *   order_id:int,
+     *   order_stage_id:int,
+     *   material_type:string,
+     *   fabric_used_kg:float,
+     *   waste_kg?:float,
+     *   fabric_roll_id?:string|null,
+     *   notes?:string|null,
+     * } $data
      */
     public function create(array $data, ?User $actor = null): StageFabricLog
     {
         $actor = $actor ?? Auth::user();
         $this->ensureCan($actor);
+        $this->ensureValidMaterialType($data['material_type']);
 
         return DB::transaction(function () use ($data, $actor) {
             $stage = $this->loadActiveStage($data['order_stage_id'], $data['order_id']);
@@ -33,7 +44,7 @@ class FabricLogService
 
             if ($waste > $used) {
                 throw ValidationException::withMessages([
-                    'waste_kg' => 'Waste cannot exceed fabric used.',
+                    'waste_kg' => 'Waste cannot exceed amount used.',
                 ]);
             }
 
@@ -41,7 +52,7 @@ class FabricLogService
                 'order_id'            => $stage->order_id,
                 'order_stage_id'      => $stage->id,
                 'logged_by_user_id'   => $actor->id,
-                'material_type'       => $data['material_type'] ?? null,
+                'material_type'       => $data['material_type'],
                 'fabric_used_kg'      => round($used, 2),
                 'waste_kg'            => round($waste, 2),
                 'usable_remaining_kg' => round($used - $waste, 2),
@@ -51,15 +62,12 @@ class FabricLogService
         });
     }
 
-    /**
-     * Hard delete a fabric log (managers only).
-     */
     public function delete(int $logId, ?User $actor = null): void
     {
         $actor = $actor ?? Auth::user();
         if (! $actor || ! $actor->can('stage_inputs.delete')) {
             throw ValidationException::withMessages([
-                'permission' => 'You do not have permission to delete fabric logs.',
+                'permission' => 'You do not have permission to delete material logs.',
             ]);
         }
 
@@ -69,7 +77,7 @@ class FabricLogService
         }
     }
 
-    // ── Helpers ────────────────────────────────────────────────────
+    // ── Helpers ─────────────────────────────────────────────────
 
     protected function loadActiveStage(int $stageId, int $expectedOrderId): OrderStage
     {
@@ -109,13 +117,18 @@ class FabricLogService
             ]);
         }
 
-        // Reuses the broad stage_inputs.log_waste permission since fabric
-        // logging is conceptually the same activity. If you want a
-        // separate permission later, add stage_inputs.log_fabric to
-        // RbacSeeder and switch the check here.
         if (! $actor->can('stage_inputs.log_waste')) {
             throw ValidationException::withMessages([
-                'permission' => 'You do not have permission to log fabric usage.',
+                'permission' => 'You do not have permission to log material usage.',
+            ]);
+        }
+    }
+
+    protected function ensureValidMaterialType(string $type): void
+    {
+        if (! in_array($type, SewerPortalService::MATERIAL_TYPES, true)) {
+            throw ValidationException::withMessages([
+                'material_type' => "Invalid material type: {$type}",
             ]);
         }
     }

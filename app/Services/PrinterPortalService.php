@@ -327,6 +327,8 @@ class PrinterPortalService
             'status'                => $assignment->status,
             'sent_at'               => $assignment->sent_at?->toDateTimeString(),
             'returned_at'           => $assignment->returned_at?->toDateTimeString(),
+            'expected_return_at'    => $assignment->expected_return_at?->toDateTimeString(),
+            'turnover_method'       => $assignment->turnover_method,
             'quantity_pcs'          => (int) $assignment->quantity_pcs,
             'rate_per_pcs'          => (float) $assignment->rate_per_pcs,
             'total_amount'          => (float) $assignment->total_amount,

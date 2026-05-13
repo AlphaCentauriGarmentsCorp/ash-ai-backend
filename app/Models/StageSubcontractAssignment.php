@@ -31,6 +31,9 @@ class StageSubcontractAssignment extends Model
         'waybill_number',
         'gc_chat_link',
         'vendor_contact_number',
+        // Phase 5-E — return tracking
+        'expected_return_at',
+        'turnover_method',
     ];
 
     protected $casts = [
@@ -40,6 +43,7 @@ class StageSubcontractAssignment extends Model
         'agreed_price_per_sample' => 'decimal:2',
         'sent_at'                 => 'datetime',
         'returned_at'             => 'datetime',
+        'expected_return_at'      => 'datetime',
     ];
 
     public function order(): BelongsTo

@@ -54,6 +54,7 @@ use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\PortalController;
 use App\Http\Controllers\Api\CutterPortalController;
 use App\Http\Controllers\Api\PrinterPortalController;
+use App\Http\Controllers\Api\SewerPortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -484,6 +485,25 @@ Route::prefix('v2')->group(function () {
                 // Ink logs — JSON
                 Route::post('/ink-logs',               'storeInkLog');
                 Route::delete('/ink-logs/{id}',        'destroyInkLog')->whereNumber('id');
+
+                // Sample uploads — multipart
+                Route::post('/sample-uploads',         'storeSampleUpload');
+                Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');
+                Route::delete('/sample-uploads/{id}',  'destroySampleUpload')->whereNumber('id');
+            });
+
+        // ── Sewer Portal (Phase 5-E) ──────────────────────────────────
+        // Material logs use stage_fabric_logs with material_type tagging
+        // for multi-material tracking (main fabric, rib/trim, thread, etc.)
+        Route::prefix('/portal/sewer')
+            ->middleware('permission:portal.sewer')
+            ->controller(SewerPortalController::class)
+            ->group(function () {
+                Route::get('/context/{orderStageId}',  'showContext')->whereNumber('orderStageId');
+
+                // Material logs — JSON
+                Route::post('/material-logs',          'storeMaterialLog');
+                Route::delete('/material-logs/{id}',   'destroyMaterialLog')->whereNumber('id');
 
                 // Sample uploads — multipart
                 Route::post('/sample-uploads',         'storeSampleUpload');
