@@ -8,6 +8,7 @@ use App\Models\OrderStage;
 use App\Models\StageAuditLog;
 use App\Models\StageFabricLog;
 use App\Models\StageSampleUpload;
+use App\Models\StageSubcontractAssignment;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -64,6 +65,7 @@ class CutterPortalService
             'material_requests' => $this->materialRequestsForStage($stage),
             'sample_uploads'  => $this->sampleUploads($stage),
             'activity_log'    => $this->recentActivity($stage, 10),
+            'subcontract'     => $this->subcontractInfo($stage),
         ];
     }
 
@@ -107,6 +109,7 @@ class CutterPortalService
             'sequence'     => $stage->sequence,
             'status'       => $stage->status,
             'phase'        => $phase,                  // 'sample' | 'mass'
+            'service_type' => $stage->service_type ?? OrderStage::SERVICE_IN_HOUSE,
             'started_at'   => $stage->started_at?->toDateTimeString(),
             'completed_at' => $stage->completed_at?->toDateTimeString(),
             'assigned_to'  => $stage->assigned_to,
@@ -267,5 +270,51 @@ class CutterPortalService
                 'created_at'  => $a->created_at?->toDateTimeString(),
             ])
             ->all();
+    }
+
+    /**
+     * Phase 5-D — Active subcontract assignment for this stage, if any.
+     * Returns null when service_type is 'in_house'.
+     */
+    protected function subcontractInfo(OrderStage $stage): ?array
+    {
+        if ($stage->service_type !== OrderStage::SERVICE_SUBCONTRACT) {
+            return null;
+        }
+
+        $assignment = StageSubcontractAssignment::with('subcontractor')
+            ->where('order_stage_id', $stage->id)
+            ->whereNotIn('status', ['returned', 'cancelled'])
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if (! $assignment) {
+            return [
+                'has_assignment' => false,
+                'message'        => 'Stage is set to subcontract but no vendor has been assigned yet.',
+            ];
+        }
+
+        $vendor = $assignment->subcontractor;
+
+        return [
+            'has_assignment'        => true,
+            'id'                    => $assignment->id,
+            'status'                => $assignment->status,
+            'sent_at'               => $assignment->sent_at?->toDateTimeString(),
+            'returned_at'           => $assignment->returned_at?->toDateTimeString(),
+            'quantity_pcs'          => (int) $assignment->quantity_pcs,
+            'rate_per_pcs'          => (float) $assignment->rate_per_pcs,
+            'total_amount'          => (float) $assignment->total_amount,
+            'payment_terms'         => $assignment->payment_terms,
+            'waybill_number'        => $assignment->waybill_number,
+            'gc_chat_link'          => $assignment->gc_chat_link,
+            'vendor_contact_number' => $assignment->vendor_contact_number,
+            'notes'                 => $assignment->notes,
+            'vendor' => $vendor ? [
+                'id'   => $vendor->id,
+                'name' => $vendor->name ?? null,
+            ] : null,
+        ];
     }
 }

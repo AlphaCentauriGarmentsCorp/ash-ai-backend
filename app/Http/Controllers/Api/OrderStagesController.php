@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\OrderStages\SwitchServiceType;
 use App\Http\Resources\OrderStageResource;
 use App\Models\Order;
 use App\Models\OrderStage;
 use App\Services\OrderStagesService;
+use App\Services\StageServiceTypeService;
 use App\Support\WorkflowStages;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -194,5 +196,29 @@ class OrderStagesController extends Controller
         $stage->update(['notes' => $data['notes']]);
 
         return new OrderStageResource($stage->fresh());
+    }
+
+    /**
+     * Phase 5-D — Switch a stage between in-house and subcontract.
+     *
+     * PATCH /api/v2/order-stages/{id}/service-type
+     * Body: { service_type: "in_house"|"subcontract", reason?: string }
+     *
+     * Gated by action.switch-service-type permission (declared on the
+     * route definition). Service-side checks enforce stage flippability
+     * and not-completed.
+     */
+    public function switchServiceType(SwitchServiceType $request, int $id, StageServiceTypeService $svc)
+    {
+        $data = $request->validated();
+
+        $stage = $svc->switch(
+            $id,
+            $data['service_type'],
+            $request->user(),
+            $data['reason'] ?? null,
+        );
+
+        return new OrderStageResource($stage);
     }
 }

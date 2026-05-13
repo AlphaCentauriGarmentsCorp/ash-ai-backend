@@ -24,6 +24,7 @@ class OrderStage extends Model
         'stage',
         'sequence',
         'status',
+        'service_type',
         'started_at',
         'completed_at',
         'delayed_at',
@@ -48,6 +49,10 @@ class OrderStage extends Model
     public const STATUS_ON_HOLD      = 'on_hold';
     public const STATUS_REJECTED     = 'rejected';
 
+    // ---- Service type constants (Phase 5-D) ------------------------------
+    public const SERVICE_IN_HOUSE    = 'in_house';
+    public const SERVICE_SUBCONTRACT = 'subcontract';
+
     public static function allStatuses(): array
     {
         return [
@@ -59,6 +64,24 @@ class OrderStage extends Model
             self::STATUS_ON_HOLD,
             self::STATUS_REJECTED,
         ];
+    }
+
+    public static function allServiceTypes(): array
+    {
+        return [
+            self::SERVICE_IN_HOUSE,
+            self::SERVICE_SUBCONTRACT,
+        ];
+    }
+
+    public function isInHouse(): bool
+    {
+        return ($this->service_type ?? self::SERVICE_IN_HOUSE) === self::SERVICE_IN_HOUSE;
+    }
+
+    public function isSubcontracted(): bool
+    {
+        return $this->service_type === self::SERVICE_SUBCONTRACT;
     }
 
     // ---- Relations -------------------------------------------------------

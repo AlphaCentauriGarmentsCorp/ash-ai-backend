@@ -86,6 +86,7 @@ class RbacSeeder extends Seeder
             'action.create-orders',         // CSR
             'action.manage-subcontract',    // assign + track subcontract jobs
             'action.process-purchase',      // Purchaser – buy materials, pay supplier
+            'action.switch-service-type',   // Phase 5-D — flip stage in-house ↔ subcontract
         ];
 
         // Phase 3 fine-grained MR permissions.
@@ -213,6 +214,7 @@ class RbacSeeder extends Seeder
                     'action.approve-quotation',
                     'action.assign-stages',
                     'action.manage-subcontract',
+                    'action.switch-service-type',
                 ],
                 $managerMrBundle,
                 $managerPrBundle,
@@ -234,6 +236,7 @@ class RbacSeeder extends Seeder
                 'action.approve-quotation',
                 'action.advance-stage',
                 'action.upload-photos',
+                'action.switch-service-type',
             ],
 
             // ============ FINANCE ============

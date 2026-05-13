@@ -342,6 +342,12 @@ Route::prefix('v2')->group(function () {
             Route::middleware('permission:action.assign-stages')->group(function () {
                 Route::post('/{id}/assign', 'assign');
             });
+
+            // Phase 5-D — Service type switching (in-house ↔ subcontract).
+            // Reserved for Admin / Super Admin / GM / CSR.
+            Route::middleware('permission:action.switch-service-type')->group(function () {
+                Route::patch('/{id}/service-type', 'switchServiceType')->whereNumber('id');
+            });
         });
 
         // ── Notifications (Phase 2) ────────────────────────────────────
