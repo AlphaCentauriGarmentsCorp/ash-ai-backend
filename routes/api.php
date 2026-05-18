@@ -56,6 +56,7 @@ use App\Http\Controllers\Api\CutterPortalController;
 use App\Http\Controllers\Api\PrinterPortalController;
 use App\Http\Controllers\Api\SewerPortalController;
 use App\Http\Controllers\Api\ScreenMakerPortalController;
+use App\Http\Controllers\Api\MaterialPrepPortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -520,6 +521,23 @@ Route::prefix('v2')->group(function () {
             ->controller(ScreenMakerPortalController::class)
             ->group(function () {
                 Route::get('/context/{orderStageId}', 'showContext')->whereNumber('orderStageId');
+            });
+
+        // ── Material Prep Portal (Phase 5-G) ──────────────────────────
+        // PR-bound (NOT stage-bound). Purchaser sees active PRs across
+        // all orders. mark-ordered/mark-received/cancel still route
+        // through existing /purchase-requests/* endpoints.
+        //
+        // NOTE: The active-PR endpoint uses 'active-prs' rather than
+        // 'my-active' to avoid collision with the generic stage-based
+        // /portal/{role}/my-active wildcard route (Phase 5-A).
+        Route::prefix('/portal/material-prep')
+            ->middleware('permission:portal.material-prep')
+            ->controller(MaterialPrepPortalController::class)
+            ->group(function () {
+                Route::get('/active-prs',          'myActive');
+                Route::get('/context/{prId}',      'showContext')->whereNumber('prId');
+                Route::patch('/{prId}/supplier',   'assignSupplier')->whereNumber('prId');
             });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
