@@ -58,6 +58,7 @@ use App\Http\Controllers\Api\SewerPortalController;
 use App\Http\Controllers\Api\ScreenMakerPortalController;
 use App\Http\Controllers\Api\MaterialPrepPortalController;
 use App\Http\Controllers\Api\GraphicArtistPortalController;
+use App\Http\Controllers\Api\LogisticsPortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -564,6 +565,29 @@ Route::prefix('v2')->group(function () {
                 Route::post('/sample-uploads',         'storeSampleUpload');
                 Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');
                 Route::delete('/sample-uploads/{id}',  'destroySampleUpload')->whereNumber('id');
+            });
+        
+        // ── Logistics Portal (Phase 5-I) ──────────────────────────────
+        // The Logistics user works across multiple subcontract assignments
+        // (not stage-bound), similar to Material Prep's PR-bound pattern.
+        // Active-shipments / active-deliveries endpoints use explicit names
+        // to avoid colliding with the Phase 5-A /portal/{role}/my-active wildcard.    
+        Route::prefix('/portal/logistics')
+            ->middleware('permission:portal.logistics')
+            ->controller(LogisticsPortalController::class)
+            ->group(function () {
+                Route::get('/active-shipments',         'activeShipments');
+                Route::get('/active-deliveries',        'activeDeliveries');
+
+                Route::get('/shipment-context/{id}',    'shipmentContext')->whereNumber('id');
+                Route::get('/assignment-context/{id}',  'assignmentContext')->whereNumber('id');
+
+                Route::post('/shipments',               'storeShipment');
+                Route::put('/shipments/{id}',           'updateShipment')->whereNumber('id');
+                Route::patch('/shipments/{id}/status',  'updateShipmentStatus')->whereNumber('id');
+                Route::post('/shipments/{id}/proof',    'uploadProof')->whereNumber('id');
+
+                Route::post('/assignments/{id}/verify-return', 'verifyReturn')->whereNumber('id');
             });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {

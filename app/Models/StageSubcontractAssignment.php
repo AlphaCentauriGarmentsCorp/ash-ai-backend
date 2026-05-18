@@ -34,6 +34,13 @@ class StageSubcontractAssignment extends Model
         // Phase 5-E — return tracking
         'expected_return_at',
         'turnover_method',
+        // Phase 5-I — return verification (Logistics)
+        'return_qty_received',
+        'return_condition_notes',
+        'return_photo_front_path',
+        'return_photo_back_path',
+        'return_verified_by_user_id',
+        'return_verified_at',
     ];
 
     protected $casts = [
@@ -44,6 +51,9 @@ class StageSubcontractAssignment extends Model
         'sent_at'                 => 'datetime',
         'returned_at'             => 'datetime',
         'expected_return_at'      => 'datetime',
+        // Phase 5-I — return verification
+        'return_qty_received'     => 'integer',
+        'return_verified_at'      => 'datetime',
     ];
 
     public function order(): BelongsTo
