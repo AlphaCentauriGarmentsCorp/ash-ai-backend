@@ -57,6 +57,7 @@ use App\Http\Controllers\Api\PrinterPortalController;
 use App\Http\Controllers\Api\SewerPortalController;
 use App\Http\Controllers\Api\ScreenMakerPortalController;
 use App\Http\Controllers\Api\MaterialPrepPortalController;
+use App\Http\Controllers\Api\GraphicArtistPortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -538,6 +539,31 @@ Route::prefix('v2')->group(function () {
                 Route::get('/active-prs',          'myActive');
                 Route::get('/context/{prId}',      'showContext')->whereNumber('prId');
                 Route::patch('/{prId}/supplier',   'assignSupplier')->whereNumber('prId');
+            });
+
+        // ── Graphic Artist Portal (Phase 5-H) ─────────────────────────
+        // graphic_artwork stage is a real workflow stage (not PR-based),
+        // so /portal/graphic-artist/my-active resolves correctly through
+        // the existing Phase 5-A wildcard. This group only adds the
+        // portal-specific context/write endpoints.
+        Route::prefix('/portal/graphic-artist')
+            ->middleware('permission:portal.graphic-artist')
+            ->controller(GraphicArtistPortalController::class)
+            ->group(function () {
+                Route::get('/context/{orderStageId}',  'showContext')->whereNumber('orderStageId');
+
+                // Design files — multipart upload, hard-delete (file + row)
+                Route::post('/design-files',           'storeDesignFile');
+                Route::delete('/design-files/{id}',    'destroyDesignFile')->whereNumber('id');
+
+                // Label assets — upsert (one per order_id + kind)
+                Route::put('/label-assets',            'upsertLabelAsset');
+                Route::delete('/label-assets/{id}',    'destroyLabelAsset')->whereNumber('id');
+
+                // Sample uploads — multipart; reuses shared SampleUploadService
+                Route::post('/sample-uploads',         'storeSampleUpload');
+                Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');
+                Route::delete('/sample-uploads/{id}',  'destroySampleUpload')->whereNumber('id');
             });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
