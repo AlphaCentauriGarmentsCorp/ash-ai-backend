@@ -595,10 +595,8 @@ Route::prefix('v2')->group(function () {
                 Route::post('/assignments/{id}/verify-return', 'verifyReturn')->whereNumber('id');
             });
 
-        // ── CSR Hub (Phase 6-A backend) ───────────────────────────────
-        // Dashboard, Inquiries, Order Payments, Client Approvals, Activity Log.
-        // All gated by portal.csr at the group level. Verify-payment is
-        // separately gated on action.verify-payment (Finance + Super Admin).
+        // ── CSR Hub (Phase 6-A, BUG-017-fixed) ────────────────────────
+        // Main CSR routes — gated by portal.csr at the group level.
         Route::prefix('/csr')
             ->middleware('permission:portal.csr')
             ->group(function () {
@@ -616,16 +614,10 @@ Route::prefix('v2')->group(function () {
                         ->name('csr.inquiries.convertToQuotation');
                 });
 
-                // Order Payments
+                // Order Payments (LIST + UPLOAD only — verify is split below)
                 Route::prefix('/payments')->controller(OrderPaymentController::class)->group(function () {
                     Route::get('/',                'index');
                     Route::post('/',               'store');
-
-                    // Verify gate — Finance + Super Admin only
-                    Route::patch('/{id}/verify',   'verify')
-                        ->whereNumber('id')
-                        ->middleware('permission:action.verify-payment')
-                        ->name('csr.payments.verify');
                 });
 
                 // Client Approvals
@@ -644,6 +636,19 @@ Route::prefix('v2')->group(function () {
                     Route::put('/{id}',            'update')->whereNumber('id');
                     Route::delete('/{id}',         'destroy')->whereNumber('id');
                 });
+            });
+
+        // ── CSR Hub: Finance verify gate (Phase 6-A, BUG-017 split) ───
+        // Separate group — gated by action.verify-payment ONLY.
+        // Finance and Super Admin can reach this without needing portal.csr.
+        // Same URL prefix (/csr/payments/.../verify) so frontend and Postman
+        // collections do NOT need to change.
+        Route::prefix('/csr')
+            ->middleware('permission:action.verify-payment')
+            ->group(function () {
+                Route::patch('/payments/{id}/verify', [OrderPaymentController::class, 'verify'])
+                    ->whereNumber('id')
+                    ->name('csr.payments.verify');
             });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
