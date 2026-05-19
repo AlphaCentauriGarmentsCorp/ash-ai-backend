@@ -21,6 +21,13 @@ use Illuminate\Support\Facades\Log;
 
 class QuotationService
 {
+    protected PoCodeGenerator $poCodeGenerator;
+
+    public function __construct(PoCodeGenerator $poCodeGenerator)
+    {
+        $this->poCodeGenerator = $poCodeGenerator;
+    }
+    
     public function getAll(): Collection
     {
         return Quotation::with('user')->get();
@@ -81,6 +88,36 @@ class QuotationService
             return $quotation->fresh();
     });
 }
+        /**
+         * Create a Draft quotation from a pre-built payload.
+         *
+         * Internal method used by InquiryService::convertToQuotation() to
+         * spawn a draft quotation from an inquiry without going through
+         * the full store() path (which validates/PDFs/emails).
+         *
+         * The caller is responsible for the payload shape. This method
+         * only auto-fills `quotation_id` and `user_id`, then persists.
+         *
+         * param array $payload Pre-built quotation attributes
+         * return Quotation The created (and freshly-loaded) quotation
+         */
+        public function createDraft(array $payload): Quotation
+        {
+            return DB::transaction(function () use ($payload) {
+                $payload['quotation_id'] = $this->poCodeGenerator->generate('QUO');
+                $payload['user_id']      = $payload['user_id'] ?? Auth::id();
+                $payload['status']       = $payload['status'] ?? Quotation::STATUS_DRAFT;
+
+                // Ensure JSON fields are present as empty arrays
+                // (Quotation casts them to array; null may pass on create
+                // but downstream readers expect array shape.)
+                $payload['item_config_json'] = $payload['item_config_json'] ?? [];
+                $payload['items_json']       = $payload['items_json']       ?? [];
+                $payload['addons_json']      = $payload['addons_json']      ?? [];
+
+                return Quotation::create($payload)->fresh();
+            });
+        }
 
         public function update(array $data, int $id, ?Request $request = null): Quotation
         {
@@ -538,21 +575,14 @@ class QuotationService
         ]);
     }
 
+    /**
+     * Generate the next quotation/PO code. Now delegates to the shared
+     * PoCodeGenerator service so the same logic is reusable from
+     * InquiryService (Phase 6-A).
+     */
     protected function generatePoCode(string $prefix = 'QUO'): string
     {
-        $year = now()->year;
-        $lastQuotationId = Quotation::whereYear('created_at', $year)
-            ->lockForUpdate()
-            ->orderByDesc('id')
-            ->value('quotation_id');
-
-        $lastNumber = 0;
-        if (is_string($lastQuotationId) && preg_match('/-(\d+)$/', $lastQuotationId, $matches)) {
-            $lastNumber = (int) $matches[1];
-        }
-
-        $nextNumber = $lastNumber + 1;
-        return sprintf('%s-%d-%06d', $prefix, $year, $nextNumber);
+        return $this->poCodeGenerator->generate($prefix);
     }
 
     /**

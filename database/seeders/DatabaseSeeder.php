@@ -25,5 +25,6 @@ class DatabaseSeeder extends Seeder
         $this->call(ServiceTypeSeeder::class);
         $this->call(PrintLabelPlacements::class);
         $this->call(PantoneSeeder::class);
+        $this->call(FabricSwatchSeeder::class);
     }
 }

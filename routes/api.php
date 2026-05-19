@@ -59,6 +59,11 @@ use App\Http\Controllers\Api\ScreenMakerPortalController;
 use App\Http\Controllers\Api\MaterialPrepPortalController;
 use App\Http\Controllers\Api\GraphicArtistPortalController;
 use App\Http\Controllers\Api\LogisticsPortalController;
+use App\Http\Controllers\Api\CsrDashboardController;
+use App\Http\Controllers\Api\InquiryController;
+use App\Http\Controllers\Api\OrderPaymentController;
+use App\Http\Controllers\Api\ClientApprovalController;
+use App\Http\Controllers\Api\FabricSwatchController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -588,6 +593,57 @@ Route::prefix('v2')->group(function () {
                 Route::post('/shipments/{id}/proof',    'uploadProof')->whereNumber('id');
 
                 Route::post('/assignments/{id}/verify-return', 'verifyReturn')->whereNumber('id');
+            });
+
+        // ── CSR Hub (Phase 6-A backend) ───────────────────────────────
+        // Dashboard, Inquiries, Order Payments, Client Approvals, Activity Log.
+        // All gated by portal.csr at the group level. Verify-payment is
+        // separately gated on action.verify-payment (Finance + Super Admin).
+        Route::prefix('/csr')
+            ->middleware('permission:portal.csr')
+            ->group(function () {
+                // Dashboard
+                Route::get('/dashboard', [CsrDashboardController::class, 'show']);
+                Route::get('/activity-log', [CsrDashboardController::class, 'activityLog']);
+
+                // Inquiries
+                Route::prefix('/inquiries')->controller(InquiryController::class)->group(function () {
+                    Route::get('/',                                'index');
+                    Route::post('/',                               'store');
+                    Route::put('/{id}',                            'update')->whereNumber('id');
+                    Route::post('/{id}/convert-to-quotation',      'convertToQuotation')
+                        ->whereNumber('id')
+                        ->name('csr.inquiries.convertToQuotation');
+                });
+
+                // Order Payments
+                Route::prefix('/payments')->controller(OrderPaymentController::class)->group(function () {
+                    Route::get('/',                'index');
+                    Route::post('/',               'store');
+
+                    // Verify gate — Finance + Super Admin only
+                    Route::patch('/{id}/verify',   'verify')
+                        ->whereNumber('id')
+                        ->middleware('permission:action.verify-payment')
+                        ->name('csr.payments.verify');
+                });
+
+                // Client Approvals
+                Route::prefix('/approvals')->controller(ClientApprovalController::class)->group(function () {
+                    Route::get('/',                'index');
+                    Route::post('/',               'store');
+                    Route::patch('/{id}/respond',  'respond')
+                        ->whereNumber('id')
+                        ->name('csr.approvals.respond');
+                });
+
+                // ── Phase 6-B: Fabric Swatch Catalog ────────────────
+                Route::prefix('/fabric-swatches')->controller(FabricSwatchController::class)->group(function () {
+                    Route::get('/',                'index');
+                    Route::post('/',               'store');
+                    Route::put('/{id}',            'update')->whereNumber('id');
+                    Route::delete('/{id}',         'destroy')->whereNumber('id');
+                });
             });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {

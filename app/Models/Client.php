@@ -17,6 +17,11 @@ class Client extends Model
         'method',
         'courier',
         'notes',
+        // ── Phase 6-A: client communication links + internal notes
+        'messenger_link',
+        'facebook_link',
+        'gc_link',
+        'internal_notes',
     ];
 
     public function brands()

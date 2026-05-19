@@ -15,6 +15,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
  * Production-time details (courier, fabric, payment, files) live on
  * downstream tables (order_stages, order_designs, order_samples,
  * po_items, etc.) rather than here.
+ *
+ * Phase 6-A: added CSR-managed fields — messenger_link, gc_link,
+ * priority, rush_order, sales_channel, assigned_csr_user_id,
+ * deadline, internal_notes.
  */
 class Order extends Model
 {
@@ -70,6 +74,16 @@ class Order extends Model
         'workflow_status',
         'delayed_at',
         'current_stage_id',
+
+        // ── Phase 6-A: CSR-tracked fields
+        'messenger_link',
+        'gc_link',
+        'priority',
+        'rush_order',
+        'sales_channel',
+        'assigned_csr_user_id',
+        'deadline',
+        'internal_notes',
     ];
 
     protected $casts = [
@@ -83,6 +97,23 @@ class Order extends Model
         'breakdown_json'   => 'array',
         'print_parts_json' => 'array',
         'delayed_at'       => 'datetime',
+
+        // ── Phase 6-A casts
+        'rush_order'       => 'boolean',
+        'deadline'         => 'date',
+    ];
+
+    // ── Priority constants ───────────────────────────────────────────────
+    public const PRIORITY_LOW    = 'low';
+    public const PRIORITY_NORMAL = 'normal';
+    public const PRIORITY_HIGH   = 'high';
+    public const PRIORITY_RUSH   = 'rush';
+
+    public const PRIORITIES = [
+        self::PRIORITY_LOW,
+        self::PRIORITY_NORMAL,
+        self::PRIORITY_HIGH,
+        self::PRIORITY_RUSH,
     ];
 
     // ── Relations ────────────────────────────────────────────────────────
@@ -150,5 +181,22 @@ class Order extends Model
     public function screenChecking()
     {
         return $this->hasMany(ScreenChecking::class);
+    }
+
+    // ── Phase 6-A relations ──────────────────────────────────────────────
+
+    public function assignedCsr()
+    {
+        return $this->belongsTo(User::class, 'assigned_csr_user_id');
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(OrderPayment::class, 'order_id');
+    }
+
+    public function approvals()
+    {
+        return $this->hasMany(ClientApproval::class, 'order_id');
     }
 }
