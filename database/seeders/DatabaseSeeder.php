@@ -25,5 +25,12 @@ class DatabaseSeeder extends Seeder
         $this->call(ServiceTypeSeeder::class);
         $this->call(PrintLabelPlacements::class);
         $this->call(PantoneSeeder::class);
+        $this->call(FabricSwatchSeeder::class);
+
+        // Phase 7-B Bundle 1 — QA/Packer portal lookups + settings
+        $this->call(RejectReasonSeeder::class);
+        $this->call(QaChecklistItemSeeder::class);
+        $this->call(PackingChecklistItemSeeder::class);
+        $this->call(NotificationSettingsSeeder::class);
     }
 }

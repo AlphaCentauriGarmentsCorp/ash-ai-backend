@@ -26,20 +26,79 @@ class QuotationController extends Controller
         $printTypes = $this->service->getAll();
         return QuotationResource::collection($printTypes);
     }
+public function store(Store $request)
+{
+    $validated = $request->validated();
 
-    public function store(Store $request)
-    {
-        $quotation = $this->service->store($request->validated(), $request);
-
-        return (new QuotationResource($quotation))->response()->setStatusCode(201);
+    // Process uploaded print part files. Use $request->file() (NOT input)
+    // so we get UploadedFile instances regardless of FormData nesting.
+    // Handles both flat shape (print_parts_files[0] = file, matches the
+    // current validator) AND legacy nested shape (print_parts_files[0][0] = file).
+    $files = $this->collectUploadedPrintParts($request);
+    if (! empty($files)) {
+        $validated['print_parts_files'] = json_encode($files);
     }
+
+    // Create the quotation using the service layer
+    $quotation = $this->service->store($validated, $request);
+
+    // Return the response with the newly created quotation
+    return (new QuotationResource($quotation))->response()->setStatusCode(201);
+}
 
     public function update(Update $request, $id)
     {
-        $quotation = $this->service->update($request->validated(), $id, $request);
+        $validated = $request->validated();
 
-       return new QuotationResource($quotation);
+        $files = $this->collectUploadedPrintParts($request);
+        if (! empty($files)) {
+            $validated['print_parts_files'] = json_encode($files);
+        }
+
+        // Update the quotation with new data
+        $quotation = $this->service->update($validated, $id, $request);
+
+        return new QuotationResource($quotation);
     }
+
+    /**
+     * Walk the uploaded `print_parts_files` payload and return an array of
+     * stored file paths, regardless of whether the frontend sent the files
+     * flat (`print_parts_files[0] = file`) or nested
+     * (`print_parts_files[0][0] = file`). This way the controller stays
+     * robust against either FormData shape.
+     */
+    protected function collectUploadedPrintParts(\Illuminate\Http\Request $request): array
+    {
+        $raw = $request->file('print_parts_files');
+        if (empty($raw) || ! is_array($raw)) {
+            return [];
+        }
+
+        $stored = [];
+
+        foreach ($raw as $item) {
+            // Flat shape: $item is an UploadedFile.
+            if ($item instanceof \Illuminate\Http\UploadedFile) {
+                if ($item->isValid()) {
+                    $stored[] = $item->store('quotation-print-parts', 'public');
+                }
+                continue;
+            }
+
+            // Nested shape: $item is itself an array of UploadedFile objects.
+            if (is_array($item)) {
+                foreach ($item as $subItem) {
+                    if ($subItem instanceof \Illuminate\Http\UploadedFile && $subItem->isValid()) {
+                        $stored[] = $subItem->store('quotation-print-parts', 'public');
+                    }
+                }
+            }
+        }
+
+        return $stored;
+    }
+
 
     public function show($id)
     {
@@ -82,24 +141,15 @@ class QuotationController extends Controller
     }
 
     /**
-     * Confirm a quotation and return pre-filled order payload.
-     * Sets quotation status to "Converted" (idempotent guard included).
+     * Mark a quotation as Converted and return the prefill payload that
+     * the frontend can use to populate /orders/new.
+     *
+     * Returns 409 if the quotation is already Converted.
      */
     public function confirm($id)
     {
         $result = $this->service->confirmAndConvert((int) $id);
 
-        if ($result['already_converted']) {
-            return response()->json([
-                'message' => 'This quotation has already been converted to an order.',
-                'quotation' => new QuotationResource($result['quotation']),
-            ], 409);
-        }
-
-        return response()->json([
-            'message'       => 'Quotation confirmed and ready to convert.',
-            'quotation'     => new QuotationResource($result['quotation']),
-            'order_payload' => $result['order_payload'],
-        ]);
+        return response()->json($result);
     }
 }

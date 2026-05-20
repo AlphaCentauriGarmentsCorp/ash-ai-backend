@@ -5,6 +5,21 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
+/**
+ * Order — the production-ready record produced when a Quotation is
+ * converted to an Order. The schema is intentionally a minimal,
+ * quotation-derived shape: financials, FK-based apparel/pattern/print
+ * method references, and JSON blobs that carry over from the source
+ * quotation.
+ *
+ * Production-time details (courier, fabric, payment, files) live on
+ * downstream tables (order_stages, order_designs, order_samples,
+ * po_items, etc.) rather than here.
+ *
+ * Phase 6-A: added CSR-managed fields — messenger_link, gc_link,
+ * priority, rush_order, sales_channel, assigned_csr_user_id,
+ * deadline, internal_notes.
+ */
 class Order extends Model
 {
     use HasFactory;
@@ -12,90 +27,125 @@ class Order extends Model
     protected $table = 'orders';
 
     protected $fillable = [
-        'po_code',
+        // Linkage
         'quotation_id',
+        'po_code',
 
         // Client
         'client_id',
         'client_name',
         'client_brand',
 
-        // Apparel config IDs (from quotation)
+        // Apparel + print method (FK-based, like quotations)
         'apparel_type_id',
         'pattern_type_id',
         'apparel_neckline_id',
         'print_method_id',
 
-        // Shirt / Print details
+        // Print details
         'shirt_color',
         'special_print',
         'print_area',
+
+        // Misc descriptive
         'free_items',
         'notes',
 
-        // Pricing & discount
+        // Financials
         'discount_type',
         'discount_price',
         'discount_amount',
         'subtotal',
         'grand_total',
 
-        // JSON blobs (carried from quotation)
+        // JSON carry-over from the quotation
         'item_config_json',
         'items_json',
         'addons_json',
         'breakdown_json',
         'print_parts_json',
 
-        // QR / Barcode
+        // Artifacts
         'qr_path',
         'barcode_path',
 
+        // Status + Phase 1 workflow tracking
         'status',
+        'workflow_status',
+        'delayed_at',
+        'current_stage_id',
+
+        // ── Phase 6-A: CSR-tracked fields
+        'messenger_link',
+        'gc_link',
+        'priority',
+        'rush_order',
+        'sales_channel',
+        'assigned_csr_user_id',
+        'deadline',
+        'internal_notes',
     ];
 
     protected $casts = [
+        'discount_price'   => 'decimal:2',
+        'discount_amount'  => 'decimal:2',
+        'subtotal'         => 'decimal:2',
+        'grand_total'      => 'decimal:2',
         'item_config_json' => 'array',
         'items_json'       => 'array',
         'addons_json'      => 'array',
         'breakdown_json'   => 'array',
         'print_parts_json' => 'array',
-        'subtotal'         => 'decimal:2',
-        'discount_price'   => 'decimal:2',
-        'discount_amount'  => 'decimal:2',
-        'grand_total'      => 'decimal:2',
+        'delayed_at'       => 'datetime',
+
+        // ── Phase 6-A casts
+        'rush_order'       => 'boolean',
+        'deadline'         => 'date',
     ];
 
-    // ── Relationships ──────────────────────────────────────────────────────────
+    // ── Priority constants ───────────────────────────────────────────────
+    public const PRIORITY_LOW    = 'low';
+    public const PRIORITY_NORMAL = 'normal';
+    public const PRIORITY_HIGH   = 'high';
+    public const PRIORITY_RUSH   = 'rush';
 
-    public function quotation()
-    {
-        return $this->belongsTo(Quotation::class);
-    }
+    public const PRIORITIES = [
+        self::PRIORITY_LOW,
+        self::PRIORITY_NORMAL,
+        self::PRIORITY_HIGH,
+        self::PRIORITY_RUSH,
+    ];
+
+    // ── Relations ────────────────────────────────────────────────────────
 
     public function client()
     {
         return $this->belongsTo(Client::class);
     }
 
+    public function quotation()
+    {
+        return $this->belongsTo(Quotation::class, 'quotation_id');
+    }
+
     public function apparelType()
     {
-        return $this->belongsTo(ApparelType::class);
+        return $this->belongsTo(ApparelType::class, 'apparel_type_id');
     }
 
     public function patternType()
     {
-        return $this->belongsTo(PatternType::class);
-    }
-
-    public function printMethod()
-    {
-        return $this->belongsTo(PrintMethod::class);
+        return $this->belongsTo(PatternType::class, 'pattern_type_id');
     }
 
     public function apparelNeckline()
     {
-        return $this->belongsTo(ApparelNeckline::class);
+        return $this->belongsTo(ApparelNeckline::class, 'apparel_neckline_id');
+    }
+
+    public function printMethod()
+    {
+        return $this->belongsTo(PrintMethod::class, 'print_method_id');
     }
 
     public function items()
@@ -113,6 +163,11 @@ class Order extends Model
         return $this->hasMany(OrderStage::class);
     }
 
+    public function currentStage()
+    {
+        return $this->belongsTo(OrderStage::class, 'current_stage_id');
+    }
+
     public function orderDesign()
     {
         return $this->hasOne(OrderDesign::class);
@@ -128,8 +183,20 @@ class Order extends Model
         return $this->hasMany(ScreenChecking::class);
     }
 
-    public function tickets()
+    // ── Phase 6-A relations ──────────────────────────────────────────────
+
+    public function assignedCsr()
     {
-        return $this->hasMany(Ticket::class);
+        return $this->belongsTo(User::class, 'assigned_csr_user_id');
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(OrderPayment::class, 'order_id');
+    }
+
+    public function approvals()
+    {
+        return $this->hasMany(ClientApproval::class, 'order_id');
     }
 }

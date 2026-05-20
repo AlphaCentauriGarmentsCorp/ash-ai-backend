@@ -8,6 +8,9 @@ class Quotation extends Model
 {
     protected $table = 'quotations';
 
+    // ── Status constants (Phase 6-A adds STATUS_DRAFT for inquiry conversion)
+    public const STATUS_DRAFT     = 'Draft';   // ⬅️ NEW (Phase 6-A C15)
+
     protected $fillable = [
         'quotation_id',
         'user_id',
@@ -40,7 +43,7 @@ class Quotation extends Model
     ];
 
     protected $casts = [
-        'print_method_id' => 'integer',
+        'print_method_id'  => 'integer',
         'item_config_json' => 'array',
         'items_json'       => 'array',
         'addons_json'      => 'array',
