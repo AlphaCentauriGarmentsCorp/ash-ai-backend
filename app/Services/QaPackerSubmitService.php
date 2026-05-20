@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\NotificationSetting;
 use App\Models\Order;
 use App\Models\OrderStage;
+use App\Models\QaPackerTaskCompletion;
 use App\Models\StageRejectLog;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -97,14 +98,23 @@ class QaPackerSubmitService
 
             // ── 2. Persist checklist completion ────────────────────────
             //
-            // TODO Bundle 4: write a row to qa_packer_task_completions
-            // with checklist_state_json + final_photos_json. The table
-            // doesn't exist yet — left as a deliberate stub so Bundle 1
-            // schema stays minimal.
-            //
-            // For now we capture the payload shape in $payload as a
-            // contract check (so callers don't drift before Bundle 4):
+            // Bundle 4a: write the audit row inside the transaction so
+            // any later failure (notifications, etc.) rolls it back.
             $this->validatePayloadShape($payload);
+
+            $completion = QaPackerTaskCompletion::create([
+                'order_id'             => $stage->order_id,
+                'order_stage_id'       => $stage->id,
+                'submitted_by_user_id' => $user->id,
+                'checklist_state_json' => [
+                    'qa'      => $payload['qa_checklist_state']      ?? [],
+                    'packing' => $payload['packing_checklist_state'] ?? [],
+                ],
+                'final_photos_json'    => $payload['final_photos'] ?? null,
+                'reject_summary_json'  => $rejectSummary,
+                'notes'                => $payload['notes'] ?? null,
+                'submitted_at'         => now(),
+            ]);
 
             // ── 3. Decrement packing-material inventory ────────────────
             //
@@ -227,20 +237,16 @@ class QaPackerSubmitService
         Order $order,
         array $rejectSummary,
     ): array {
-        // TODO Bundle 4: add NotificationService::qaPackerTaskCompleted
-        // that takes ($stage, $order, $rejectSummary) and emits the full
-        // fan-out (CSR + Logistics + conditionally Super Admin).
+        // Bundle 4a: delegate to NotificationService which knows the
+        // recipient resolution rules (managers, CSR, logistics, etc.).
         //
-        // For Bundle 1 we re-use the existing stageInProgress event for
-        // the auto-advanced next stage (fired by markComplete itself —
-        // see OrderStagesService) and rely on the test to assert the
-        // future intent via the returned summary.
-
-        return [
-            'csr'         => true,
-            'logistics'   => true,
-            'super_admin' => $rejectSummary['exceeds_threshold'],
-        ];
+        // The method signature returns the fan-out decision so the
+        // controller response can tell the frontend who got pinged.
+        return $this->notifications->qaPackerTaskCompleted(
+            $stage,
+            $order,
+            $rejectSummary,
+        );
     }
 
     /**

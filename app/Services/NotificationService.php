@@ -598,21 +598,121 @@ class NotificationService
             return;
         }
 
+        // Phase 7-B Bundle 4a — disposition-aware fan-out.
+        //
+        // Per PDF §6 notification rules:
+        //   - Reject due to fabric: notify Cutter, CSR, Super Admin
+        //   - Other reject:         notify CSR, Super Admin
+        //   - Repair only:          notify CSR only (no manager spam)
+        $isRepair = $log->disposition === \App\Models\StageRejectLog::DISPOSITION_REPAIR;
+        $isFabricReject = ! $isRepair
+            && $log->reason
+            && (bool) $log->reason->is_fabric;
+
+        $roles = ['csr'];
+        if (! $isRepair) {
+            // Reject-level events also page managers.
+            $roles = array_merge($this->managerRoles, $roles);
+        }
+        if ($isFabricReject) {
+            // Fabric-rooted rejects also page the Cutter so they know
+            // upstream fabric quality is suspect.
+            $roles[] = 'cutter';
+        }
+
         $recipients = $this->collectRecipients(
-            roles: array_merge($this->managerRoles, ['csr']),
+            roles: array_unique($roles),
             assignedUserId: $stage->assigned_to,
         );
 
+        $titleKind = $isRepair ? 'Repair' : 'Reject';
+        $reasonLabel = $log->reason?->label;
+
         $this->dispatch($recipients, [
-            'type'  => 'stage.reject_logged',
-            'title' => "Reject logged: {$this->stageLabel($stage)}",
-            'body'  => "{$log->quantity_pcs} pieces rejected by QA"
-                . ($log->notes ? " — {$log->notes}" : ''),
+            'type'  => $isRepair ? 'stage.repair_logged' : 'stage.reject_logged',
+            'title' => "{$titleKind} logged: {$this->stageLabel($stage)}",
+            'body'  => "{$log->quantity_pcs} pcs"
+                . ($reasonLabel ? " — {$reasonLabel}" : '')
+                . ($log->notes ? " ({$log->notes})" : ''),
             'data'  => array_merge($this->stageContext($stage), [
-                'reject_log_id' => $log->id,
-                'quantity_pcs'  => $log->quantity_pcs,
+                'reject_log_id'     => $log->id,
+                'disposition'       => $log->disposition,
+                'reject_reason_id'  => $log->reject_reason_id,
+                'reject_reason'     => $log->reason?->slug,
+                'quantity_pcs'      => $log->quantity_pcs,
             ]),
         ]);
+    }
+
+    /**
+     * Phase 7-B Bundle 4a — A QA or Packing task was submitted.
+     *
+     * Fan-out (per spec doc §6 + §7-B.8 Q4):
+     *   - CSR:         always (order moved forward)
+     *   - Logistics:   always (order ready for next handoff)
+     *   - Super Admin: only when reject thresholds exceeded
+     *
+     * Recipient resolution is via collectRecipients(), so it picks up
+     * every user with the named role.
+     *
+     * Returns the fan-out decision so QaPackerSubmitService can include
+     * it in the controller response (the frontend uses this to show
+     * "Super Admin alerted" badges on the success card).
+     *
+     * @return array{csr:bool, logistics:bool, super_admin:bool}
+     */
+    public function qaPackerTaskCompleted(
+        OrderStage $stage,
+        \App\Models\Order $order,
+        array $rejectSummary,
+    ): array {
+        $alertSuperAdmin = (bool) ($rejectSummary['exceeds_threshold'] ?? false);
+
+        $roles = ['csr', 'logistics'];
+        if ($alertSuperAdmin) {
+            // Super Admin alerted = managers fan-out gets added.
+            $roles = array_merge($roles, $this->managerRoles);
+        }
+
+        $recipients = $this->collectRecipients(
+            roles: array_unique($roles),
+            assignedUserId: $stage->assigned_to,
+        );
+
+        $stageLabel = $this->stageLabel($stage);
+        $rejectPcs  = (int) ($rejectSummary['total_pcs'] ?? 0);
+        $rejectPct  = (float) ($rejectSummary['pct'] ?? 0.0);
+
+        $bodyParts = ["{$stageLabel} completed for {$order->po_code}"];
+        if ($rejectPcs > 0) {
+            $bodyParts[] = sprintf(
+                '%d pcs rejected (%.1f%% of order)',
+                $rejectPcs,
+                $rejectPct * 100,
+            );
+        }
+        if ($alertSuperAdmin) {
+            $bodyParts[] = 'Reject threshold exceeded — please review.';
+        }
+
+        $this->dispatch($recipients, [
+            'type'  => 'qa_packer.task_completed',
+            'title' => "Submitted: {$stageLabel}",
+            'body'  => implode(' · ', $bodyParts),
+            'data'  => array_merge($this->stageContext($stage), [
+                'order_id'          => $order->id,
+                'po_code'           => $order->po_code,
+                'reject_pcs'        => $rejectPcs,
+                'reject_pct'        => $rejectPct,
+                'exceeds_threshold' => $alertSuperAdmin,
+            ]),
+        ]);
+
+        return [
+            'csr'         => true,
+            'logistics'   => true,
+            'super_admin' => $alertSuperAdmin,
+        ];
     }
 
     /**

@@ -540,6 +540,16 @@ Route::prefix('v2')->group(function () {
                 Route::post('/rejects',         'storeReject');
                 Route::delete('/rejects/{id}',  'destroyReject')->whereNumber('id');
 
+                // Phase 7-B Bundle 4a — Packing boxes + QR labels
+                Route::post('/boxes/ensure-for-order/{orderId}', 'ensureFirstBox')->whereNumber('orderId');
+                Route::patch('/boxes/{id}',                       'updateBoxContents')->whereNumber('id');
+                Route::post('/boxes/{id}/seal',                   'sealBox')->whereNumber('id');
+                Route::post('/boxes/{id}/unseal',                 'unsealBox')->whereNumber('id');
+                Route::get('/boxes/{id}/qr-label.pdf',            'downloadBoxLabel')->whereNumber('id');
+
+                // Phase 7-B Bundle 4a — Final photo uploads
+                Route::post('/final-photos', 'uploadFinalPhoto');
+
                 // Atomic SUBMIT COMPLETED — advances the workflow stage
                 Route::post('/submit/{orderStageId}', 'submit')->whereNumber('orderStageId');
             });

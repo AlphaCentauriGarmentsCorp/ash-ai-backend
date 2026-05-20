@@ -65,6 +65,7 @@ beforeEach(function () {
         'order_stages',
         'orders',
         'users',
+        'qa_packer_task_completions',
     ] as $t) {
         Schema::dropIfExists($t);
     }
@@ -210,6 +211,19 @@ beforeEach(function () {
         $t->timestamps();
     });
 
+    Schema::create('qa_packer_task_completions', function (Blueprint $t) {
+        $t->id();
+        $t->unsignedBigInteger('order_id');
+        $t->unsignedBigInteger('order_stage_id');
+        $t->unsignedBigInteger('submitted_by_user_id');
+        $t->json('checklist_state_json')->nullable();
+        $t->json('final_photos_json')->nullable();
+        $t->json('reject_summary_json')->nullable();
+        $t->text('notes')->nullable();
+        $t->timestamp('submitted_at')->nullable();
+        $t->timestamps();
+    });
+
     Schema::create('notification_settings', function (Blueprint $t) {
         $t->id();
         $t->string('key', 128)->unique();
@@ -292,6 +306,7 @@ afterEach(function () {
         'order_stages',
         'orders',
         'users',
+        'qa_packer_task_completions',
     ] as $t) {
         Schema::dropIfExists($t);
     }
@@ -794,4 +809,237 @@ it('OrderPackingBox::isSealed reflects sealed_at presence', function () {
         'sealed_at' => now(),
     ]);
     expect($b2->isSealed())->toBeTrue();
+});
+
+// ─── Bundle 4a — BoxQrCodeService tests ───────────────────────────
+
+it('auto-creates box #1 with contents derived from items_json', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages(totalQty: 100);
+    $user = phase7b_makeUser('Packer User');
+
+    $service = new \App\Services\BoxQrCodeService();
+    $box = $service->ensureFirstBox($made['order_id'], $user);
+
+    expect($box->box_number)->toBe(1)
+        ->and($box->qr_code)->toContain('BOX-01')
+        ->and($box->totalPieces())->toBe(100)   // sum of M=50 + L=50 from fixture
+        ->and($box->isSealed())->toBeFalse();
+});
+
+it('ensureFirstBox is idempotent', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser();
+
+    $service = new \App\Services\BoxQrCodeService();
+    $box1 = $service->ensureFirstBox($made['order_id'], $user);
+    $box2 = $service->ensureFirstBox($made['order_id'], $user);
+
+    expect($box1->id)->toBe($box2->id);
+    expect(\App\Models\OrderPackingBox::where('order_id', $made['order_id'])->count())->toBe(1);
+});
+
+it('generates QR codes with the canonical format', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $order = $made['order'];
+    $service = new \App\Services\BoxQrCodeService();
+
+    $code = $service->generateCode($order, 7);
+
+    // Format: ASH-PO-YYYY-NNNNNN-BOX-NN  OR  custom-po-code-BOX-NN
+    expect($code)->toEndWith('-BOX-07');
+});
+
+it('seal() locks the box and records who sealed it', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser('Sealer');
+
+    $service = new \App\Services\BoxQrCodeService();
+    $box = $service->ensureFirstBox($made['order_id'], $user);
+
+    expect($box->isSealed())->toBeFalse();
+
+    $sealed = $service->seal($box->id, $user);
+
+    expect($sealed->isSealed())->toBeTrue()
+        ->and($sealed->sealed_by_user_id)->toBe($user->id)
+        ->and($sealed->sealed_at)->not->toBeNull();
+});
+
+it('seal() refuses to re-seal an already-sealed box', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser();
+
+    $service = new \App\Services\BoxQrCodeService();
+    $box = $service->ensureFirstBox($made['order_id'], $user);
+    $service->seal($box->id, $user);
+
+    expect(fn () => $service->seal($box->id, $user))
+        ->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+it('renderQrPng returns non-empty PNG bytes', function () {
+    $service = new \App\Services\BoxQrCodeService();
+    $bytes = $service->renderQrPng('ASH-TEST-001-BOX-01');
+
+    expect(strlen($bytes))->toBeGreaterThan(100)
+        ->and(substr($bytes, 1, 3))->toBe('PNG');   // magic header bytes
+});
+
+// ─── Bundle 4a — Submit persistence ───────────────────────────────
+
+it('submit persists a qa_packer_task_completions row', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser();
+
+    $result = phase7b_submitService()->submit(
+        $made['qa_stage_id'],
+        [
+            'qa_checklist_state' => ['correct_print' => true, 'correct_size' => true],
+            'packing_checklist_state' => [],
+            'final_photos' => ['completed_product' => 'qa-packer/final-photos/x.jpg'],
+            'notes' => 'All good',
+        ],
+        $user,
+    );
+
+    $completion = \App\Models\QaPackerTaskCompletion::where('order_stage_id', $made['qa_stage_id'])
+        ->first();
+
+    expect($completion)->not->toBeNull()
+        ->and($completion->submitted_by_user_id)->toBe($user->id)
+        ->and($completion->checklist_state_json['qa']['correct_print'])->toBeTrue()
+        ->and($completion->checklist_state_json['qa']['correct_size'])->toBeTrue()
+        ->and($completion->final_photos_json['completed_product'])->toBe('qa-packer/final-photos/x.jpg')
+        ->and($completion->notes)->toBe('All good');
+});
+
+it('submit also captures the reject summary in the completion row', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages(totalQty: 100);
+    $user = phase7b_makeUser();
+
+    // Log 6 pcs reject (>=5 trips the threshold)
+    phase7b_rejectService()->create([
+        'order_id' => $made['order_id'],
+        'order_stage_id' => $made['qa_stage_id'],
+        'disposition' => 'reject',
+        'reject_reason_id' => \App\Models\RejectReason::where('slug', 'damaged')->first()->id,
+        'quantity_pcs' => 6,
+    ], $user);
+
+    phase7b_submitService()->submit($made['qa_stage_id'], [], $user);
+
+    $completion = \App\Models\QaPackerTaskCompletion::where('order_stage_id', $made['qa_stage_id'])->first();
+    expect($completion->reject_summary_json['total_pcs'])->toBe(6)
+        ->and($completion->reject_summary_json['exceeds_threshold'])->toBeTrue();
+});
+
+// ─── Bundle 4a — Repair notifications ─────────────────────────────
+
+it('repair entries trigger stage.repair_logged not stage.reject_logged', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser();
+
+    // Seed a CSR user + role so NotificationService has a recipient
+    // to dispatch to. Without this, the fan-out resolves to zero
+    // recipients and zero notification rows are written.
+    \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'csr', 'guard_name' => 'web']);
+    $csr = phase7b_makeUser('CSR User');
+    $csr->assignRole('csr');
+
+    phase7b_rejectService()->create([
+        'order_id' => $made['order_id'],
+        'order_stage_id' => $made['qa_stage_id'],
+        'disposition' => 'repair',
+        'reject_reason_id' => \App\Models\RejectReason::where('slug', 'print_issue')->first()->id,
+        'quantity_pcs' => 2,
+    ], $user);
+
+    // Find the dispatched notification for THIS reject_log row.
+    $notif = \Illuminate\Support\Facades\DB::table('notifications')
+        ->where('user_id', $csr->id)
+        ->orderByDesc('id')
+        ->first();
+
+    // Defensive: confirm the row was actually written.
+    expect($notif)->not->toBeNull();
+    expect($notif->type)->toBe('stage.repair_logged');
+
+    // Belt-and-braces: a REJECT disposition should yield a different type.
+    $rejectReason = \App\Models\RejectReason::where('slug', 'damaged')->first();
+    phase7b_rejectService()->create([
+        'order_id' => $made['order_id'],
+        'order_stage_id' => $made['qa_stage_id'],
+        'disposition' => 'reject',
+        'reject_reason_id' => $rejectReason->id,
+        'quantity_pcs' => 1,
+    ], $user);
+
+    $rejectNotif = \Illuminate\Support\Facades\DB::table('notifications')
+        ->where('user_id', $csr->id)
+        ->orderByDesc('id')
+        ->first();
+    expect($rejectNotif->type)->toBe('stage.reject_logged');
+
+    it('unseal returns a sealed box to draft state', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser();
+
+    $service = new \App\Services\BoxQrCodeService();
+    $box = $service->ensureFirstBox($made['order_id'], $user);
+    $service->seal($box->id, $user);
+
+    expect($box->fresh()->isSealed())->toBeTrue();
+
+    $unsealed = $service->unseal($box->id, $user);
+
+    expect($unsealed->isSealed())->toBeFalse()
+        ->and($unsealed->sealed_by_user_id)->toBeNull()
+        ->and($unsealed->sealed_at)->toBeNull();
+});
+
+it('unseal refuses a box that is not sealed', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser();
+
+    $service = new \App\Services\BoxQrCodeService();
+    $box = $service->ensureFirstBox($made['order_id'], $user);
+
+    // Box is in draft (never sealed) — unseal should fail.
+    expect(fn () => $service->unseal($box->id, $user))
+        ->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+it('unseal refuses once the packing stage is completed (submitted)', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser();
+
+    $service = new \App\Services\BoxQrCodeService();
+    $box = $service->ensureFirstBox($made['order_id'], $user);
+    $service->seal($box->id, $user);
+
+    // Simulate the packing stage having been submitted.
+    \App\Models\OrderStage::where('id', $made['packing_stage_id'])
+        ->update(['status' => 'completed', 'completed_at' => now()]);
+
+    expect(fn () => $service->unseal($box->id, $user))
+        ->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+it('unseal writes a box_unsealed audit log entry', function () {
+    $made = phase7b_makeOrderWithQaAndPackingStages();
+    $user = phase7b_makeUser();
+
+    $service = new \App\Services\BoxQrCodeService();
+    $box = $service->ensureFirstBox($made['order_id'], $user);
+    $service->seal($box->id, $user);
+    $service->unseal($box->id, $user);
+
+    $log = \Illuminate\Support\Facades\DB::table('stage_audit_logs')
+        ->where('order_stage_id', $made['packing_stage_id'])
+        ->where('action', 'box_unsealed')
+        ->first();
+
+    expect($log)->not->toBeNull()
+        ->and($log->user_id)->toBe($user->id);
+});
 });

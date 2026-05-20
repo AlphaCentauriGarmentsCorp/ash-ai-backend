@@ -1,13 +1,18 @@
 <?php
 
 namespace App\Http\Controllers\Api;
-
+  
 use App\Http\Controllers\Controller;
+use App\Http\Requests\QaPacker\StoreFinalPhoto;
 use App\Http\Requests\QaPacker\StoreReject;
+use App\Http\Requests\QaPacker\UpdateBoxContents;
+use App\Models\OrderPackingBox;
+use App\Services\BoxQrCodeService;
 use App\Services\QaPackerPortalService;
 use App\Services\QaPackerSubmitService;
 use App\Services\RejectLogService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Phase 7-B Bundle 1 — HTTP layer for the QA/Packer portal.
@@ -36,6 +41,7 @@ class QaPackerPortalController extends Controller
         protected QaPackerPortalService $context,
         protected RejectLogService $rejects,
         protected QaPackerSubmitService $submitter,
+        protected BoxQrCodeService $boxes,
     ) {
     }
 
@@ -126,5 +132,147 @@ class QaPackerPortalController extends Controller
         );
 
         return response()->json(['data' => $result], 200);
+    }
+
+    // ─── Bundle 4a additions ────────────────────────────────────────
+
+    /**
+     * POST /portal/qa-packer/boxes/ensure-for-order/{orderId}
+     *
+     * Idempotent: returns the existing box #1 if any box exists for
+     * the order, otherwise auto-creates one with defaults derived from
+     * items_json. Called by the frontend when the packing section
+     * mounts.
+     */
+    public function ensureFirstBox(int $orderId, Request $request)
+    {
+        $box = $this->boxes->ensureFirstBox($orderId, $request->user());
+
+        return response()->json([
+            'data' => $this->boxToArray($box),
+        ], 200);
+    }
+
+    /**
+     * PATCH /portal/qa-packer/boxes/{id}
+     *
+     * Update box contents + optional weight. Refuses if the box is
+     * already sealed (sealing locks the contents).
+     */
+    public function updateBoxContents(int $id, UpdateBoxContents $request)
+    {
+        $box = OrderPackingBox::findOrFail($id);
+
+        if ($box->isSealed()) {
+            throw ValidationException::withMessages([
+                'id' => 'Box is sealed — contents cannot be edited.',
+            ]);
+        }
+
+        $data = $request->validated();
+        $box->update([
+            'contents_json' => $data['contents_json'],
+            'weight_kg'     => $data['weight_kg'] ?? $box->weight_kg,
+        ]);
+
+        return response()->json([
+            'data' => $this->boxToArray($box->fresh()),
+        ], 200);
+    }
+
+    /**
+     * POST /portal/qa-packer/boxes/{id}/seal
+     *
+     * Seal the box and mark it ready for QR-label print.
+     */
+    public function sealBox(int $id, Request $request)
+    {
+        $box = $this->boxes->seal($id, $request->user());
+
+        return response()->json([
+            'data' => $this->boxToArray($box),
+        ], 200);
+    }
+
+    /**
+     * POST /portal/qa-packer/boxes/{id}/unseal
+     *
+     * Bundle 4a-2 — packer self-service unseal (before submit only).
+     */
+    public function unsealBox(int $id, Request $request)
+    {
+        $box = $this->boxes->unseal($id, $request->user());
+
+        return response()->json([
+            'data' => $this->boxToArray($box),
+        ], 200);
+    }
+
+    /**
+     * GET /portal/qa-packer/boxes/{id}/qr-label.pdf
+     *
+     * Stream the QR label PDF. Browser opens in a new tab → user prints.
+     */
+    public function downloadBoxLabel(int $id)
+    {
+        $box = OrderPackingBox::with('order')->findOrFail($id);
+        $pdfBytes = $this->boxes->renderLabelPdf($box);
+
+        return response($pdfBytes, 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => "inline; filename=\"box-{$box->qr_code}.pdf\"",
+        ]);
+    }
+
+    /**
+     * POST /portal/qa-packer/final-photos
+     *
+     * Multipart. Saves one of the three final-photo types and returns
+     * the stored path so the frontend can keep it in client state
+     * until the SUBMIT button is hit.
+     *
+     * Bundle 4a stores the photo on the public disk and returns its
+     * relative path; the frontend is responsible for sending the full
+     * { kind: path } map back as `final_photos` on the /submit call.
+     */
+    public function uploadFinalPhoto(StoreFinalPhoto $request)
+    {
+        $data = $request->validated();
+
+        $path = $request->file('photo')->store(
+            'qa-packer/final-photos',
+            'public',
+        );
+
+        return response()->json([
+            'data' => [
+                'kind' => $data['kind'],
+                'path' => $path,
+                'order_id'       => $data['order_id'],
+                'order_stage_id' => $data['order_stage_id'],
+            ],
+        ], 201);
+    }
+
+    // ─── Helpers ────────────────────────────────────────────────────
+
+    /**
+     * Format a box for API responses. Keeps the controller's box
+     * payload shape identical to QaPackerPortalService::packingBoxes
+     * so the frontend can blindly merge box updates back into its
+     * local copy of context.packing_boxes.
+     */
+    protected function boxToArray(OrderPackingBox $box): array
+    {
+        return [
+            'id'             => $box->id,
+            'box_number'     => $box->box_number,
+            'qr_code'        => $box->qr_code,
+            'contents_json'  => $box->contents_json,
+            'total_pieces'   => $box->totalPieces(),
+            'weight_kg'      => $box->weight_kg !== null ? (float) $box->weight_kg : null,
+            'sealed_at'      => $box->sealed_at?->toDateTimeString(),
+            'is_sealed'      => $box->isSealed(),
+        ];
     }
 }
