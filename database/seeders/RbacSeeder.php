@@ -68,6 +68,7 @@ class RbacSeeder extends Seeder
             'portal.sewer',
             'portal.qa',
             'portal.packer',
+            'portal.qa-packer',         // Phase 7-B: unified QA+Packer portal
             'portal.logistics',
             'portal.finance',
             'portal.warehouse',
@@ -382,6 +383,7 @@ class RbacSeeder extends Seeder
                     'access.orders',
                     'access.notifications',
                     'portal.qa',
+                    'portal.qa-packer',     // Phase 7-B: unified portal
                     'action.upload-photos',
                     'action.advance-stage',
                     'action.approve-samples',
@@ -394,6 +396,7 @@ class RbacSeeder extends Seeder
                 'access.orders',
                 'access.notifications',
                 'portal.packer',
+                'portal.qa-packer',         // Phase 7-B: unified portal
                 'action.upload-photos',
                 'action.advance-stage',
             ],

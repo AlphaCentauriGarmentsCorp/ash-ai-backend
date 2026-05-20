@@ -276,6 +276,12 @@ final class WorkflowStages
             'sewer'           => ['sample_creation', 'mass_production'],
             'quality_assurance', 'qa' => ['quality_control'],
             'packer'          => ['packing'],
+            // Phase 7-B: the unified QA/Packer portal serves both stages.
+            // A user with portal.qa-packer permission sees their active
+            // assignments across BOTH quality_control AND packing stages
+            // — matching the real ACGC workflow where the same person
+            // typically does inspection and packing for the same order.
+            'qa_packer'       => ['quality_control', 'packing'],
             'logistics'       => ['delivery'],
             'general_manager' => ['mass_production'],
             // Material prep is not stage-bound — it tracks PR fulfilment.

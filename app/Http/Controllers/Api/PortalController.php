@@ -43,6 +43,8 @@ class PortalController extends Controller
             'material_prep', 'purchasing', 'warehouse_manager',
             'graphic-artist', 'screen-maker', 'sample-maker',
             'material-prep', 'warehouse-manager',
+            // Phase 7-B: unified QA + Packer portal
+            'qa_packer', 'qa-packer',
         ];
 
         if (! in_array($role, $allowedRoles, true)) {

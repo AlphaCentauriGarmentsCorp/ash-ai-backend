@@ -23,7 +23,7 @@ class UsersTableSeeder extends Seeder
         Role::firstOrCreate(['name' => 'cutter', 'guard_name' => 'web']);
         Role::firstOrCreate(['name' => 'printer', 'guard_name' => 'web']);
         Role::firstOrCreate(['name' => 'sewer', 'guard_name' => 'web']);
-        Role::firstOrCreate(['name' => 'qa', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'quality_assurance', 'guard_name' => 'web']);
         Role::firstOrCreate(['name' => 'packer', 'guard_name' => 'web']);
 
         $superadmin = User::updateOrCreate(
@@ -254,11 +254,11 @@ class UsersTableSeeder extends Seeder
                 'otp' => null,
                 'otp_expires_at' => null,
                 'last_verified' => Carbon::now(),
-                'domain_role' => ['qa'],
+                'domain_role' => ['quality_assurance'],
                 'domain_access' => ['ash'],
             ]
         );
-        $qa->syncRoles(['qa']);
+        $qa->syncRoles(['quality_assurance']);
 
         $packer = User::updateOrCreate(
             ['email' => 'packer@com'],

@@ -64,6 +64,7 @@ use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\OrderPaymentController;
 use App\Http\Controllers\Api\ClientApprovalController;
 use App\Http\Controllers\Api\FabricSwatchController;
+use App\Http\Controllers\Api\QaPackerPortalController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -518,6 +519,29 @@ Route::prefix('v2')->group(function () {
                 Route::post('/sample-uploads',         'storeSampleUpload');
                 Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');
                 Route::delete('/sample-uploads/{id}',  'destroySampleUpload')->whereNumber('id');
+            });
+        
+        // ── QA/Packer Portal (Phase 7-B) ──────────────────────────────
+        // Unified portal for QA + Packer roles per QA/Packer spec doc.
+        // Same person typically does both inspection and packing for
+        // the same order at ACGC's scale, so the two roles share a
+        // single portal gated by the unified portal.qa-packer permission.
+        //
+        // Bundle 1 endpoints: context fetch, reject/repair create+delete,
+        // atomic submit. Final-photo + QR + checklist completion endpoints
+        // land in Bundle 4.
+        Route::prefix('/portal/qa-packer')
+            ->middleware('permission:portal.qa-packer')
+            ->controller(QaPackerPortalController::class)
+            ->group(function () {
+                Route::get('/context/{orderStageId}', 'showContext')->whereNumber('orderStageId');
+
+                // Reject / Repair logs — JSON or multipart
+                Route::post('/rejects',         'storeReject');
+                Route::delete('/rejects/{id}',  'destroyReject')->whereNumber('id');
+
+                // Atomic SUBMIT COMPLETED — advances the workflow stage
+                Route::post('/submit/{orderStageId}', 'submit')->whereNumber('orderStageId');
             });
 
         // ── Screen Maker Portal (Phase 5-F) ───────────────────────────
