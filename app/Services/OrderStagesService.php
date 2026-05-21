@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * OrderStagesService – the sequential workflow state machine.
  *
- * Replaces the legacy "checkbox selection" model with a strict 14-stage
+ * Replaces the legacy "checkbox selection" model with a strict 16-stage
  * pipeline. Each Order has every stage pre-created (see initializeForOrder).
  * Only one stage at a time can be in_progress.
  *
@@ -48,7 +48,7 @@ class OrderStagesService
     {
         DB::transaction(function () use ($order) {
             // 1. Prune any legacy stage rows that are NOT in the canonical
-            //    14-stage workflow. Pre-Phase-1 orders may have had stages
+            //    16-stage workflow. Pre-Phase-1 orders may have had stages
             //    like `graphic_editing`, `sample_cutting`, etc. that no
             //    longer exist as workflow stages – they're work-page IDs
             //    now, not workflow stages.
@@ -70,11 +70,52 @@ class OrderStagesService
                 ->where('status', OrderStage::STATUS_IN_PROGRESS)
                 ->exists();
 
+            // 3b. Progress high-water mark — the highest CANONICAL sequence
+            //     this order has already reached (completed OR currently
+            //     active). Used to safely backfill stages that are inserted
+            //     into the MIDDLE of the workflow.
+            //
+            //     Why this matters: when a new stage is added to the
+            //     canonical list BEFORE a point an existing order has
+            //     already passed (e.g. inserting the mass-payment +
+            //     purchase-materials gates while an order is already at
+            //     mass_production), creating that stage as `pending` would
+            //     sit an unfinished stage BEHIND the order's current
+            //     position. markComplete's integrity guard ("all earlier
+            //     stages must be completed") would then permanently STALL
+            //     the order. To avoid that, a stage inserted at or behind
+            //     the high-water mark is created as `completed` (the order
+            //     has demonstrably moved past that point — the gate is
+            //     moot and the work happened off-system).
+            //
+            //     On a fresh order (no existing rows) this is 0, so the
+            //     branch never fires — new orders are unaffected.
+            $progressHighWater = 0;
+            $progressedStages = OrderStage::where('order_id', $order->id)
+                ->whereIn('status', [
+                    OrderStage::STATUS_COMPLETED,
+                    OrderStage::STATUS_IN_PROGRESS,
+                    OrderStage::STATUS_FOR_APPROVAL,
+                    OrderStage::STATUS_DELAYED,
+                    OrderStage::STATUS_ON_HOLD,
+                ])
+                ->pluck('stage')
+                ->all();
+            foreach ($progressedStages as $progressedSlug) {
+                $seq = WorkflowStages::sequenceOf($progressedSlug);
+                if ($seq !== null && $seq > $progressHighWater) {
+                    $progressHighWater = $seq;
+                }
+            }
+
             // 4. Create any missing canonical stages.
+            $backfilledStageIds = [];
             foreach (WorkflowStages::all() as $idx => $stage) {
                 if (in_array($stage['key'], $existing, true)) {
                     continue;
                 }
+
+                $sequence = $idx + 1;
 
                 // Default everything new to pending. The first canonical
                 // stage gets set to in_progress only when this is a
@@ -83,16 +124,34 @@ class OrderStagesService
                     && empty($existing)
                     && ! $hasActiveStage;
 
-                OrderStage::create([
+                // Backfill guard: a stage inserted at or behind the order's
+                // progress high-water mark is marked completed, not pending,
+                // so it can't stall the order on markComplete's guard.
+                // (Never applies when $shouldStartFirst — that's stage 1 of
+                // a brand-new order, where high-water is 0.)
+                $isBackfill = ! $shouldStartFirst
+                    && $progressHighWater > 0
+                    && $sequence <= $progressHighWater;
+
+                $status = match (true) {
+                    $shouldStartFirst => OrderStage::STATUS_IN_PROGRESS,
+                    $isBackfill       => OrderStage::STATUS_COMPLETED,
+                    default           => OrderStage::STATUS_PENDING,
+                };
+
+                $created = OrderStage::create([
                     'order_id'      => $order->id,
                     'stage'         => $stage['key'],
-                    'sequence'      => $idx + 1,
-                    'status'        => $shouldStartFirst
-                        ? OrderStage::STATUS_IN_PROGRESS
-                        : OrderStage::STATUS_PENDING,
-                    'started_at'    => $shouldStartFirst ? now() : null,
+                    'sequence'      => $sequence,
+                    'status'        => $status,
+                    'started_at'    => $shouldStartFirst ? now() : ($isBackfill ? now() : null),
+                    'completed_at'  => $isBackfill ? now() : null,
                     'assigned_role' => $stage['role'] ?? null,
                 ]);
+
+                if ($isBackfill) {
+                    $backfilledStageIds[] = $created->id;
+                }
             }
 
             // 5. Make sure every existing row has the right sequence number
@@ -146,6 +205,35 @@ class OrderStagesService
                         OrderStage::STATUS_IN_PROGRESS,
                         null,
                     );
+                }
+            }
+
+            // Backfill audit — write a 'completed' row for each stage that
+            // was inserted as already-completed (status='completed' set at
+            // creation above because it sits behind the order's progress
+            // high-water mark). We write it directly rather than via
+            // writeAudit() so we DON'T fabricate a duration from a
+            // non-existent 'started' row; the note records why the stage
+            // appears completed without a normal start→complete cycle.
+            // Idempotent: skipped if a completed audit row already exists.
+            foreach ($backfilledStageIds as $bfId) {
+                $alreadyLogged = StageAuditLog::where('order_stage_id', $bfId)
+                    ->where('action', StageAuditLog::ACTION_COMPLETED)
+                    ->exists();
+
+                if (! $alreadyLogged) {
+                    StageAuditLog::create([
+                        'order_id'                  => $order->id,
+                        'order_stage_id'            => $bfId,
+                        'user_id'                   => Auth::id(),
+                        'action'                    => StageAuditLog::ACTION_COMPLETED,
+                        'from_status'               => OrderStage::STATUS_PENDING,
+                        'to_status'                 => OrderStage::STATUS_COMPLETED,
+                        'duration_seconds'          => null,
+                        'business_duration_seconds' => null,
+                        'notes'                     => 'Auto-backfilled: stage added to the workflow after this order had already progressed past this point. Work occurred off-system before the stage existed.',
+                        'created_at'                => now(),
+                    ]);
                 }
             }
 

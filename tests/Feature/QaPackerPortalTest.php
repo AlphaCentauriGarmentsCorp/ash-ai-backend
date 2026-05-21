@@ -979,8 +979,9 @@ it('repair entries trigger stage.repair_logged not stage.reject_logged', functio
         ->orderByDesc('id')
         ->first();
     expect($rejectNotif->type)->toBe('stage.reject_logged');
+});
 
-    it('unseal returns a sealed box to draft state', function () {
+it('unseal returns a sealed box to draft state', function () {
     $made = phase7b_makeOrderWithQaAndPackingStages();
     $user = phase7b_makeUser();
 
@@ -1041,5 +1042,4 @@ it('unseal writes a box_unsealed audit log entry', function () {
 
     expect($log)->not->toBeNull()
         ->and($log->user_id)->toBe($user->id);
-});
 });

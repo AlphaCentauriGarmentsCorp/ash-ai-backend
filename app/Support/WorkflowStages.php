@@ -25,8 +25,10 @@ final class WorkflowStages
      *   sample   – is this a "sample creation" stage?
      *   mass     – is this a "mass production" stage?
      *
-     * Stages 1..14 align with the 14-step "Production Workflow" diagram
-     * in ASH AI master brief §5 / image 8.
+     * Stages 1..16 align with the 16-step "Production Workflow" diagram
+     * in ASH AI master brief §5 / image 8. (Originally 14; the mass
+     * payment-verification + purchase-materials checkpoints were added
+     * to fully model §5.)
      */
     public const STAGES = [
         // ---------- Pre-Production ----------
@@ -94,6 +96,28 @@ final class WorkflowStages
             'group'  => 'Sample Production',
             'role'   => 'csr',
             'sample' => true,
+            'mass'   => false,
+        ],
+
+        // ---------- Mass-Production Gate (checkpoints, not cycle work) ----------
+        // These two stages model the brief §5 checkpoints that gate the
+        // START of mass production. They are NOT production-cycle work, so
+        // sample=false AND mass=false keeps them out of mass-production
+        // cycle-time metrics (see phaseFor(): they classify as 'preprod').
+        [
+            'key'    => 'payment_verification_mass',
+            'label'  => 'Payment Verification (Mass)',
+            'group'  => 'Mass Production',
+            'role'   => 'finance',
+            'sample' => false,
+            'mass'   => false,
+        ],
+        [
+            'key'    => 'purchase_materials',
+            'label'  => 'Purchase Materials',
+            'group'  => 'Mass Production',
+            'role'   => 'purchasing',
+            'sample' => false,
             'mass'   => false,
         ],
 
@@ -199,7 +223,8 @@ final class WorkflowStages
      * reporting to group cycle-time and production counts:
      *   - 'sample'      = sample-production stages only
      *   - 'mass'        = mass-production stages only
-     *   - 'preprod'     = inquiry / quotation / payment-verification stages
+     *   - 'preprod'     = inquiry / quotation / payment-verification /
+     *                     purchase-materials gate stages
      *   - 'delivery'    = delivery / closeout stages
      *   - null when the slug is unknown
      *
@@ -215,6 +240,16 @@ final class WorkflowStages
 
         if (! empty($stage['sample'])) return 'sample';
         if (! empty($stage['mass']))   return 'mass';
+
+        // The mass-production GATE checkpoints (payment_verification_mass,
+        // purchase_materials) live in the 'Mass Production' group for UI
+        // grouping, but they are administrative gates, NOT production-cycle
+        // work — so they must NOT count toward mass cycle-time. Classify
+        // them as 'preprod' (a real, intentional phase) rather than letting
+        // them fall through to the ambiguous null used for unknown slugs.
+        if (in_array($key, ['payment_verification_mass', 'purchase_materials'], true)) {
+            return 'preprod';
+        }
 
         $group = $stage['group'] ?? '';
         if ($group === 'Pre-Production') return 'preprod';
@@ -264,7 +299,7 @@ final class WorkflowStages
                 'inquiry', 'quotation', 'quotation_approval',
                 'sample_approval', 'order_completed', 'client_notification',
             ],
-            'finance'         => ['payment_verification_sample'],
+            'finance'         => ['payment_verification_sample', 'payment_verification_mass'],
             'graphic_artist'  => ['graphic_artwork'],
             'screen_maker'    => ['screen_making'],
             'sample_maker'    => ['sample_creation'],
@@ -284,10 +319,17 @@ final class WorkflowStages
             'qa_packer'       => ['quality_control', 'packing'],
             'logistics'       => ['delivery'],
             'general_manager' => ['mass_production'],
-            // Material prep is not stage-bound — it tracks PR fulfilment.
-            // Returns empty so my-active falls back to the default
+            // Purchasing now owns the canonical 'purchase_materials' workflow
+            // stage (the §5 "buy materials before cutting" gate). It's a
+            // shared-queue checkpoint actioned via the generic complete
+            // endpoint — no dedicated portal. The Purchaser still runs the
+            // parallel Purchase Request flow separately; this stage is the
+            // workflow-timeline gate that mass production waits on.
+            'purchasing'      => ['purchase_materials'],
+            // Material prep + warehouse are not stage-bound — they track PR
+            // fulfilment. Return empty so my-active falls back to the default
             // (no stage-based assignment, which is correct).
-            'material_prep', 'purchasing', 'warehouse_manager' => [],
+            'material_prep', 'warehouse_manager' => [],
             default => [],
         };
     }

@@ -17,7 +17,7 @@ return new class extends Migration
     public function up(): void
     {
         // ── Step 1: Drop legacy columns ───────────────────────────────────────
-        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+        $this->toggleForeignKeys(false);
 
         Schema::table('orders', function (Blueprint $table) {
             $legacyColumns = [
@@ -42,7 +42,7 @@ return new class extends Migration
             }
         });
 
-        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+        $this->toggleForeignKeys(true);
 
         // ── Step 2: Add new columns (skip if already present — safe re-run) ──
         Schema::table('orders', function (Blueprint $table) {
@@ -136,7 +136,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+        $this->toggleForeignKeys(false);
 
         // Remove added columns
         Schema::table('orders', function (Blueprint $table) {
@@ -154,7 +154,7 @@ return new class extends Migration
             }
         });
 
-        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+        $this->toggleForeignKeys(true);
 
         // Restore legacy columns
         Schema::table('orders', function (Blueprint $table) {
@@ -195,5 +195,27 @@ return new class extends Migration
             $table->text('size_label_files')->nullable();
             $table->text('freebies_files')->nullable();
         });
+    }
+
+    /**
+     * Toggle foreign-key enforcement in a driver-aware way.
+     *
+     * The original code used MySQL's `SET FOREIGN_KEY_CHECKS=0/1`, which is
+     * a syntax error on SQLite (used by the test suite's RefreshDatabase
+     * runs). This helper emits the correct statement per driver so the
+     * migration runs identically on MySQL (production) and SQLite (tests),
+     * and is simply a no-op on any driver without an equivalent.
+     */
+    private function toggleForeignKeys(bool $enabled): void
+    {
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver === 'mysql' || $driver === 'mariadb') {
+            DB::statement('SET FOREIGN_KEY_CHECKS=' . ($enabled ? '1' : '0') . ';');
+        } elseif ($driver === 'sqlite') {
+            // SQLite uses a PRAGMA; ON = checks enabled, OFF = disabled.
+            DB::statement('PRAGMA foreign_keys = ' . ($enabled ? 'ON' : 'OFF') . ';');
+        }
+        // pgsql / others: no-op. The column drops here don't require it.
     }
 };
