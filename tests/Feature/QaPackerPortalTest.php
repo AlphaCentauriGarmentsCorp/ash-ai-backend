@@ -94,6 +94,7 @@ beforeEach(function () {
         $t->timestamp('delayed_at')->nullable();
         $t->unsignedBigInteger('current_stage_id')->nullable();
         $t->timestamps();
+        $t->softDeletes();
     });
 
     Schema::create('order_stages', function (Blueprint $t) {

@@ -87,4 +87,34 @@ class OrdersController extends Controller
 
         return new OrderResource($order);
     }
+
+    /**
+     * Soft-delete an order.
+     *
+     * Sets deleted_at (via the Order model's SoftDeletes trait) rather than
+     * hard-deleting, so the order and all ~27 tables of related production
+     * history remain intact and recoverable. The order immediately drops out
+     * of index / withActiveStage / show because those use Eloquent, which
+     * excludes trashed records automatically.
+     *
+     * NOTE (policy hook): this currently allows deleting an order at ANY
+     * stage. If you later want to PREVENT deleting orders that are already
+     * in production (e.g. past sample_approval), add a guard here that
+     * inspects $order->workflow_status and returns 422 before deleting.
+     */
+    public function destroy($id)
+    {
+        $order = Order::find($id);
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found'], 404);
+        }
+
+        $order->delete(); // soft delete — sets deleted_at
+
+        return response()->json([
+            'message' => 'Order deleted.',
+            'id'      => (int) $id,
+        ]);
+    }
 }

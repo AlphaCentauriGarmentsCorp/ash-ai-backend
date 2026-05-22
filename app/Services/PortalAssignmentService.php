@@ -18,13 +18,18 @@ use Illuminate\Support\Collection;
  *   - { status: 'none' }                          → portal shows empty state
  *
  * Resolution strategy (in order):
- *   1. Find OrderStage rows where assigned_to = $userId AND status is
- *      active (in_progress / for_approval / delayed). This catches
- *      explicit assignments by GM / admin / etc.
+ *   1. Find OrderStage rows that are active (in_progress / for_approval /
+ *      delayed) AND (assigned_to = $userId OR assigned_to IS NULL). This
+ *      is the "mix-mode" shared queue (Workstream B): a user sees both the
+ *      work explicitly assigned to them by a manager AND the unassigned
+ *      work waiting at their station. Stages assigned to a DIFFERENT user
+ *      are hidden, so a manager's explicit assignment is respected.
  *   2. Filter by the portal role's stage slugs (so a Cutter only ever
- *      sees stages where cutting work happens, even if they were
- *      mistakenly assigned elsewhere).
- *   3. Return single/multiple/none based on the result count.
+ *      sees stages where cutting work happens — this also scopes the
+ *      unassigned shared pool to the correct role).
+ *   3. Return single/multiple/none based on the result count. A shared
+ *      queue naturally returns 'multiple' more often; the portal's picker
+ *      handles that case.
  *
  * For roles where stage-based assignment doesn't apply (e.g. material_prep,
  * which works off Phase 3 PRs not stages), this service returns 'none'
@@ -49,8 +54,21 @@ class PortalAssignmentService
             OrderStage::STATUS_DELAYED,
         ];
 
+        // Mix-mode shared queue (Workstream B):
+        //   - assigned_to = me           → my explicit assignment (manager set it)
+        //   - assigned_to IS NULL        → unassigned shared work at my station
+        //   - assigned_to = someone else → HIDDEN (respects manager's override)
+        //
+        // The whereIn('stage', $stageSlugs) below already scopes results to
+        // this role's stations, so an unassigned stage only surfaces in the
+        // portal of the role that owns it. This is what makes an active-but-
+        // unassigned stage (e.g. graphic_artwork with assigned_to=null) show
+        // up for the Graphic Artist instead of silently stalling.
         $stages = OrderStage::query()
-            ->where('assigned_to', $user->id)
+            ->where(function ($q) use ($user) {
+                $q->where('assigned_to', $user->id)
+                    ->orWhereNull('assigned_to');
+            })
             ->whereIn('status', $activeStatuses)
             ->whereIn('stage', $stageSlugs)
             ->orderBy('updated_at', 'desc')

@@ -61,6 +61,7 @@ beforeEach(function () {
         $t->string('client_name')->nullable();
         $t->string('client_brand')->nullable();
         $t->timestamps();
+        $t->softDeletes();
     });
 
     Schema::create('order_stages', function (Blueprint $t) {

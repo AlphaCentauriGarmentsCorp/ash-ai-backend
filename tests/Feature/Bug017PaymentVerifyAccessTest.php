@@ -70,6 +70,7 @@ beforeEach(function () {
         $t->boolean('rush_order')->default(false);
         $t->unsignedBigInteger('assigned_csr_user_id')->nullable();
         $t->timestamps();
+        $t->softDeletes();
     });
 
     Schema::create('payment_methods', function (Blueprint $t) {

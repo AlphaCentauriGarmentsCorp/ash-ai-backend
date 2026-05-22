@@ -227,6 +227,7 @@ class RbacSeeder extends Seeder
                 'access.clients',
                 'access.orders',
                 'access.quotations',
+                'access.materials',
                 'access.dropdown-settings',
                 'access.quotation-settings',
                 'access.tickets',
@@ -278,6 +279,7 @@ class RbacSeeder extends Seeder
             'screen_maker' => array_merge(
                 [
                     'access.orders',
+                    'access.materials',
                     'access.screens',
                     'access.screen-making',
                     'access.screen-checking',

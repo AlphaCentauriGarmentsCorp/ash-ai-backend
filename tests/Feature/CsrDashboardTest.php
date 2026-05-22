@@ -112,6 +112,7 @@ beforeEach(function () {
         $t->text('internal_notes')->nullable();
 
         $t->timestamps();
+        $t->softDeletes();
     });
 
     Schema::create('quotations', function (Blueprint $t) {

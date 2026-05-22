@@ -148,6 +148,9 @@ Route::prefix('v2')->group(function () {
             Route::get('/with-active-stage', 'withActiveStage');
             Route::post('/', 'store');
             Route::get('/details/{po_code}', 'show');
+            // Soft-delete an order (sets deleted_at; recoverable). Matches the
+            // frontend orderApi.delete() call: DELETE /orders/{id}.
+            Route::delete('/{id}', 'destroy')->whereNumber('id');
         });
 
         Route::prefix('/tickets')->middleware('permission:access.tickets')->controller(TicketController::class)->group(function () {

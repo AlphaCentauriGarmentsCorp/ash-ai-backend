@@ -157,7 +157,7 @@ class OrderService
             // is recorded; downstream Phase 5 will surface them in the UI.)
             $this->storeFiles($data, $order);
 
-            // Auto-create the full 14-stage sequential workflow.
+            // Auto-create the full 16-stage sequential workflow.
             $this->stagesService->initializeForOrder($order);
 
             return $order->load('items', 'samples', 'orderStages');
@@ -347,7 +347,12 @@ class OrderService
     protected function generatePoCode(string $prefix = 'ASH'): string
     {
         $year = now()->year;
-        $lastNumber = Order::whereYear('created_at', $year)
+        // withTrashed(): PO numbers must never be reused, so a soft-deleted
+        // order still "occupies" its number. Without this, deleting the most
+        // recent order would let the next order reclaim its PO code and
+        // collide on the unique index.
+        $lastNumber = Order::withTrashed()
+            ->whereYear('created_at', $year)
             ->lockForUpdate()
             ->selectRaw("CAST(SUBSTRING_INDEX(po_code, '-', -1) AS UNSIGNED) as num")
             ->orderByDesc('num')

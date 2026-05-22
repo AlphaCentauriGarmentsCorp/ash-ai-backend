@@ -126,6 +126,7 @@ beforeEach(function () {
         $table->unsignedBigInteger('current_stage_id')->nullable();
 
         $table->timestamps();
+        $table->softDeletes();
     });
 
     Schema::create('order_stages', function (Blueprint $table) {
