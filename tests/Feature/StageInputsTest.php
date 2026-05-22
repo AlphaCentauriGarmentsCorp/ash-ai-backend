@@ -81,6 +81,7 @@ beforeEach(function () {
         $t->timestamp('delayed_at')->nullable();
         $t->unsignedBigInteger('current_stage_id')->nullable();
         $t->timestamps();
+        $t->softDeletes();
     });
 
     Schema::create('order_stages', function (Blueprint $t) {
@@ -173,6 +174,12 @@ beforeEach(function () {
         $t->unsignedBigInteger('order_stage_id');
         $t->unsignedBigInteger('logged_by_user_id');
         $t->unsignedInteger('quantity_pcs');
+        // Phase 7-B Bundle 1 — disposition (reject|repair, default reject)
+        // and the nullable reject-reason taxonomy FK. Mirrors the real
+        // migration; reject_reason_id is a plain nullable column here since
+        // this isolated schema doesn't build the reject_reasons table.
+        $t->string('disposition', 16)->default('reject');
+        $t->unsignedBigInteger('reject_reason_id')->nullable();
         $t->string('photo_path')->nullable();
         $t->text('notes')->nullable();
         $t->timestamps();

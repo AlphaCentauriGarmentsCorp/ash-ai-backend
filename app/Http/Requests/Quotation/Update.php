@@ -120,7 +120,7 @@ class Update extends FormRequest
                     $fail("The {$attribute}.{$index}.part field is required.");
                 }
 
-                foreach (['unit_count', 'price_per_unit', 'full_unit_count', 'price_per_full_unit'] as $numericField) {
+                foreach (['color_count', 'price_per_color', 'full_color_count', 'price_per_full_color'] as $numericField) {
                     if (! array_key_exists($numericField, $part) || ! is_numeric($part[$numericField])) {
                         $fail("The {$attribute}.{$index}.{$numericField} field is required and must be numeric.");
                         continue;

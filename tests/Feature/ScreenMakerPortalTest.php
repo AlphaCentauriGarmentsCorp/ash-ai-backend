@@ -58,6 +58,7 @@ beforeEach(function () {
         $t->text('notes')->nullable();
         $t->string('workflow_status', 32)->default('inquiry');
         $t->timestamps();
+        $t->softDeletes();
     });
 
     Schema::create('order_stages', function (Blueprint $t) {

@@ -74,6 +74,7 @@ beforeEach(function () {
         $t->timestamp('delayed_at')->nullable();
         $t->unsignedBigInteger('current_stage_id')->nullable();
         $t->timestamps();
+        $t->softDeletes();
     });
 
     Schema::create('order_stages', function (Blueprint $t) {
@@ -132,6 +133,9 @@ beforeEach(function () {
         $t->unsignedBigInteger('order_id');
         $t->unsignedBigInteger('order_stage_id');
         $t->unsignedBigInteger('logged_by_user_id');
+        // Phase 5-E — material_type tag (main_fabric, rib_trim, thread,
+        // interfacing, other, waste). Nullable; mirrors the real migration.
+        $t->string('material_type', 32)->nullable();
         $t->decimal('fabric_used_kg', 10, 2);
         $t->decimal('waste_kg', 10, 2)->default(0);
         $t->decimal('usable_remaining_kg', 10, 2)->default(0);
