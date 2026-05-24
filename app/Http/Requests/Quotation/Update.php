@@ -37,6 +37,8 @@ class Update extends FormRequest
             'print_area' => 'sometimes|nullable|string|max:255',
             'free_items' => 'sometimes|nullable|string|max:255',
             'notes' => 'sometimes|nullable|string',
+            'custom_pattern_image' => 'sometimes|nullable|string|max:1000',
+            'custom_pattern_image_file' => 'sometimes|nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
             'discount_type' => 'sometimes|nullable|in:percentage,fixed',
             'discount_price' => 'sometimes|nullable|numeric|min:0',
             'subtotal' => 'sometimes|nullable|numeric|min:0',

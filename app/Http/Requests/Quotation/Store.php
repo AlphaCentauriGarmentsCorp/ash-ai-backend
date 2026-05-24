@@ -39,6 +39,10 @@ class Store extends FormRequest
             'print_area' => 'nullable|string|max:255',
             'free_items' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
+            // Custom-pattern reference (Issue 6): a link/path string, or an
+            // uploaded file via custom_pattern_image_file.
+            'custom_pattern_image' => 'nullable|string|max:1000',
+            'custom_pattern_image_file' => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
             'discount_type' => 'nullable|in:percentage,fixed',
             'discount_price' => 'nullable|numeric|min:0',
             'subtotal' => 'nullable|numeric|min:0',

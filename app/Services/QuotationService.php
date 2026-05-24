@@ -543,6 +543,7 @@ class QuotationService
             'print_area' => $data['print_area'] ?? $existing?->print_area,
             'free_items' => $data['free_items'] ?? $existing?->free_items,
             'notes' => $data['notes'] ?? $existing?->notes,
+            'custom_pattern_image' => $data['custom_pattern_image'] ?? $existing?->custom_pattern_image,
             'discount_type' => $discountType,
             'discount_price' => $discountPrice,
             'discount_amount' => $discountAmount,
