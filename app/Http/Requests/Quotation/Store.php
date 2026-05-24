@@ -122,12 +122,24 @@ class Store extends FormRequest
                     $fail("The {$attribute}.{$index}.part field is required.");
                 }
 
-                foreach (['color_count', 'price_per_color', 'full_color_count', 'price_per_full_color'] as $numericField) {
-                    if (! array_key_exists($numericField, $part) || ! is_numeric($part[$numericField])) {
-                        $fail("The {$attribute}.{$index}.{$numericField} field is required and must be numeric.");
+                // Numeric pricing fields are validated only IF PRESENT (must be
+                // numeric and >= 0). They are no longer hard-required, because
+                // different print methods carry different fields: silkscreen uses
+                // color/unit counts; DTF uses width/height/pieces; embroidery and
+                // sublimation may carry none (priced via item_config). The pricing
+                // engine safely defaults any missing value to 0.
+                $optionalNumericFields = [
+                    'color_count', 'price_per_color', 'full_color_count', 'price_per_full_color',
+                    'unit_count', 'full_unit_count', 'width', 'height', 'pieces',
+                ];
+                foreach ($optionalNumericFields as $numericField) {
+                    if (! array_key_exists($numericField, $part)) {
+                        continue; // optional
+                    }
+                    if (! is_numeric($part[$numericField])) {
+                        $fail("The {$attribute}.{$index}.{$numericField} field must be numeric.");
                         continue;
                     }
-
                     if ((float) $part[$numericField] < 0) {
                         $fail("The {$attribute}.{$index}.{$numericField} field must be greater than or equal to 0.");
                     }

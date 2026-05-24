@@ -94,6 +94,16 @@ class QuotationService
             // Create the quotation
             $quotation = Quotation::create($normalized);
 
+            // Defensive persistence of the financial split. Mass-assignment can
+            // silently drop these if a stale/compiled model class lacks them in
+            // $fillable (an environment quirk we hit in dev). Assigning the
+            // properties directly bypasses mass-assignment guards entirely, so
+            // these critical values always persist regardless of cache state.
+            $quotation->forceFill([
+                'downpayment' => $normalized['downpayment'] ?? 0,
+                'balance' => $normalized['balance'] ?? 0,
+            ])->save();
+
             // Generate PDF after creation
             $pdf = Pdf::loadView('pdf', ['quotation' => $quotation]);
 
@@ -188,6 +198,13 @@ class QuotationService
                 ]);
             }
            $quotation->update($normalized);
+
+           // Defensive persistence of the financial split (see store() — guards
+           // against mass-assignment silently dropping these fields).
+           $quotation->forceFill([
+               'downpayment' => $normalized['downpayment'] ?? $quotation->downpayment ?? 0,
+               'balance' => $normalized['balance'] ?? $quotation->balance ?? 0,
+           ])->save();
 
            // Regenerate PDF after update
            $pdf = Pdf::loadView('pdf', ['quotation' => $quotation->fresh()]);
@@ -510,6 +527,20 @@ class QuotationService
             'client_brand' => $data['client_brand'] ?? $existing?->client_brand,
             'shirt_color' => $data['shirt_color'] ?? $existing?->shirt_color,
             'apparel_neckline_id' => $apparelNecklineId,
+            // Top-level apparel/pattern/print-method IDs. These live in
+            // item_config_json but must ALSO be promoted to their dedicated
+            // columns so the record, list views, and Edit hydration read the
+            // correct values (previously these stayed NULL / defaulted, which
+            // made Edit show the wrong print method). Source of truth is the
+            // item config; fall back to request data then the existing record.
+            'apparel_type_id' => $itemConfig['apparel_type_id']
+                ?? $data['apparel_type_id'] ?? $existing?->apparel_type_id,
+            'pattern_type_id' => $itemConfig['pattern_type_id']
+                ?? $data['pattern_type_id'] ?? $existing?->pattern_type_id,
+            'print_method_id' => $itemConfig['print_method_id']
+                ?? $data['print_method_id'] ?? $existing?->print_method_id,
+            'special_print' => $data['special_print'] ?? $existing?->special_print,
+            'print_area' => $data['print_area'] ?? $existing?->print_area,
             'free_items' => $data['free_items'] ?? $existing?->free_items,
             'notes' => $data['notes'] ?? $existing?->notes,
             'discount_type' => $discountType,
