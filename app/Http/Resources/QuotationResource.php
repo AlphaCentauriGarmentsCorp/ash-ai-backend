@@ -32,6 +32,7 @@ class QuotationResource extends JsonResource
             'print_area' => $this->print_area,
             'free_items' => $this->free_items,
             'notes' => $this->notes,
+            'custom_pattern_image' => $this->custom_pattern_image,
 
             'subtotal' => $this->subtotal,
             'discount_type' => $this->discount_type,

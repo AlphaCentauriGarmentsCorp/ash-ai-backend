@@ -37,6 +37,8 @@ class Update extends FormRequest
             'print_area' => 'sometimes|nullable|string|max:255',
             'free_items' => 'sometimes|nullable|string|max:255',
             'notes' => 'sometimes|nullable|string',
+            'custom_pattern_image' => 'sometimes|nullable|string|max:1000',
+            'custom_pattern_image_file' => 'sometimes|nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
             'discount_type' => 'sometimes|nullable|in:percentage,fixed',
             'discount_price' => 'sometimes|nullable|numeric|min:0',
             'subtotal' => 'sometimes|nullable|numeric|min:0',
@@ -120,12 +122,21 @@ class Update extends FormRequest
                     $fail("The {$attribute}.{$index}.part field is required.");
                 }
 
-                foreach (['color_count', 'price_per_color', 'full_color_count', 'price_per_full_color'] as $numericField) {
-                    if (! array_key_exists($numericField, $part) || ! is_numeric($part[$numericField])) {
-                        $fail("The {$attribute}.{$index}.{$numericField} field is required and must be numeric.");
+                // Numeric pricing fields validated only IF PRESENT (see Store.php
+                // for rationale): different print methods carry different fields,
+                // and the pricing engine defaults missing values to 0.
+                $optionalNumericFields = [
+                    'color_count', 'price_per_color', 'full_color_count', 'price_per_full_color',
+                    'unit_count', 'full_unit_count', 'width', 'height', 'pieces',
+                ];
+                foreach ($optionalNumericFields as $numericField) {
+                    if (! array_key_exists($numericField, $part)) {
+                        continue; // optional
+                    }
+                    if (! is_numeric($part[$numericField])) {
+                        $fail("The {$attribute}.{$index}.{$numericField} field must be numeric.");
                         continue;
                     }
-
                     if ((float) $part[$numericField] < 0) {
                         $fail("The {$attribute}.{$index}.{$numericField} field must be greater than or equal to 0.");
                     }

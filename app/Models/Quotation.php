@@ -38,6 +38,7 @@ class Quotation extends Model
         'addons_json',
         'breakdown_json',
         'print_parts_json',
+        'custom_pattern_image',
         'pdf_path',
         'status',
     ];

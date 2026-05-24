@@ -39,12 +39,28 @@ public function store(Store $request)
         $validated['print_parts_files'] = json_encode($files);
     }
 
+    // Resolve the custom-pattern reference (Issue 6): an uploaded image file
+    // OR an external link. Stored as a single string on the quotation.
+    $validated['custom_pattern_image'] = $this->resolveCustomPatternImage($request);
+
     // Create the quotation using the service layer
     $quotation = $this->service->store($validated, $request);
 
     // Return the response with the newly created quotation
     return (new QuotationResource($quotation))->response()->setStatusCode(201);
 }
+
+    /**
+     * Live price preview. Computes totals from the current form state without
+     * saving. Same pricing engine as store(), so preview == saved quote.
+     * Accepts a plain JSON body (no file uploads needed for a preview).
+     */
+    public function preview(\Illuminate\Http\Request $request)
+    {
+        $totals = $this->service->preview($request->all());
+
+        return response()->json($totals);
+    }
 
     public function update(Update $request, $id)
     {
@@ -55,10 +71,42 @@ public function store(Store $request)
             $validated['print_parts_files'] = json_encode($files);
         }
 
+        // Resolve the custom-pattern reference (Issue 6). Only override when the
+        // request actually carries one, so an edit that doesn't touch it keeps
+        // the existing value (handled in the service via the existing record).
+        $resolvedCustomPattern = $this->resolveCustomPatternImage($request);
+        if ($resolvedCustomPattern !== null) {
+            $validated['custom_pattern_image'] = $resolvedCustomPattern;
+        }
+
         // Update the quotation with new data
         $quotation = $this->service->update($validated, $id, $request);
 
         return new QuotationResource($quotation);
+    }
+
+    /**
+     * Resolve the custom-pattern reference image (Issue 6) from the request.
+     * Accepts either an uploaded file (`custom_pattern_image_file`) which is
+     * stored to public disk, or a text link/path (`custom_pattern_image`).
+     * Returns the resolved string, or null when the request carries neither
+     * (so callers can decide whether to leave an existing value untouched).
+     */
+    protected function resolveCustomPatternImage(\Illuminate\Http\Request $request): ?string
+    {
+        if ($request->hasFile('custom_pattern_image_file')) {
+            $file = $request->file('custom_pattern_image_file');
+            if ($file && $file->isValid()) {
+                return $file->store('quotation-custom-patterns', 'public');
+            }
+        }
+
+        $link = $request->input('custom_pattern_image');
+        if (is_string($link) && trim($link) !== '') {
+            return trim($link);
+        }
+
+        return null;
     }
 
     /**
