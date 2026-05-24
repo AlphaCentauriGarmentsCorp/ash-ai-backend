@@ -6,6 +6,7 @@ use App\Models\ApparelNeckline;
 use App\Models\ApparelPatternPrice;
 use App\Models\ApparelType;
 use App\Models\PatternType;
+use App\Models\PricingSetting;
 use App\Models\PrintMethod;
 use App\Models\Quotation;
 use Illuminate\Database\Eloquent\Collection;
@@ -291,9 +292,26 @@ class QuotationService
             $items = [];
         }
 
-        $printPartsTotal = $this->calculatePrintPartsTotal($printPartsMetadata);
+        // Method-aware print charge (Addendum Section 4). Silkscreen,
+        // embroidery, and sublimation attach a PER-PIECE charge (added to each
+        // garment below). DTF is priced per placement across the whole order,
+        // so it is computed once as an order-level total and added to the
+        // subtotal — not multiplied per piece.
+        $printMethodKey = $this->resolvePrintMethodKey($itemConfig);
+        $printPartsTotal = $this->calculatePerPiecePrintCharge($printMethodKey, $printPartsMetadata, $itemConfig);
+        $dtfOrderTotal = $printMethodKey === 'dtf'
+            ? $this->calculateDtfTotal($printPartsMetadata, $itemConfig)
+            : 0.0;
 
-        $basePrice = (float) ($patternPrice?->price ?? 0);
+        // Hoodie option add-ons (owner): hoodies default to pullover, one free
+        // kangaroo pocket, no hood strings. Each opted extra (zipper +₱50,
+        // additional pocket +₱50 each, strings +₱40) adds an editable per-piece
+        // charge on top of the hoodie base. Applies only to hoodies.
+        $hoodieOptionsPerPiece = $this->resolveHoodieOptionsCharge($itemConfig);
+
+        // Legacy single base price (used as a fallback when a pattern row has
+        // no per-size prices configured yet).
+        $legacyBasePrice = (float) ($patternPrice?->price ?? 0);
         $computedItems = [];
         $itemsTotal = 0.0;
         $totalQuantity = 0.0;
@@ -305,6 +323,7 @@ class QuotationService
 
             $quantity = (float) ($item['quantity'] ?? 0);
             $unitPrice = (float) ($item['unit_price'] ?? 0);
+            $size = $item['size'] ?? null;
 
             if ($quantity < 0) {
                 throw ValidationException::withMessages(["items_json.{$index}.quantity" => 'Quantity must be greater than or equal to 0.']);
@@ -314,7 +333,26 @@ class QuotationService
                 throw ValidationException::withMessages(["items_json.{$index}.unit_price" => 'Unit price must be greater than or equal to 0.']);
             }
 
-            $pricePerPiece = round($basePrice + $necklinePrice + $unitPrice + $printPartsTotal, 2);
+            // Per-size base price (Paraan 1): the CSR picked one
+            // apparel+pattern combination; we resolve the correct base for
+            // THIS row's size from the pattern's size_prices map. Order of
+            // preference:
+            //   1) per-size price configured by Superadmin (size_prices)
+            //   2) the row's manual unit_price (legacy / overrides)
+            //   3) the legacy single base price
+            $sizeBasePrice = $patternPrice
+                ? $patternPrice->priceForSize($size)
+                : 0.0;
+
+            $hasConfiguredSizePrice = $patternPrice
+                && is_array($patternPrice->size_prices)
+                && $patternPrice->size_prices !== [];
+
+            $basePrice = $hasConfiguredSizePrice
+                ? $sizeBasePrice
+                : ($unitPrice > 0 ? $unitPrice : $legacyBasePrice);
+
+            $pricePerPiece = round($basePrice + $necklinePrice + $printPartsTotal + $hoodieOptionsPerPiece, 2);
             $totalAmount = round($pricePerPiece * $quantity, 2);
             $itemsTotal += $totalAmount;
             $totalQuantity += $quantity;
@@ -322,9 +360,10 @@ class QuotationService
             $computedItems[] = [
                 'id' => $item['id'] ?? null,
                 'size_id' => $item['size_id'] ?? null,
-                'size' => $item['size'] ?? null,
+                'size' => $size,
                 'quantity' => $quantity,
                 'unit_price' => round($unitPrice, 2),
+                'base_price' => round($basePrice, 2),
                 'print_parts_total' => $printPartsTotal,
                 'price_per_piece' => $pricePerPiece,
                 'total_amount' => $totalAmount,
@@ -344,13 +383,38 @@ class QuotationService
             }
 
             $quantity = (float) ($addon['quantity'] ?? 1);
-            $lineTotal = round($addonPrice * $quantity, 2);
+
+            // MOQ minimum-charge rule (owner): add-ons are priced per piece,
+            // but there is a supplier minimum batch. If the order quantity is
+            // BELOW the MOQ, the client is still charged for the full minimum
+            // batch (price × moq); at/above MOQ it is plain price × qty.
+            // The MOQ is read authoritatively from the addons table when an
+            // addon_id is given (so it can't be lowered from the frontend),
+            // falling back to a sent moq, then the default of 50.
+            $addonId = $addon['addon_id'] ?? $addon['id'] ?? null;
+            $moq = null;
+            if ($addonId) {
+                $moq = optional(\App\Models\Addons::find($addonId))->moq;
+            }
+            if ($moq === null) {
+                $moq = (int) ($addon['moq'] ?? 50);
+            }
+            $moq = max(0, (int) $moq);
+
+            $chargeableQty = ($moq > 0 && $quantity < $moq) ? $moq : $quantity;
+            $lineTotal = round($addonPrice * $chargeableQty, 2);
+            $belowMoq = $moq > 0 && $quantity < $moq;
             $addonsTotal += $lineTotal;
 
             $normalizedAddons[] = [
                 'name' => $addon['name'] ?? null,
                 'price' => round($addonPrice, 2),
                 'quantity' => $quantity,
+                'moq' => $moq,
+                // Flagged so the PDF/UI can show "charged at 50 pc minimum"
+                // when the order is below MOQ, instead of a confusing total.
+                'charged_quantity' => $chargeableQty,
+                'below_moq' => $belowMoq,
                 'line_total' => $lineTotal,
             ];
         }
@@ -382,7 +446,17 @@ class QuotationService
         );
         $appliedPrintPartsTotal = round($printPartsTotal * $totalQuantity, 2);
 
-        $subtotal = round($itemsTotal + $addonsTotal + $sampleTotal, 2);
+        // Custom-fit pattern-making fee (Blueprint Issue 6): a ONE-TIME charge
+        // added once per order (NOT per piece) when the fit is Custom. The
+        // base price itself uses the nearest existing fit, picked by the CSR;
+        // this fee only covers making the custom pattern. Rate is
+        // Superadmin-editable.
+        $isCustomFit = $this->isCustomFit($itemConfig);
+        $customPatternFee = $isCustomFit
+            ? PricingSetting::rate(PricingSetting::CUSTOM_PATTERN_FEE, 500.0)
+            : 0.0;
+
+        $subtotal = round($itemsTotal + $addonsTotal + $sampleTotal + $customPatternFee + $dtfOrderTotal, 2);
         $discountType = $data['discount_type'] ?? $existing?->discount_type;
         $discountPrice = round((float) ($data['discount_price'] ?? $existing?->discount_price ?? 0), 2);
 
@@ -395,6 +469,13 @@ class QuotationService
 
         $discountAmount = max(0, $discountAmount);
         $grandTotal = round($subtotal - $discountAmount, 2);
+
+        // Payment terms (Addendum 5.4): 60% downpayment to start the order,
+        // 40% balance. Computed from the grand total. Stored in breakdown_json
+        // so the client PDF (Blueprint 6.3) and order conversion (Issue 12)
+        // can show them without recomputing.
+        $downpayment = round($grandTotal * 0.60, 2);
+        $balance = round($grandTotal - $downpayment, 2);
 
         return [
             'client_id' => $data['client_id'] ?? $existing?->client_id,
@@ -411,33 +492,413 @@ class QuotationService
             'discount_amount' => $discountAmount,
             'subtotal' => $subtotal,
             'grand_total' => $grandTotal,
+            // Promoted to first-class columns (migration 2026_05_22_030000) so
+            // the system can report/filter on outstanding balances. Still kept
+            // in breakdown_json for the PDF/order display path.
+            'downpayment' => $downpayment,
+            'balance' => $balance,
+            'downpayment' => $downpayment,
+            'balance' => $balance,
             'item_config_json' => $itemConfig,
             'items_json' => $computedItems,
             'addons_json' => $normalizedAddons,
             'breakdown_json' => array_merge($normalizedBreakdown, [
+                'print_method' => $printMethodKey,
                 'print_parts_total' => $appliedPrintPartsTotal,
                 'print_parts_unit_total' => $printPartsTotal,
+                'dtf_order_total' => round($dtfOrderTotal, 2),
+                'custom_pattern_fee' => round($customPatternFee, 2),
+                'hoodie_options_per_piece' => round($hoodieOptionsPerPiece, 2),
+                'downpayment' => $downpayment,
+                'balance' => $balance,
             ]),
             'print_parts_json' => $resolvedPrintParts,
         ];
     }
 
+    /**
+     * Silkscreen print charge (Blueprint Section 3.2 + full-print rule).
+     *
+     * Per-color pricing where each color's rate depends on whether the
+     * placement it sits on is a FULL PRINT (larger than 14 × 20 inches) or a
+     * regular size. A placement is full print when its row carries
+     * print_size === 'full' (or is_full_print truthy).
+     *
+     * Rule (verified against client examples):
+     *   - The job's FIRST color sets the base:
+     *       * ₱150 if ANY placement in the job is full print
+     *       * ₱100 if all placements are regular
+     *   - EVERY remaining color is charged at its own placement's rate:
+     *       * +₱20 if that color is on a regular placement
+     *       * +₱50 if that color is on a full-print placement
+     *   - The first color is drawn from a full-print placement when one
+     *     exists, so the base (₱150) "uses up" one full-print color.
+     *
+     * Worked examples:
+     *   Front 3 + Back 2, all regular   = 100 + 4×20            = ₱180
+     *   Front full(1) + Back reg(1)     = 150 + 1×20            = ₱170
+     *   Front full(1) + Back full(1)    = 150 + 1×50            = ₱200
+     *   Front reg(1)  + Back full(1)    = 150 + 1×20            = ₱170
+     *   Front full(2) + Back reg(1)     = 150 + 1×50 + 1×20     = ₱220
+     *
+     * All four rates are Superadmin-editable PricingSetting rows. Defaults
+     * (100 / 20 / 150 / 50) are only used if a fresh DB has no seeded rows,
+     * so quoting never hard-fails.
+     *
+     * Note: this is a per-piece amount, multiplied by total quantity later
+     * in computeTotals (appliedPrintPartsTotal).
+     */
     protected function calculatePrintPartsTotal($printParts): float
     {
         if (! is_array($printParts)) {
             return 0.0;
         }
 
-        return round(array_sum(array_map(function ($partData) {
+        // Count colors per placement. The frontend sends an explicit split:
+        //   unit_count       = number of REGULAR-size colors on this placement
+        //   full_unit_count  = number of FULL-print colors on this placement
+        // When that split is present we use it directly (most precise). If a
+        // payload instead carries a single color_count plus a whole-placement
+        // print_size/is_full_print flag, we fall back to classifying the whole
+        // placement (legacy / simpler shape).
+        $regularColors = 0;
+        $fullColors = 0;
+        foreach ($printParts as $partData) {
             if (! is_array($partData)) {
-                return 0.0;
+                continue;
             }
 
-            $colorCount = (float) ($partData['color_count'] ?? $partData['colorCount'] ?? 0);
-            $pricePerColor = (float) ($partData['price_per_color'] ?? $partData['pricePerColor'] ?? 0);
+            $hasExplicitSplit = array_key_exists('unit_count', $partData)
+                || array_key_exists('full_unit_count', $partData)
+                || array_key_exists('unitCount', $partData)
+                || array_key_exists('fullUnitCount', $partData);
 
-            return round($colorCount * $pricePerColor, 2);
-        }, $printParts)), 2);
+            if ($hasExplicitSplit) {
+                $regularColors += max(0, (int) ($partData['unit_count'] ?? $partData['unitCount'] ?? 0));
+                $fullColors += max(0, (int) ($partData['full_unit_count'] ?? $partData['fullUnitCount'] ?? 0));
+                continue;
+            }
+
+            $count = max(0, (int) (
+                $partData['color_count']
+                ?? $partData['colorCount']
+                ?? 0
+            ));
+            if ($count <= 0) {
+                continue;
+            }
+
+            if ($this->isFullPrintPart($partData)) {
+                $fullColors += $count;
+            } else {
+                $regularColors += $count;
+            }
+        }
+
+        $totalColors = $regularColors + $fullColors;
+        if ($totalColors <= 0) {
+            return 0.0;
+        }
+
+        $firstColorRegular = PricingSetting::rate(PricingSetting::SILKSCREEN_FIRST_COLOR, 100.0);
+        $firstColorFull = PricingSetting::rate(PricingSetting::SILKSCREEN_FIRST_COLOR_FULL, 150.0);
+        $addColorRegular = PricingSetting::rate(PricingSetting::SILKSCREEN_ADDITIONAL_COLOR, 20.0);
+        $addColorFull = PricingSetting::rate(PricingSetting::SILKSCREEN_ADDITIONAL_COLOR_FULL, 50.0);
+
+        $hasFull = $fullColors > 0;
+
+        // The first color sets the base. If any placement is full print, the
+        // base is the full-print first-color rate, and that color is taken
+        // from the full-print pool so we don't double-charge it below.
+        if ($hasFull) {
+            $base = $firstColorFull;
+            $remainingFull = $fullColors - 1;      // one full color consumed by the base
+            $remainingRegular = $regularColors;
+        } else {
+            $base = $firstColorRegular;
+            $remainingFull = 0;
+            $remainingRegular = $regularColors - 1; // one regular color consumed by the base
+        }
+
+        $total = $base
+            + ($remainingFull * $addColorFull)
+            + ($remainingRegular * $addColorRegular);
+
+        return round($total, 2);
+    }
+
+    /**
+     * Hoodie option charges (owner). Hoodies default to: pullover (no zipper),
+     * one kangaroo pocket (free), and NO hood drawstrings. The client can add,
+     * each adding an editable per-piece charge:
+     *   - Zipper            (+₱50, default)
+     *   - Additional pocket (+₱50 each, beyond the free kangaroo pocket)
+     *   - Hood strings      (+₱40, default off)
+     * Returns the combined per-piece charge; 0 for non-hoodies. The apparel
+     * name and option flags are read from item_config_json.
+     */
+    protected function resolveHoodieOptionsCharge($itemConfig): float
+    {
+        if (! is_array($itemConfig)) {
+            return 0.0;
+        }
+
+        $apparel = strtolower((string) (
+            $itemConfig['apparel_type_name'] ?? $itemConfig['apparel'] ?? ''
+        ));
+        if (! str_contains($apparel, 'hoodie')) {
+            return 0.0;
+        }
+
+        $charge = 0.0;
+
+        // Zipper (default pullover). Accept a boolean flag or a closure type.
+        $hasZipper = filter_var(
+            $itemConfig['has_zipper'] ?? $itemConfig['zipper'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+        $closure = strtolower((string) ($itemConfig['hoodie_closure'] ?? ''));
+        if ($closure === 'zipper' || $closure === 'zip') {
+            $hasZipper = true;
+        }
+        if ($hasZipper) {
+            $charge += PricingSetting::rate(PricingSetting::HOODIE_ZIPPER_ADDON, 50.0);
+        }
+
+        // Additional pockets beyond the one free kangaroo pocket. Accept either
+        // an explicit count or a boolean (treated as 1 extra).
+        $extraPockets = $itemConfig['additional_pockets'] ?? $itemConfig['extra_pockets'] ?? null;
+        if ($extraPockets === null) {
+            $extraPockets = filter_var($itemConfig['has_additional_pocket'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+        }
+        $extraPockets = max(0, (int) $extraPockets);
+        if ($extraPockets > 0) {
+            $charge += $extraPockets * PricingSetting::rate(PricingSetting::HOODIE_ADDITIONAL_POCKET_ADDON, 50.0);
+        }
+
+        // Hood drawstrings (default off).
+        $hasStrings = filter_var(
+            $itemConfig['has_strings'] ?? $itemConfig['hood_strings'] ?? $itemConfig['drawstrings'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+        if ($hasStrings) {
+            $charge += PricingSetting::rate(PricingSetting::HOODIE_STRINGS_ADDON, 40.0);
+        }
+
+        return round($charge, 2);
+    }
+
+    /** Reads print_method_name (the
+     * frontend stores method on item_config_json). Falls back to
+     * "silkscreen" so existing quotations created before method-aware
+     * pricing keep their previous behaviour.
+     */
+    protected function resolvePrintMethodKey($itemConfig): string
+    {
+        $name = is_array($itemConfig)
+            ? ($itemConfig['print_method_name'] ?? $itemConfig['print_method'] ?? null)
+            : null;
+
+        $name = strtolower(trim((string) $name));
+
+        if ($name === '') {
+            return 'silkscreen';
+        }
+
+        // Map a few spellings/aliases to canonical keys.
+        return match (true) {
+            str_contains($name, 'dtf') => 'dtf',
+            str_contains($name, 'direct-to-film') => 'dtf',
+            str_contains($name, 'embroid') => 'embroidery',
+            str_contains($name, 'subli') => 'sublimation',
+            str_contains($name, 'silk') => 'silkscreen',
+            str_contains($name, 'screen') => 'silkscreen',
+            default => $name,
+        };
+    }
+
+    /**
+     * PER-PIECE print charge for the methods whose cost attaches to each
+     * garment (silkscreen, embroidery, sublimation). This value is added to
+     * the per-piece price and multiplied by quantity in computeTotals.
+     *
+     * DTF is NOT handled here — it is priced per placement across the whole
+     * order (see calculateDtfTotal) because each DTF placement carries its
+     * own design size and piece count, independent of the per-size rows.
+     *
+     * Embroidery (Addendum 4.3):
+     *   - Small (pocket / left chest): flat ₱120 per piece (editable rate).
+     *   - Large: the CSR enters a MANUAL per-piece price (subcontractor quote
+     *     + markup), sent as item_config_json.embroidery_manual_price.
+     *   The CSR chooses Small vs Large by judgment; we read an explicit flag.
+     *
+     * Sublimation (Addendum 4.4):
+     *   - Full Jersey: ₱550/piece. Full Mesh Shorts: ₱650/piece (editable,
+     *     same price all sizes). Other full sublimation can be set via a
+     *     manual price.
+     *   - Partial / small: MANUAL per-piece price (~₱200), sent as
+     *     item_config_json.sublimation_manual_price.
+     */
+    protected function calculatePerPiecePrintCharge(string $methodKey, $printParts, $itemConfig): float
+    {
+        return match ($methodKey) {
+            'silkscreen' => $this->calculatePrintPartsTotal($printParts),
+            'embroidery' => $this->calculateEmbroideryCharge($itemConfig),
+            'sublimation' => $this->calculateSublimationCharge($itemConfig),
+            // DTF is order-level, not per-piece.
+            'dtf' => 0.0,
+            // Unknown/future method: no per-piece print charge until wired.
+            default => 0.0,
+        };
+    }
+
+    /**
+     * Embroidery per-piece charge. Small = flat editable rate (default ₱120).
+     * Large = CSR's manual price. Selection is by an explicit flag/size the
+     * frontend sends; we accept a few shapes for safety.
+     */
+    protected function calculateEmbroideryCharge($itemConfig): float
+    {
+        if (! is_array($itemConfig)) {
+            return 0.0;
+        }
+
+        $size = strtolower(trim((string) ($itemConfig['embroidery_size'] ?? '')));
+        $isLarge = $size === 'large'
+            || filter_var($itemConfig['embroidery_is_large'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        if ($isLarge) {
+            // Large embroidery is subcontracted; CSR enters the price.
+            return max(0.0, round((float) ($itemConfig['embroidery_manual_price'] ?? 0), 2));
+        }
+
+        // Small embroidery (default): editable flat rate.
+        return round(PricingSetting::rate(PricingSetting::EMBROIDERY_SMALL_PRICE, 120.0), 2);
+    }
+
+    /**
+     * Sublimation per-piece charge. Full jersey / mesh shorts use editable
+     * flat rates; other full or partial sublimation uses the CSR's manual
+     * price. The frontend sends a sublimation_type ("jersey_full",
+     * "mesh_shorts_full", "partial"/"manual") or an explicit manual price.
+     */
+    protected function calculateSublimationCharge($itemConfig): float
+    {
+        if (! is_array($itemConfig)) {
+            return 0.0;
+        }
+
+        $type = strtolower(trim((string) ($itemConfig['sublimation_type'] ?? '')));
+
+        return match ($type) {
+            'jersey_full', 'jersey' => round(
+                PricingSetting::rate(PricingSetting::SUBLIMATION_JERSEY_FULL_PRICE, 550.0), 2),
+            'mesh_shorts_full', 'mesh_shorts', 'mesh' => round(
+                PricingSetting::rate(PricingSetting::SUBLIMATION_MESH_SHORTS_FULL_PRICE, 650.0), 2),
+            // Partial / manual / anything else: CSR-entered price (~₱200).
+            default => max(0.0, round((float) ($itemConfig['sublimation_manual_price'] ?? 0), 2)),
+        };
+    }
+
+    /**
+     * DTF total for the WHOLE order (Addendum 4.2). DTF is priced per square
+     * inch at a Superadmin-editable rate. A garment can have several DTF
+     * placements (front, back, sleeve); each placement has its own design
+     * size (width × height) and piece count:
+     *
+     *   placement charge = (width × height) × rate_per_sq_inch × pieces
+     *   order DTF total  = sum of all placement charges
+     *
+     * Placements come from print_parts (each row may carry width/height/
+     * pieces), falling back to a single placement built from the legacy
+     * length/width/quantity fields on item_config_json for older payloads.
+     *
+     * This is an ORDER-LEVEL charge (added once to the subtotal), NOT a
+     * per-piece charge, because the pieces are specified per placement.
+     */
+    protected function calculateDtfTotal($printParts, $itemConfig): float
+    {
+        $rate = PricingSetting::rate(PricingSetting::DTF_PRICE_PER_SQUARE_INCH, 0.0);
+        if ($rate <= 0) {
+            // Rate not set yet by the owner — no DTF charge rather than ₱0
+            // silently hiding a missing setting. (Surfaced in breakdown.)
+            return 0.0;
+        }
+
+        $placements = [];
+
+        if (is_array($printParts) && $printParts !== []) {
+            $placements = $printParts;
+        } elseif (is_array($itemConfig)) {
+            // Legacy single-placement fallback.
+            $placements = [[
+                'width' => $itemConfig['width'] ?? null,
+                'height' => $itemConfig['height'] ?? ($itemConfig['length'] ?? null),
+                'pieces' => $itemConfig['pieces'] ?? ($itemConfig['quantity'] ?? null),
+            ]];
+        }
+
+        $total = 0.0;
+        foreach ($placements as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+
+            $width = (float) ($p['width'] ?? $p['design_width'] ?? 0);
+            $height = (float) ($p['height'] ?? $p['design_height'] ?? $p['length'] ?? 0);
+            $pieces = (float) ($p['pieces'] ?? $p['piece_count'] ?? $p['quantity'] ?? 0);
+
+            if ($width <= 0 || $height <= 0 || $pieces <= 0) {
+                continue;
+            }
+
+            $total += ($width * $height) * $rate * $pieces;
+        }
+
+        return round($total, 2);
+    }
+
+    /**
+     * Whether the quotation's fit/pattern is "Custom" (triggers the one-time
+     * pattern-making fee). Reads the pattern name from item_config_json; we
+     * accept a few shapes for safety since the frontend for this is evolving.
+     */
+    protected function isCustomFit($itemConfig): bool
+    {
+        if (! is_array($itemConfig)) {
+            return false;
+        }
+
+        $candidates = [
+            $itemConfig['pattern_type_name'] ?? null,
+            $itemConfig['fit'] ?? null,
+            $itemConfig['pattern'] ?? null,
+        ];
+
+        foreach ($candidates as $value) {
+            if (is_string($value) && strtolower(trim($value)) === 'custom') {
+                return true;
+            }
+        }
+
+        // Explicit boolean flag, if the frontend sends one.
+        return filter_var($itemConfig['is_custom_fit'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * Whether a print-part row is a full print (larger than 14 × 20 inches).
+     * The CSR marks this per placement; we accept a few shapes for safety.
+     */
+    protected function isFullPrintPart(array $partData): bool
+    {
+        $size = $partData['print_size'] ?? $partData['printSize'] ?? null;
+        if (is_string($size) && strtolower(trim($size)) === 'full') {
+            return true;
+        }
+
+        $flag = $partData['is_full_print'] ?? $partData['isFullPrint'] ?? null;
+
+        return filter_var($flag, FILTER_VALIDATE_BOOLEAN);
     }
 
     protected function extractPrintPartsMetadata(array $data, ?Quotation $existing = null): array

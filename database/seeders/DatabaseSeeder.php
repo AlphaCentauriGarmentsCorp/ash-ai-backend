@@ -32,5 +32,8 @@ class DatabaseSeeder extends Seeder
         $this->call(QaChecklistItemSeeder::class);
         $this->call(PackingChecklistItemSeeder::class);
         $this->call(NotificationSettingsSeeder::class);
+
+        $this->call(PricingSettingSeeder::class);
+        $this->call(ApparelPatternPriceSeeder::class);
     }
 }

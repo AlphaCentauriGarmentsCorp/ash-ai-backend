@@ -43,6 +43,7 @@ use App\Http\Controllers\Api\ShippingMethodController;
 use App\Http\Controllers\Api\ApparelPatternPriceController;
 use App\Http\Controllers\Api\ApparelNecklineController;
 use App\Http\Controllers\Api\PantoneController;
+use App\Http\Controllers\Api\PricingSettingController;
 
 // Phase 3/4/5 — workflow, MR/PR, stage inputs, reports, portals
 use App\Http\Controllers\Api\NotificationsController;
@@ -742,6 +743,11 @@ Route::prefix('v2')->group(function () {
             Route::put('/{id}', 'update');
             Route::delete('/{id}', 'destroy');
         });
+
+        Route::prefix('/quotation/settings/pricing')->middleware('permission:access.quotation-settings')->controller(PricingSettingController::class)->group(function () {
+           Route::get('/', 'index');
+           Route::put('/{id}', 'update');
+       });
 
         Route::prefix('/quotations')->middleware('permission:access.quotations')->group(function () {
 

@@ -5,80 +5,117 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Phase 5-I — Return-verification fields on subcontract assignments.
+ * Phase 5-I — Logistics shipment record for a subcontract assignment.
  *
- * When the vendor returns work, Logistics verifies what came back:
- *   - How many pieces actually arrived (return_qty_received)
- *   - Any condition issues (return_condition_notes)
- *   - Photos of the received batch (front + back)
- *   - Who verified, when
+ * One assignment can have multiple shipments (outbound + inbound_return).
+ * Shipment status is the lifecycle the Logistics staff drives:
+ *   for_pickup -> in_transit -> delivered (or -> issue)
  *
- * Submitting verification flips the existing assignment.status to
- * 'returned' (the Phase 4 / 5-D terminal state). This is the
- * Logistics-side trigger for SubcontractService::markReturned().
+ * This is distinct from the assignment-level status (pending/out/
+ * returned/cancelled) from Phase 4 / 5-D, which tracks the higher-level
+ * subcontract relationship.
+ *
+ * NOTE: this migration previously shipped with a duplicated body that
+ * modified stage_subcontract_assignments instead of creating this table,
+ * which left stage_subcontract_shipments missing in production
+ * (SQLSTATE[42S02] in the Logistics Portal). Body restored below.
  */
 return new class extends Migration {
     public function up(): void
     {
-        Schema::table('stage_subcontract_assignments', function (Blueprint $t) {
-            if (! Schema::hasColumn('stage_subcontract_assignments', 'return_qty_received')) {
-                $t->unsignedInteger('return_qty_received')->nullable()->after('returned_at');
-            }
-            if (! Schema::hasColumn('stage_subcontract_assignments', 'return_condition_notes')) {
-                $t->text('return_condition_notes')->nullable()->after('return_qty_received');
-            }
-            if (! Schema::hasColumn('stage_subcontract_assignments', 'return_photo_front_path')) {
-                $t->string('return_photo_front_path', 255)->nullable()->after('return_condition_notes');
-            }
-            if (! Schema::hasColumn('stage_subcontract_assignments', 'return_photo_back_path')) {
-                $t->string('return_photo_back_path', 255)->nullable()->after('return_photo_front_path');
-            }
-            if (! Schema::hasColumn('stage_subcontract_assignments', 'return_verified_by_user_id')) {
-                // Explicit unsigned bigint + named FK to avoid hitting the
-                // MySQL 64-char identifier limit. The auto-generated name
-                // "stage_subcontract_assignments_return_verified_by_user_id_foreign"
-                // is exactly 64 chars — at the limit and risky across MySQL
-                // configurations. The short name dodges the problem entirely.
-                $t->unsignedBigInteger('return_verified_by_user_id')
-                    ->nullable()
-                    ->after('return_photo_back_path');
-                $t->foreign('return_verified_by_user_id', 'sca_return_verified_by_fk')
-                    ->references('id')
-                    ->on('users')
-                    ->nullOnDelete();
-            }
-            if (! Schema::hasColumn('stage_subcontract_assignments', 'return_verified_at')) {
-                $t->timestamp('return_verified_at')->nullable()->after('return_verified_by_user_id');
-            }
+        // Guard so re-running migrate on an environment that somehow
+        // already has the table (e.g. created from the test schema) is safe.
+        if (Schema::hasTable('stage_subcontract_shipments')) {
+            return;
+        }
+
+        Schema::create('stage_subcontract_shipments', function (Blueprint $t) {
+            $t->id();
+
+            // Parent assignment. Cascade so shipments disappear with the assignment.
+            $t->unsignedBigInteger('stage_subcontract_assignment_id');
+
+            // outbound | inbound_return
+            $t->string('direction', 16)->default('outbound');
+            // for_pickup | in_transit | delivered | issue
+            $t->string('status', 16)->default('for_pickup');
+            // courier | in_house_driver
+            $t->string('delivery_mode', 16)->default('courier');
+
+            // Courier / shipping references (nullable — in-house deliveries omit them)
+            $t->unsignedBigInteger('courier_id')->nullable();
+            $t->unsignedBigInteger('shipping_method_id')->nullable();
+            $t->string('waybill_number', 64)->nullable();
+
+            // Addressing & contact
+            $t->text('pickup_address')->nullable();
+            $t->text('dropoff_address')->nullable();
+            $t->string('contact_person_name', 120)->nullable();
+            $t->string('contact_person_number', 32)->nullable();
+            $t->text('instructions')->nullable();
+
+            // Timeline
+            $t->timestamp('booking_time')->nullable();
+            $t->timestamp('departure_time')->nullable();
+            $t->timestamp('delivered_at')->nullable();
+            $t->text('issue_note')->nullable();
+
+            // Payment (courier fee / subcontract payment)
+            $t->decimal('payment_amount', 10, 2)->nullable();
+            $t->string('payment_method', 32)->nullable();
+            $t->string('payment_reference', 120)->nullable();
+            $t->string('payment_proof_path', 255)->nullable();
+
+            // Proof-of-pickup / delivery
+            $t->string('pickup_proof_path', 255)->nullable();
+            $t->string('delivery_proof_path', 255)->nullable();
+            $t->string('receiver_signature_path', 255)->nullable();
+            $t->string('receiver_name', 120)->nullable();
+
+            // In-house driver fields
+            $t->string('driver_name', 120)->nullable();
+            $t->string('driver_vehicle_plate', 32)->nullable();
+            $t->string('gas_receipt_path', 255)->nullable();
+            $t->decimal('gas_amount', 10, 2)->nullable();
+            $t->date('gas_date')->nullable();
+            $t->text('gas_notes')->nullable();
+
+            // Audit
+            $t->unsignedBigInteger('created_by_user_id')->nullable();
+
+            $t->timestamps();
+
+            // Index used by the Logistics Portal list query
+            // (orderByRaw on status, then updated_at).
+            $t->index(['status', 'updated_at'], 'sss_status_updated_idx');
+            $t->index('stage_subcontract_assignment_id', 'sss_assignment_idx');
+
+            // Foreign keys. Short explicit names to stay well under MySQL's
+            // 64-char identifier limit.
+            $t->foreign('stage_subcontract_assignment_id', 'sss_assignment_fk')
+                ->references('id')
+                ->on('stage_subcontract_assignments')
+                ->cascadeOnDelete();
+
+            $t->foreign('courier_id', 'sss_courier_fk')
+                ->references('id')
+                ->on('courier_list')
+                ->nullOnDelete();
+
+            $t->foreign('shipping_method_id', 'sss_shipping_method_fk')
+                ->references('id')
+                ->on('shipping_methods')
+                ->nullOnDelete();
+
+            $t->foreign('created_by_user_id', 'sss_created_by_fk')
+                ->references('id')
+                ->on('users')
+                ->nullOnDelete();
         });
     }
 
     public function down(): void
     {
-        Schema::table('stage_subcontract_assignments', function (Blueprint $t) {
-            // Drop the FK before the column to keep down() safe across drivers.
-            if (Schema::hasColumn('stage_subcontract_assignments', 'return_verified_by_user_id')) {
-                try {
-                    // Try the explicit name first (current).
-                    $t->dropForeign('sca_return_verified_by_fk');
-                } catch (\Throwable $e) {
-                    // Fall back to the convention-based name in case this
-                    // is a re-run against an older schema.
-                    try {
-                        $t->dropForeign(['return_verified_by_user_id']);
-                    } catch (\Throwable $e2) {
-                        // ignore — driver may not track FKs reliably
-                    }
-                }
-            }
-            $t->dropColumn([
-                'return_qty_received',
-                'return_condition_notes',
-                'return_photo_front_path',
-                'return_photo_back_path',
-                'return_verified_by_user_id',
-                'return_verified_at',
-            ]);
-        });
+        Schema::dropIfExists('stage_subcontract_shipments');
     }
 };
