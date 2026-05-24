@@ -39,6 +39,31 @@ class QuotationService
         return Quotation::with('user')->find($id);
     }
 
+    /**
+     * Compute quotation totals WITHOUT persisting — used by the live price
+     * preview on the Add/Edit Quotation form. Runs the exact same pricing
+     * path as store()/update() (normalizePayload), so the preview can never
+     * disagree with the saved quote. Accepts the same payload shape the form
+     * submits (item_config_json / items_json / print_parts_json as JSON
+     * strings or arrays). No DB writes, no PDF, no side effects.
+     */
+    public function preview(array $data): array
+    {
+        $computed = $this->normalizePayload($data);
+
+        // Return only the fields the form needs to render the preview.
+        return [
+            'subtotal' => $computed['subtotal'] ?? 0,
+            'discount_amount' => $computed['discount_amount'] ?? 0,
+            'grand_total' => $computed['grand_total'] ?? 0,
+            'downpayment' => $computed['downpayment'] ?? 0,
+            'balance' => $computed['balance'] ?? 0,
+            'items_json' => $computed['items_json'] ?? [],
+            'addons_json' => $computed['addons_json'] ?? [],
+            'breakdown_json' => $computed['breakdown_json'] ?? [],
+        ];
+    }
+
     public function store(array $data, ?Request $request = null): Quotation
 {
         return DB::transaction(function () use ($data, $request) {
@@ -495,8 +520,6 @@ class QuotationService
             // Promoted to first-class columns (migration 2026_05_22_030000) so
             // the system can report/filter on outstanding balances. Still kept
             // in breakdown_json for the PDF/order display path.
-            'downpayment' => $downpayment,
-            'balance' => $balance,
             'downpayment' => $downpayment,
             'balance' => $balance,
             'item_config_json' => $itemConfig,

@@ -46,6 +46,18 @@ public function store(Store $request)
     return (new QuotationResource($quotation))->response()->setStatusCode(201);
 }
 
+    /**
+     * Live price preview. Computes totals from the current form state without
+     * saving. Same pricing engine as store(), so preview == saved quote.
+     * Accepts a plain JSON body (no file uploads needed for a preview).
+     */
+    public function preview(\Illuminate\Http\Request $request)
+    {
+        $totals = $this->service->preview($request->all());
+
+        return response()->json($totals);
+    }
+
     public function update(Update $request, $id)
     {
         $validated = $request->validated();

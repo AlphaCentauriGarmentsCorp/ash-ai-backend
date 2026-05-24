@@ -42,8 +42,8 @@ use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ShippingMethodController;
 use App\Http\Controllers\Api\ApparelPatternPriceController;
 use App\Http\Controllers\Api\ApparelNecklineController;
-use App\Http\Controllers\Api\PantoneController;
 use App\Http\Controllers\Api\PricingSettingController;
+use App\Http\Controllers\Api\PantoneController;
 
 // Phase 3/4/5 — workflow, MR/PR, stage inputs, reports, portals
 use App\Http\Controllers\Api\NotificationsController;
@@ -728,6 +728,14 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
+        // Superadmin-editable pricing rates (silkscreen per-color, DTF per
+        // sq inch, etc.). Edit-only: keys are fixed/seeded so the engine
+        // never loses a rate it depends on — hence no store/destroy.
+        Route::prefix('/quotation/settings/pricing')->middleware('permission:access.quotation-settings')->controller(PricingSettingController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::put('/{id}', 'update');
+        });
+
         Route::prefix('/quotation/settings/addon-categories')->middleware('permission:access.quotation-settings')->controller(AddonCategoriesController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
@@ -744,17 +752,16 @@ Route::prefix('v2')->group(function () {
             Route::delete('/{id}', 'destroy');
         });
 
-        Route::prefix('/quotation/settings/pricing')->middleware('permission:access.quotation-settings')->controller(PricingSettingController::class)->group(function () {
-           Route::get('/', 'index');
-           Route::put('/{id}', 'update');
-       });
-
         Route::prefix('/quotations')->middleware('permission:access.quotations')->group(function () {
 
             // ── Quotation CRUD ────────────────────────────────────────────────
             Route::controller(QuotationController::class)->group(function () {
                 Route::get('/', 'index');
                 Route::post('/', 'store');
+                // Live price preview — computes totals without saving. Must be
+                // declared before GET /{id} is irrelevant (this is POST), but
+                // kept here next to store for clarity.
+                Route::post('/preview', 'preview');
                 Route::get('/{id}', 'show');
                 Route::get('/{id}/pdf', 'generatePDF');
                 Route::post('/{id}/confirm', 'confirm');
