@@ -113,6 +113,11 @@ Route::prefix('v2')->group(function () {
         Route::prefix('/employee')->middleware('permission:access.employees')->controller(AccountController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::post('/{id}', 'update'); // multipart/form-data edits (PUT cannot carry files) use POST + _method spoofing
+            Route::delete('/{id}', 'destroy');
+            Route::patch('/{id}/restore', 'restore');
         });
 
         Route::prefix('/rbac')->middleware('permission:access.rbac')->group(function () {
