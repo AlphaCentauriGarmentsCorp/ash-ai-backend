@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\QuotationService;
 use App\Http\Requests\Quotation\Store;
 use App\Http\Requests\Quotation\Update;
+use App\Http\Requests\Quotation\StatusUpdate;
 use App\Http\Resources\QuotationResource;
 use App\Models\Quotation;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -205,8 +206,19 @@ public function store(Store $request)
         $fileName = $quotation->quotation_id . '.pdf';
         $filePath = "quotations/{$fileName}";
 
+        // Issue 12 — regenerate on demand if the file is missing (e.g. storage
+        // was cleared, or the row predates PDF generation). The PDF is normally
+        // written on save, so this is a fallback, not the common path.
         if (!Storage::disk('public')->exists($filePath)) {
-            return response()->json(['message' => 'PDF not found'], 404);
+            try {
+                $pdf = Pdf::loadView('pdf', ['quotation' => $quotation]);
+                Storage::disk('public')->put($filePath, $pdf->output());
+                if ($quotation->pdf_path !== $filePath) {
+                    $quotation->update(['pdf_path' => $filePath]);
+                }
+            } catch (\Throwable $e) {
+                return response()->json(['message' => 'PDF could not be generated.'], 500);
+            }
         }
 
         // Get the full path in storage
@@ -240,5 +252,53 @@ public function store(Store $request)
         $result = $this->service->confirmAndConvert((int) $id);
 
         return response()->json($result);
+    }
+
+    /**
+     * Issue 12 — change a quotation's status through the lifecycle state
+     * machine (Draft/Pending → Sent → Approved → Converted; Rejected reopenable;
+     * Expired terminal). The "Sent" transition also emails the PDF to the client.
+     *
+     * Body: { status: <target>, notes?: <string> }
+     * Returns 422 on an illegal/unknown transition (validation error shape).
+     */
+    public function changeStatus(StatusUpdate $request, $id)
+    {
+        $validated = $request->validated();
+
+        $result = $this->service->changeStatus(
+            (int) $id,
+            $validated['status'],
+            $validated['notes'] ?? null
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Issue 12 — return the immutable status-transition history for a
+     * quotation (newest first), with the acting user's name resolved.
+     */
+    public function statusLog($id)
+    {
+        $quotation = Quotation::with(['statusLogs.user:id,name'])->find($id);
+
+        if (! $quotation) {
+            return response()->json(['message' => 'Quotation not found'], 404);
+        }
+
+        $log = $quotation->statusLogs->map(function ($row) {
+            return [
+                'id'          => $row->id,
+                'from_status' => $row->from_status,
+                'to_status'   => $row->to_status,
+                'notes'       => $row->notes,
+                'email_sent'  => $row->email_sent,
+                'user'        => $row->user?->name,
+                'created_at'  => optional($row->created_at)->toIso8601String(),
+            ];
+        });
+
+        return response()->json(['data' => $log]);
     }
 }

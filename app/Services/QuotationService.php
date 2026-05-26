@@ -9,6 +9,7 @@ use App\Models\PatternType;
 use App\Models\PricingSetting;
 use App\Models\PrintMethod;
 use App\Models\Quotation;
+use App\Models\QuotationStatusLog;
 use Illuminate\Database\Eloquent\Collection;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
@@ -116,10 +117,11 @@ class QuotationService
                'pdf_path' => $filePath
             ]);
 
-            // Send email if client_email exists
-            if (!empty($quotation->client_email)) {
-                Mail::to($quotation->client_email)->send(new QuotationPdfMail($filePath));
-        }
+            // NOTE (Issue 12): the client PDF email was previously sent here on
+            // every create. It now fires only on the explicit "Mark as Sent"
+            // transition (QuotationService::changeStatus), so saving a draft no
+            // longer emails the client and the client receives exactly one email
+            // — the version the CSR chose to send.
 
             return $quotation->fresh();
     });
@@ -215,9 +217,9 @@ class QuotationService
            // Overwrite existing PDF
            Storage::disk('public')->put($filePath, $pdf->output());
 
-           if (!empty($quotation->client_email)) {
-           Mail::to($quotation->client_email)->send(new QuotationPdfMail($filePath));
-           }
+           // NOTE (Issue 12): client PDF email no longer sent on update — it
+           // fires only on the explicit "Mark as Sent" transition. Editing a
+           // quote regenerates the PDF but does not re-email the client.
 
            return $quotation->fresh();
     });
@@ -1114,6 +1116,149 @@ class QuotationService
     }
 
     /**
+     * Issue 12 — change a quotation's status through the lifecycle state
+     * machine, writing an immutable audit row for every transition.
+     *
+     * Rules (see Quotation::STATUS_TRANSITIONS):
+     *   - Illegal transitions are rejected with a 422.
+     *   - A no-op (to == current) is rejected with a 422 (nothing to log).
+     *   - The "Sent" transition also emails the quotation PDF to the client.
+     *     The email is best-effort: if it fails (bad address, SMTP down), the
+     *     status STILL changes to Sent, the failure is logged + recorded on the
+     *     audit row (email_sent=false), and the reason is surfaced to the CSR.
+     *
+     * @param  int          $id      quotation id
+     * @param  string       $to      target status (must be a Quotation::STATUS_* value)
+     * @param  string|null  $notes   optional CSR note (e.g. rejection reason)
+     * @param  int|null     $userId  acting user (defaults to Auth::id())
+     * @return array{message:string, quotation:Quotation, email_sent:?bool, email_error:?string}
+     *
+     * @throws ValidationException 422 on invalid/illegal transition
+     */
+    public function changeStatus(int $id, string $to, ?string $notes = null, ?int $userId = null): array
+    {
+        $userId = $userId ?? Auth::id();
+
+        return DB::transaction(function () use ($id, $to, $notes, $userId) {
+            /** @var Quotation $quotation */
+            $quotation = Quotation::lockForUpdate()->findOrFail($id);
+
+            $from = $quotation->normalizedStatus();
+
+            // Target must be a known status.
+            if (! in_array($to, Quotation::statuses(), true)) {
+                throw ValidationException::withMessages([
+                    'status' => ["Unknown status '{$to}'."],
+                ]);
+            }
+
+            // No-op guard.
+            if (strcasecmp($from, $to) === 0) {
+                throw ValidationException::withMessages([
+                    'status' => ["Quotation is already '{$to}'."],
+                ]);
+            }
+
+            // Enforce the state machine.
+            if (! $quotation->canTransitionTo($to)) {
+                $allowed = Quotation::STATUS_TRANSITIONS[$from] ?? [];
+                $allowedList = $allowed ? implode(', ', $allowed) : 'none (terminal status)';
+                throw ValidationException::withMessages([
+                    'status' => ["Cannot change status from '{$from}' to '{$to}'. Allowed: {$allowedList}."],
+                ]);
+            }
+
+            // Apply the new status.
+            $quotation->update(['status' => $to]);
+
+            // The "Sent" transition emails the PDF to the client (best-effort).
+            $emailSent = null;
+            $emailError = null;
+            if ($to === Quotation::STATUS_SENT) {
+                [$emailSent, $emailError] = $this->emailQuotationPdf($quotation);
+            }
+
+            // Append the audit note with the email outcome when relevant.
+            $auditNotes = $notes;
+            if ($to === Quotation::STATUS_SENT && $emailSent === false) {
+                $auditNotes = trim(($notes ? $notes . ' — ' : '') . 'Email failed: ' . $emailError);
+            }
+
+            $this->logStatusChange($quotation->id, $from, $to, $auditNotes, $userId, $emailSent);
+
+            return [
+                'message'     => "Quotation status changed to {$to}.",
+                'quotation'   => $quotation->fresh(),
+                'email_sent'  => $emailSent,
+                'email_error' => $emailError,
+            ];
+        });
+    }
+
+    /**
+     * Email the quotation PDF to the client. Best-effort — never throws.
+     *
+     * @return array{0: bool, 1: ?string}  [sent, error message or null]
+     */
+    protected function emailQuotationPdf(Quotation $quotation): array
+    {
+        if (empty($quotation->client_email)) {
+            return [false, 'No client email on file.'];
+        }
+
+        $filePath = $quotation->pdf_path ?: ('quotations/' . $quotation->quotation_id . '.pdf');
+
+        // Make sure the PDF actually exists before attempting to attach it.
+        if (! Storage::disk('public')->exists($filePath)) {
+            try {
+                $pdf = Pdf::loadView('pdf', ['quotation' => $quotation->fresh()]);
+                Storage::disk('public')->put($filePath, $pdf->output());
+                $quotation->update(['pdf_path' => $filePath]);
+            } catch (\Throwable $e) {
+                Log::error('Quotation PDF (re)generation failed before send', [
+                    'quotation_id' => $quotation->id,
+                    'error'        => $e->getMessage(),
+                ]);
+                return [false, 'Could not generate the PDF to attach.'];
+            }
+        }
+
+        try {
+            Mail::to($quotation->client_email)->send(new QuotationPdfMail($filePath));
+            return [true, null];
+        } catch (\Throwable $e) {
+            Log::error('Quotation PDF email failed', [
+                'quotation_id' => $quotation->id,
+                'client_email' => $quotation->client_email,
+                'error'        => $e->getMessage(),
+            ]);
+            return [false, $e->getMessage()];
+        }
+    }
+
+    /**
+     * Write one immutable status-transition audit row.
+     */
+    protected function logStatusChange(
+        int $quotationId,
+        ?string $from,
+        string $to,
+        ?string $notes,
+        ?int $userId,
+        ?bool $emailSent = null
+    ): QuotationStatusLog {
+        return QuotationStatusLog::create([
+            'quotation_id' => $quotationId,
+            'user_id'      => $userId,
+            'from_status'  => $from,
+            'to_status'    => $to,
+            'notes'        => $notes,
+            'email_sent'   => $emailSent,
+            'created_at'   => now(),
+        ]);
+    }
+
+    /**
      * Convert a quotation to an "order ready" payload.
      *
      * Marks the quotation as `Converted` (idempotent — refuses if already
@@ -1224,10 +1369,26 @@ class QuotationService
                 'addons_json'       => $quotation->addons_json,
                 'breakdown_json'    => $quotation->breakdown_json,
                 'print_parts_json'  => $quotation->print_parts_json,
+
+                // ── Issue 7 labels: flow the spec into the order prefill ──────
+                'brand_label'       => $quotation->brand_label_json,
+                'care_label'        => $quotation->care_label_json,
+                'label_design_path' => $quotation->label_design_path,
             ];
 
+            $fromStatus = $quotation->normalizedStatus();
+
             // Mark the quotation as converted
-            $quotation->update(['status' => 'Converted']);
+            $quotation->update(['status' => Quotation::STATUS_CONVERTED]);
+
+            // Issue 12 — record the transition in the audit log.
+            $this->logStatusChange(
+                $quotation->id,
+                $fromStatus,
+                Quotation::STATUS_CONVERTED,
+                'Converted to order.',
+                Auth::id()
+            );
 
             return [
                 'message'       => 'Quotation marked as converted.',

@@ -431,6 +431,29 @@
                 <h3>Order Details:</h3>
                 <p><strong>Shirt Color:</strong> {{ $quotation->shirt_color ?? 'N/A' }}</p>
                 <p><strong>Free Items:</strong> {{ $quotation->free_items ?? 'None' }}</p>
+                @php
+                    // Issue 7/12 — label specs are cast to arrays on the model.
+                    $brandLabel = is_array($quotation->brand_label_json) ? $quotation->brand_label_json : [];
+                    $careLabel  = is_array($quotation->care_label_json) ? $quotation->care_label_json : [];
+                    $fmtLabel = function (array $l) {
+                        if (empty($l['enabled'])) { return null; }
+                        $parts = array_filter([
+                            $l['material'] ?? null,
+                            $l['method'] ?? null,
+                            $l['placement'] ?? null,
+                            ($l['measurement'] ?? null) ? '(' . $l['measurement'] . ')' : null,
+                        ]);
+                        return $parts ? implode(' · ', $parts) : 'Enabled';
+                    };
+                    $brandText = $fmtLabel($brandLabel);
+                    $careText  = $fmtLabel($careLabel);
+                @endphp
+                @if($brandText)
+                    <p><strong>Brand Label:</strong> {{ $brandText }}</p>
+                @endif
+                @if($careText)
+                    <p><strong>Care/Size Label:</strong> {{ $careText }}</p>
+                @endif
             </div>
         </div>
 

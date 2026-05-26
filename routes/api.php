@@ -114,11 +114,6 @@ Route::prefix('v2')->group(function () {
         Route::prefix('/employee')->middleware('permission:access.employees')->controller(AccountController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
-            Route::get('/{id}', 'show');
-            Route::put('/{id}', 'update');
-            Route::post('/{id}', 'update'); // multipart/form-data edits (PUT cannot carry files) use POST + _method spoofing
-            Route::delete('/{id}', 'destroy');
-            Route::patch('/{id}/restore', 'restore');
         });
 
         Route::prefix('/rbac')->middleware('permission:access.rbac')->group(function () {
@@ -145,6 +140,8 @@ Route::prefix('v2')->group(function () {
             Route::get('/{id}', 'show');
             Route::put('/{id}', 'update');
             Route::delete('/{id}', 'destroy');
+            // Issue 1 — add a brand to a client on the fly (from the quotation form).
+            Route::post('/{id}/brands', 'storeBrand')->whereNumber('id');
         });
 
         Route::prefix('/orders')->middleware('permission:access.orders')->controller(OrdersController::class)->group(function () {
@@ -777,6 +774,11 @@ Route::prefix('v2')->group(function () {
                 Route::get('/{id}', 'show');
                 Route::get('/{id}/pdf', 'generatePDF');
                 Route::post('/{id}/confirm', 'confirm');
+                // ── Issue 12: lifecycle status transitions + audit history ────
+                // PATCH changes status through the state machine (Sent also
+                // emails the PDF). GET returns the immutable transition log.
+                Route::patch('/{id}/status', 'changeStatus');
+                Route::get('/{id}/status-log', 'statusLog');
                 Route::put('/{id}', 'update');
                 Route::delete('/{id}', 'destroy');
             });
