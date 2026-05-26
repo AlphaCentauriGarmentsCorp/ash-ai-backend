@@ -39,6 +39,13 @@ class Update extends FormRequest
             'notes' => 'sometimes|nullable|string',
             'custom_pattern_image' => 'sometimes|nullable|string|max:1000',
             'custom_pattern_image_file' => 'sometimes|nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+
+            // ── Issue 7: Brand Label + Care/Size Label spec (see Store.php) ──
+            'brand_label_json' => ['sometimes', 'nullable', 'string', $this->jsonStringRule('brand_label_json'), $this->labelSchemaRule('brand_label_json')],
+            'care_label_json' => ['sometimes', 'nullable', 'string', $this->jsonStringRule('care_label_json'), $this->labelSchemaRule('care_label_json')],
+            'label_design_path' => 'sometimes|nullable|string|max:1000',
+            'label_design_file' => 'sometimes|nullable|file|image|mimes:jpg,jpeg,png,webp,svg|max:4096',
+
             'discount_type' => 'sometimes|nullable|in:percentage,fixed',
             'discount_price' => 'sometimes|nullable|numeric|min:0',
             'subtotal' => 'sometimes|nullable|numeric|min:0',
@@ -92,6 +99,41 @@ class Update extends FormRequest
 
             if (json_last_error() !== JSON_ERROR_NONE) {
                 $fail("The {$field} field contains malformed JSON.");
+            }
+        };
+    }
+
+    /**
+     * Issue 7 — validate a label spec blob (brand_label_json / care_label_json).
+     * Mirrors Store::labelSchemaRule(); see that file for the full rationale.
+     */
+    private function labelSchemaRule(string $field): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) use ($field) {
+            if ($value === null || $value === '') {
+                return;
+            }
+
+            $decoded = json_decode($value, true);
+            if (json_last_error() !== JSON_ERROR_NONE || ! is_array($decoded)) {
+                return; // jsonStringRule already reported malformed JSON
+            }
+
+            $stringFields = ['material', 'method', 'placement', 'measurement', 'notes'];
+            foreach ($stringFields as $key) {
+                if (array_key_exists($key, $decoded) && $decoded[$key] !== null && ! is_string($decoded[$key])) {
+                    $fail("The {$field}.{$key} field must be a string.");
+                }
+            }
+
+            $enabled = ! empty($decoded['enabled']);
+            if ($enabled) {
+                if (empty($decoded['material']) || ! is_string($decoded['material'])) {
+                    $fail("The {$field}.material field is required when the label is enabled.");
+                }
+                if (empty($decoded['placement']) || ! is_string($decoded['placement'])) {
+                    $fail("The {$field}.placement field is required when the label is enabled.");
+                }
             }
         };
     }

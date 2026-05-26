@@ -544,6 +544,18 @@ class QuotationService
             'free_items' => $data['free_items'] ?? $existing?->free_items,
             'notes' => $data['notes'] ?? $existing?->notes,
             'custom_pattern_image' => $data['custom_pattern_image'] ?? $existing?->custom_pattern_image,
+            // ── Issue 7: Brand Label + Care/Size Label spec + shared design.
+            // The two label columns are cast to array on the model, so decode
+            // incoming JSON strings (decodeJsonField passes arrays through
+            // unchanged). label_design_path is a plain string (file path or
+            // link), resolved by the controller before this runs.
+            'brand_label_json' => array_key_exists('brand_label_json', $data)
+                ? ($this->decodeJsonField($data['brand_label_json']) ?? null)
+                : $existing?->brand_label_json,
+            'care_label_json' => array_key_exists('care_label_json', $data)
+                ? ($this->decodeJsonField($data['care_label_json']) ?? null)
+                : $existing?->care_label_json,
+            'label_design_path' => $data['label_design_path'] ?? $existing?->label_design_path,
             'discount_type' => $discountType,
             'discount_price' => $discountPrice,
             'discount_amount' => $discountAmount,

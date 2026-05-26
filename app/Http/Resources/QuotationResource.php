@@ -34,6 +34,11 @@ class QuotationResource extends JsonResource
             'notes' => $this->notes,
             'custom_pattern_image' => $this->custom_pattern_image,
 
+            // ── Issue 7: label spec + shared design (for Edit hydration + PDF)
+            'brand_label' => $this->brand_label_json,
+            'care_label' => $this->care_label_json,
+            'label_design_path' => $this->label_design_path,
+
             'subtotal' => $this->subtotal,
             'discount_type' => $this->discount_type,
             'discount_price' => $this->discount_price,

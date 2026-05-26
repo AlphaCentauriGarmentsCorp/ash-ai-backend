@@ -101,12 +101,30 @@ class PublicUpdateRequest extends FormRequest
                     $fail("The {$field}.{$index}.part field is required.");
                 }
 
-                foreach (['color_count', 'price_per_color', 'full_color_count', 'price_per_full_color'] as $numericField) {
-                    if (! array_key_exists($numericField, $part) || ! is_numeric($part[$numericField])) {
-                        $fail("The {$field}.{$index}.{$numericField} field is required and must be numeric.");
+                // ── LANDMINE FIX (Issue 7 session) ───────────────────────────
+                // Previously this loop HARD-REQUIRED color_count / price_per_color
+                // / full_color_count / price_per_full_color on EVERY part. That is
+                // wrong for the method-aware pricing engine: DTF parts carry
+                // width/height/pieces, embroidery/sublimation may carry none, and
+                // only silkscreen carries colour counts. The hard requirement
+                // rejected valid non-silkscreen public edits.
+                //
+                // Now aligned with Quotation\Store and Quotation\Update: numeric
+                // pricing fields are validated only IF PRESENT (must be numeric
+                // and >= 0). The pricing engine safely defaults any missing value
+                // to 0.
+                $optionalNumericFields = [
+                    'color_count', 'price_per_color', 'full_color_count', 'price_per_full_color',
+                    'unit_count', 'full_unit_count', 'width', 'height', 'pieces',
+                ];
+                foreach ($optionalNumericFields as $numericField) {
+                    if (! array_key_exists($numericField, $part)) {
+                        continue; // optional
+                    }
+                    if (! is_numeric($part[$numericField])) {
+                        $fail("The {$field}.{$index}.{$numericField} field must be numeric.");
                         continue;
                     }
-
                     if ((float) $part[$numericField] < 0) {
                         $fail("The {$field}.{$index}.{$numericField} field must be greater than or equal to 0.");
                     }

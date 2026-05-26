@@ -43,6 +43,13 @@ public function store(Store $request)
     // OR an external link. Stored as a single string on the quotation.
     $validated['custom_pattern_image'] = $this->resolveCustomPatternImage($request);
 
+    // Resolve the shared label-design artwork (Issue 7): an uploaded file
+    // OR an external link. One upload covers both Brand + Care/Size labels.
+    $resolvedLabelDesign = $this->resolveLabelDesign($request);
+    if ($resolvedLabelDesign !== null) {
+        $validated['label_design_path'] = $resolvedLabelDesign;
+    }
+
     // Create the quotation using the service layer
     $quotation = $this->service->store($validated, $request);
 
@@ -79,6 +86,15 @@ public function store(Store $request)
             $validated['custom_pattern_image'] = $resolvedCustomPattern;
         }
 
+        // Resolve the shared label-design artwork (Issue 7). Only override when
+        // the request actually carries one, so an edit that doesn't touch it
+        // keeps the existing value (handled in the service via the existing
+        // record).
+        $resolvedLabelDesign = $this->resolveLabelDesign($request);
+        if ($resolvedLabelDesign !== null) {
+            $validated['label_design_path'] = $resolvedLabelDesign;
+        }
+
         // Update the quotation with new data
         $quotation = $this->service->update($validated, $id, $request);
 
@@ -102,6 +118,31 @@ public function store(Store $request)
         }
 
         $link = $request->input('custom_pattern_image');
+        if (is_string($link) && trim($link) !== '') {
+            return trim($link);
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve the shared label-design artwork (Issue 7) from the request.
+     * Accepts either an uploaded file (`label_design_file`) which is stored
+     * to public disk, or a text link/path (`label_design_path`). One upload
+     * is shared between the Brand Label and the Care/Size Label. Returns the
+     * resolved string, or null when the request carries neither (so callers
+     * can leave an existing value untouched on edit).
+     */
+    protected function resolveLabelDesign(\Illuminate\Http\Request $request): ?string
+    {
+        if ($request->hasFile('label_design_file')) {
+            $file = $request->file('label_design_file');
+            if ($file && $file->isValid()) {
+                return $file->store('quotation-label-designs', 'public');
+            }
+        }
+
+        $link = $request->input('label_design_path');
         if (is_string($link) && trim($link) !== '') {
             return trim($link);
         }

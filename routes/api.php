@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\SewingSubcontractorController;
 use App\Http\Controllers\Api\PaymentMethodsController;
 use App\Http\Controllers\Api\CourierListController;
 use App\Http\Controllers\Api\QuotationController;
+use App\Http\Controllers\Api\QuotationLabelOptionsController;
 use App\Http\Controllers\Api\QuotationShareController;
 use App\Http\Controllers\Api\PublicQuotationController;
 use App\Http\Controllers\Api\RoleController;
@@ -762,6 +763,12 @@ Route::prefix('v2')->group(function () {
                 // declared before GET /{id} is irrelevant (this is POST), but
                 // kept here next to store for clarity.
                 Route::post('/preview', 'preview');
+                // ── Issue 7: locked label option lists ────────────────────
+                // Materials / methods / placements / measurements for the
+                // Brand Label and Care/Size Label pickers. Read-only;
+                // strictly-locked vocab. Declared before GET /{id} so the
+                // literal path resolves first.
+                Route::get('/label-options', [QuotationLabelOptionsController::class, 'index']);
                 Route::get('/{id}', 'show');
                 Route::get('/{id}/pdf', 'generatePDF');
                 Route::post('/{id}/confirm', 'confirm');
