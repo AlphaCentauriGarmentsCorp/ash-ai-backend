@@ -55,6 +55,12 @@ class QuotationResource extends JsonResource
 
             'pdf_path' => $this->pdf_path,
             'status' => $this->status,
+            // Issue 12: the legal next statuses from the current one, sourced
+            // from the model's STATUS_TRANSITIONS state machine. The View page
+            // renders status-action buttons directly from this, so the UI can
+            // never offer a transition the backend would reject (single source
+            // of truth — no hardcoded map on the frontend).
+            'allowed_transitions' => \App\Models\Quotation::STATUS_TRANSITIONS[$this->resource->normalizedStatus()] ?? [],
             'user' => $this->whenLoaded('user'),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
