@@ -39,6 +39,10 @@ class Quotation extends Model
         'breakdown_json',
         'print_parts_json',
         'custom_pattern_image',
+        // ── Issue 7: Brand Label + Care/Size Label spec + shared design upload
+        'brand_label_json',
+        'care_label_json',
+        'label_design_path',
         'pdf_path',
         'status',
     ];
@@ -50,6 +54,9 @@ class Quotation extends Model
         'addons_json'      => 'array',
         'breakdown_json'   => 'array',
         'print_parts_json' => 'array',
+        // ── Issue 7: label specs are read/written as arrays
+        'brand_label_json' => 'array',
+        'care_label_json'  => 'array',
     ];
 
     public function user()

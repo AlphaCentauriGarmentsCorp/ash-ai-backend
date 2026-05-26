@@ -43,6 +43,17 @@ class Store extends FormRequest
             // uploaded file via custom_pattern_image_file.
             'custom_pattern_image' => 'nullable|string|max:1000',
             'custom_pattern_image_file' => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+
+            // ── Issue 7: Brand Label + Care/Size Label spec ──────────────────
+            // Each label is a JSON blob (enabled/material/method/placement/...).
+            // The shared label-design artwork is either a link/path string OR an
+            // uploaded file via label_design_file (mirrors custom_pattern_image).
+            // Each label's internal shape is validated in labelSchemaRule().
+            'brand_label_json' => ['nullable', 'string', $this->jsonStringRule('brand_label_json'), $this->labelSchemaRule('brand_label_json')],
+            'care_label_json' => ['nullable', 'string', $this->jsonStringRule('care_label_json'), $this->labelSchemaRule('care_label_json')],
+            'label_design_path' => 'nullable|string|max:1000',
+            'label_design_file' => 'nullable|file|image|mimes:jpg,jpeg,png,webp,svg|max:4096',
+
             'discount_type' => 'nullable|in:percentage,fixed',
             'discount_price' => 'nullable|numeric|min:0',
             'subtotal' => 'nullable|numeric|min:0',
@@ -96,6 +107,48 @@ class Store extends FormRequest
 
             if (json_last_error() !== JSON_ERROR_NONE) {
                 $fail("The {$field} field contains malformed JSON.");
+            }
+        };
+    }
+
+    /**
+     * Issue 7 — validate a label spec blob (brand_label_json / care_label_json).
+     *
+     * The label is optional; when present it must be a JSON object. We only
+     * enforce types/lengths on the fields we recognise, and require material +
+     * placement IF the label is marked enabled (a CSR who toggles a label on
+     * should pick what it is). Method is intentionally lenient: it can be
+     * "None" (from the size_labels dropdown), so an enabled label with method
+     * "None" is valid. Unknown keys are ignored, keeping the rule forgiving as
+     * the dropdown lists evolve in Drop Down Settings.
+     */
+    private function labelSchemaRule(string $field): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) use ($field) {
+            if ($value === null || $value === '') {
+                return;
+            }
+
+            $decoded = json_decode($value, true);
+            if (json_last_error() !== JSON_ERROR_NONE || ! is_array($decoded)) {
+                return; // jsonStringRule already reported malformed JSON
+            }
+
+            $stringFields = ['material', 'method', 'placement', 'measurement', 'notes'];
+            foreach ($stringFields as $key) {
+                if (array_key_exists($key, $decoded) && $decoded[$key] !== null && ! is_string($decoded[$key])) {
+                    $fail("The {$field}.{$key} field must be a string.");
+                }
+            }
+
+            $enabled = ! empty($decoded['enabled']);
+            if ($enabled) {
+                if (empty($decoded['material']) || ! is_string($decoded['material'])) {
+                    $fail("The {$field}.material field is required when the label is enabled.");
+                }
+                if (empty($decoded['placement']) || ! is_string($decoded['placement'])) {
+                    $fail("The {$field}.placement field is required when the label is enabled.");
+                }
             }
         };
     }
