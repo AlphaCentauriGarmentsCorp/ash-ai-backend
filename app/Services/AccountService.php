@@ -261,7 +261,7 @@ class AccountService
             EmployeeDetails::create([
                 'user_id' => $user->id,
                 'first_name' => $data['first_name'],
-                'middle_name' => $data['middle_name'],
+                'middle_name' => $data['middle_name'] ?? null,
                 'last_name' => $data['last_name'],
                 'contact_number' => $data['contact_number'],
                 'gender' => $data['gender'],
