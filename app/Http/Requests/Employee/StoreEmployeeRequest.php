@@ -5,9 +5,8 @@ namespace App\Http\Requests\Employee;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Validation\Rule;
 
-class UpdateEmployeeRequest extends FormRequest
+class StoreEmployeeRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -16,42 +15,30 @@ class UpdateEmployeeRequest extends FormRequest
 
     public function rules(): array
     {
-        // The user being edited (route param {id}), so unique checks ignore self.
-        $userId = $this->route('id');
-
         return [
+
             // Account
-            'username' => [
-                'sometimes',
-                'string',
-                'max:50',
-                Rule::unique('users', 'username')->ignore($userId),
-            ],
-            'email' => [
-                'sometimes',
-                'email',
-                Rule::unique('users', 'email')->ignore($userId),
-            ],
-            // Password is optional on edit; blank/absent = unchanged.
-            'password' => 'nullable|string|min:8',
-            'roles' => 'sometimes|array|min:1',
+            'username' => 'required|string|max:50|unique:users,username',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:8',
+            'roles' => 'required|array',
             'roles.*' => 'string',
 
             // Profile
             'profile' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
 
             // Personal Info
-            'first_name' => 'sometimes|string|max:100',
+            'first_name' => 'required|string|max:100',
             'middle_name' => 'nullable|string|max:100',
-            'last_name' => 'sometimes|string|max:100',
-            'gender' => 'sometimes|in:male,female,other',
-            'birthdate' => 'sometimes|date',
-            'civil_status' => 'sometimes|string',
-            'contact_number' => 'sometimes|string|max:20',
+            'last_name' => 'required|string|max:100',
+            'gender' => 'required|in:male,female,other',
+            'birthdate' => 'required|date',
+            'civil_status' => 'required|string',
+            'contact_number' => 'required|string|max:20',
 
             // Employment
-            'position' => 'sometimes|string|max:100',
-            'department' => 'sometimes|string|max:100',
+            'position' => 'required|string|max:100',
+            'department' => 'required|string|max:100',
 
             // Government IDs
             'pagibig' => 'nullable|string',
@@ -72,7 +59,7 @@ class UpdateEmployeeRequest extends FormRequest
             'permanentProvince' => 'nullable|string',
             'permanentPostalCode' => 'nullable|string',
 
-            // Additional Files (newly uploaded files only)
+            // Additional Files
             'additionalFiles' => 'nullable|array',
             'additionalFiles.*' => 'file|max:5120',
         ];
