@@ -31,14 +31,11 @@ public function store(Store $request)
 {
     $validated = $request->validated();
 
-    // Process uploaded print part files. Use $request->file() (NOT input)
-    // so we get UploadedFile instances regardless of FormData nesting.
-    // Handles both flat shape (print_parts_files[0] = file, matches the
-    // current validator) AND legacy nested shape (print_parts_files[0][0] = file).
-    $files = $this->collectUploadedPrintParts($request);
-    if (! empty($files)) {
-        $validated['print_parts_files'] = json_encode($files);
-    }
+    // Issue 8 — print-part design files are stored AND linked to their part
+    // by QuotationService::handlePrintParts (keyed by part index). The earlier
+    // collectUploadedPrintParts() call here stored the files a second time into
+    // a non-fillable 'print_parts_files' key that was silently dropped, leaving
+    // orphaned duplicates on disk. Removed so the service is the single owner.
 
     // Resolve the custom-pattern reference (Issue 6): an uploaded image file
     // OR an external link. Stored as a single string on the quotation.
@@ -74,10 +71,8 @@ public function store(Store $request)
     {
         $validated = $request->validated();
 
-        $files = $this->collectUploadedPrintParts($request);
-        if (! empty($files)) {
-            $validated['print_parts_files'] = json_encode($files);
-        }
+        // Issue 8 — file storage + part association handled by the service
+        // (see store()). No separate collect/store here.
 
         // Resolve the custom-pattern reference (Issue 6). Only override when the
         // request actually carries one, so an edit that doesn't touch it keeps
@@ -300,5 +295,35 @@ public function store(Store $request)
         });
 
         return response()->json(['data' => $log]);
+    }
+
+    /**
+     * Issue 8 — the CSR sends a quotation to the Graphic Artist for a
+     * colours/clarity review. Sets the design-review status to "Pending GA"
+     * and notifies the GA role (their entry point — there is no GA queue).
+     * Re-callable: a "Needs New File" quotation can be re-sent after the CSR
+     * uploads a new design.
+     */
+    public function requestDesignReview($id, \App\Services\NotificationService $notifications)
+    {
+        $quotation = Quotation::find($id);
+
+        if (! $quotation) {
+            return response()->json(['message' => 'Quotation not found'], 404);
+        }
+
+        $quotation->design_review_status = Quotation::DESIGN_REVIEW_PENDING;
+        // Clear the stale reviewer/verdict so the GA starts fresh.
+        $quotation->design_reviewed_by = null;
+        $quotation->design_reviewed_at = null;
+        $quotation->save();
+
+        try {
+            $notifications->designReviewRequested($quotation);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return new QuotationResource($quotation->fresh(['user', 'designReviewer']));
     }
 }

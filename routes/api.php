@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\PaymentMethodsController;
 use App\Http\Controllers\Api\CourierListController;
 use App\Http\Controllers\Api\QuotationController;
 use App\Http\Controllers\Api\QuotationLabelOptionsController;
+use App\Http\Controllers\Api\QuotationReviewController;
 use App\Http\Controllers\Api\QuotationShareController;
 use App\Http\Controllers\Api\PublicQuotationController;
 use App\Http\Controllers\Api\RoleController;
@@ -784,6 +785,8 @@ Route::prefix('v2')->group(function () {
                 // emails the PDF). GET returns the immutable transition log.
                 Route::patch('/{id}/status', 'changeStatus');
                 Route::get('/{id}/status-log', 'statusLog');
+                // Issue 8 — CSR sends the quotation design to the GA for review.
+                Route::post('/{id}/request-design-review', 'requestDesignReview');
                 Route::put('/{id}', 'update');
                 Route::delete('/{id}', 'destroy');
             });
@@ -804,6 +807,18 @@ Route::prefix('v2')->group(function () {
                 Route::delete('/share/{token}', 'revoke');
             });
         });
+
+        // ── Issue 8: Graphic Artist design-review surface ─────────────────
+        // Separate from access.quotations so a GA can review a design under
+        // least privilege (no quotation CRUD). graphic_artist holds
+        // access.quotation-review; superadmin passes via Gate::before.
+        Route::prefix('/quotation-reviews')
+            ->middleware('permission:access.quotation-review')
+            ->controller(QuotationReviewController::class)
+            ->group(function () {
+                Route::get('/{id}', 'show');
+                Route::patch('/{id}', 'update');
+            });
 
     });
 
