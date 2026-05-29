@@ -403,6 +403,53 @@ class NotificationService
     /**
      * Returns the user's notifications, newest first, paginated.
      */
+    /**
+     * Issue 8 — a CSR sent a quotation to the Graphic Artist for review.
+     * → Notify the graphic_artist role (their entry point; there is no queue).
+     */
+    public function designReviewRequested(\App\Models\Quotation $quotation): void
+    {
+        $recipients = $this->collectRecipients(roles: ['graphic_artist']);
+
+        $this->dispatch($recipients, [
+            'type'  => 'quotation.design_review_requested',
+            'title' => "Design review requested: {$quotation->quotation_id}",
+            'body'  => 'A CSR sent a quotation design for colours/clarity review.',
+            'data'  => [
+                'quotation_id' => $quotation->id,
+                'quotation_code' => $quotation->quotation_id,
+                'link' => "/quotation-reviews/{$quotation->id}",
+            ],
+        ]);
+    }
+
+    /**
+     * Issue 8 — the GA set a verdict on a quotation's design.
+     * → Notify the CSR who created it (+ the csr role for visibility).
+     */
+    public function designReviewDecided(\App\Models\Quotation $quotation, string $status): void
+    {
+        $recipients = $this->collectRecipients(
+            roles: ['csr'],
+            assignedUserId: $quotation->user_id,
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'quotation.design_review_decided',
+            'title' => "Design review: {$status} ({$quotation->quotation_id})",
+            'body'  => $quotation->design_review_note
+                ? "GA note: {$quotation->design_review_note}"
+                : "The Graphic Artist marked this design \"{$status}\".",
+            'data'  => [
+                'quotation_id' => $quotation->id,
+                'quotation_code' => $quotation->quotation_id,
+                'status' => $status,
+                'color_count' => $quotation->design_color_count,
+                'link' => "/quotations/view/{$quotation->id}",
+            ],
+        ]);
+    }
+
     public function listForUser(int $userId, int $perPage = 20)
     {
         return Notification::forUser($userId)

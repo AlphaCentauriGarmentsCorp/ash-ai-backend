@@ -55,6 +55,14 @@ class QuotationResource extends JsonResource
 
             'pdf_path' => $this->pdf_path,
             'status' => $this->status,
+            // ── Issue 8: Graphic Artist design review (read-only for CSR;
+            // editable only via the GA review surface). null status = the
+            // quotation has not been sent to the GA yet.
+            'design_review_status' => $this->design_review_status,
+            'design_color_count' => $this->design_color_count,
+            'design_review_note' => $this->design_review_note,
+            'design_reviewed_at' => $this->design_reviewed_at,
+            'design_reviewer' => $this->whenLoaded('designReviewer', fn () => $this->designReviewer?->name),
             // Issue 12: the legal next statuses from the current one, sourced
             // from the model's STATUS_TRANSITIONS state machine. The View page
             // renders status-action buttons directly from this, so the UI can

@@ -32,12 +32,16 @@ class QuotationService
     
     public function getAll(): Collection
     {
+        // The list only needs design_review_status (a column); the reviewer's
+        // name is a detail-view concern, so we don't eager-load designReviewer
+        // here. This keeps the list resilient even before the design-review
+        // migration is applied.
         return Quotation::with('user')->get();
     }
 
     public function find(int $id): ?Quotation
     {
-        return Quotation::with('user')->find($id);
+        return Quotation::with(['user', 'designReviewer'])->find($id);
     }
 
     /**
@@ -63,6 +67,71 @@ class QuotationService
             'addons_json' => $computed['addons_json'] ?? [],
             'breakdown_json' => $computed['breakdown_json'] ?? [],
         ];
+    }
+
+    /**
+     * Issue 8 (stage D) — recompute a quotation's totals after the Graphic
+     * Artist sets/changes the verified pooled colour count.
+     *
+     * Only silkscreen-family quotations are affected (DTF is per-square-inch;
+     * embroidery and sublimation are flat), so for every other method this is
+     * a no-op. Re-runs the SAME pricing engine (normalizePayload) as
+     * create/edit so the GA-overridden colour count flows through exactly once
+     * and the grand total + 60/40 split stay internally consistent, then
+     * regenerates the client PDF.
+     *
+     * Note: print_parts_json is intentionally NOT passed in, so handlePrintParts
+     * keeps the existing per-part design images (passing it would re-resolve
+     * with no request files and drop file-based images).
+     */
+    public function recomputeForDesignColorCount(int $id): Quotation
+    {
+        return DB::transaction(function () use ($id) {
+            $quotation = Quotation::findOrFail($id);
+
+            $itemConfig = is_array($quotation->item_config_json) ? $quotation->item_config_json : [];
+
+            // Only silkscreen uses the per-colour pooled charge.
+            if ($this->resolvePrintMethodKey($itemConfig) !== 'silkscreen') {
+                return $quotation->fresh();
+            }
+
+            // Minimal engine input: item_config forces the full-compute path;
+            // design_color_count carries the GA override. Everything else falls
+            // back to the saved record inside normalizePayload.
+            $data = [
+                'item_config_json'   => $itemConfig,
+                'design_color_count' => $quotation->design_color_count,
+            ];
+
+            $normalized = $this->normalizePayload($data, null, $quotation);
+
+            // Persist only the financial outputs — never the design-review
+            // fields (which normalizePayload does not return).
+            $quotation->update([
+                'subtotal'         => $normalized['subtotal'] ?? $quotation->subtotal,
+                'discount_amount'  => $normalized['discount_amount'] ?? $quotation->discount_amount,
+                'grand_total'      => $normalized['grand_total'] ?? $quotation->grand_total,
+                'items_json'       => $normalized['items_json'] ?? $quotation->items_json,
+                'addons_json'      => $normalized['addons_json'] ?? $quotation->addons_json,
+                'breakdown_json'   => $normalized['breakdown_json'] ?? $quotation->breakdown_json,
+                'print_parts_json' => $normalized['print_parts_json'] ?? $quotation->print_parts_json,
+            ]);
+
+            // Mirror store()/update(): force the split past mass-assignment.
+            $quotation->forceFill([
+                'downpayment' => $normalized['downpayment'] ?? $quotation->downpayment ?? 0,
+                'balance'     => $normalized['balance'] ?? $quotation->balance ?? 0,
+            ])->save();
+
+            // Regenerate the client PDF so it reflects the new colour count.
+            $pdf = Pdf::loadView('pdf', ['quotation' => $quotation->fresh()]);
+            $filePath = "quotations/{$quotation->quotation_id}.pdf";
+            Storage::disk('public')->put($filePath, $pdf->output());
+            $quotation->update(['pdf_path' => $filePath]);
+
+            return $quotation->fresh();
+        });
     }
 
     public function store(array $data, ?Request $request = null): Quotation
@@ -342,7 +411,12 @@ class QuotationService
         // so it is computed once as an order-level total and added to the
         // subtotal — not multiplied per piece.
         $printMethodKey = $this->resolvePrintMethodKey($itemConfig);
-        $printPartsTotal = $this->calculatePerPiecePrintCharge($printMethodKey, $printPartsMetadata, $itemConfig);
+        // Issue 8 (stage D) — the GA's verified pooled colour count (when set)
+        // overrides the CSR's spot-colour entries for silkscreen pricing.
+        // Sourced from the incoming payload, else the saved record.
+        $gaPooledColors = $data['design_color_count'] ?? $existing?->design_color_count ?? null;
+        $gaPooledColors = $gaPooledColors !== null ? (int) $gaPooledColors : null;
+        $printPartsTotal = $this->calculatePerPiecePrintCharge($printMethodKey, $printPartsMetadata, $itemConfig, $gaPooledColors);
         $dtfOrderTotal = $printMethodKey === 'dtf'
             ? $this->calculateDtfTotal($printPartsMetadata, $itemConfig)
             : 0.0;
@@ -617,7 +691,7 @@ class QuotationService
      * Note: this is a per-piece amount, multiplied by total quantity later
      * in computeTotals (appliedPrintPartsTotal).
      */
-    protected function calculatePrintPartsTotal($printParts): float
+    protected function calculatePrintPartsTotal($printParts, ?int $gaPooledColors = null): float
     {
         if (! is_array($printParts)) {
             return 0.0;
@@ -665,6 +739,20 @@ class QuotationService
         }
 
         $totalColors = $regularColors + $fullColors;
+
+        // Issue 8 (stage D) — once the Graphic Artist verifies the pooled colour
+        // count it becomes the source of truth, overriding the CSR's per-
+        // placement spot-colour entries. The count is the TOTAL across all
+        // placements (front + back). Full-print placements are structural
+        // (CSR-flagged), so their colours are preserved and consume part of the
+        // GA total first; whatever remains is the regular spot-colour pool.
+        if ($gaPooledColors !== null) {
+            $gaPooledColors = max(0, (int) $gaPooledColors);
+            $fullColors = min($fullColors, $gaPooledColors);
+            $regularColors = max(0, $gaPooledColors - $fullColors);
+            $totalColors = $regularColors + $fullColors;
+        }
+
         if ($totalColors <= 0) {
             return 0.0;
         }
@@ -808,10 +896,10 @@ class QuotationService
      *   - Partial / small: MANUAL per-piece price (~₱200), sent as
      *     item_config_json.sublimation_manual_price.
      */
-    protected function calculatePerPiecePrintCharge(string $methodKey, $printParts, $itemConfig): float
+    protected function calculatePerPiecePrintCharge(string $methodKey, $printParts, $itemConfig, ?int $gaPooledColors = null): float
     {
         return match ($methodKey) {
-            'silkscreen' => $this->calculatePrintPartsTotal($printParts),
+            'silkscreen' => $this->calculatePrintPartsTotal($printParts, $gaPooledColors),
             'embroidery' => $this->calculateEmbroideryCharge($itemConfig),
             'sublimation' => $this->calculateSublimationCharge($itemConfig),
             // DTF is order-level, not per-piece.
@@ -1031,34 +1119,36 @@ class QuotationService
         $pricePerColor = (float) ($partData['price_per_color'] ?? $partData['pricePerColor'] ?? 0);
 
         $imageInputType = $partData['image_input_type'] ?? $partData['imageInputType'] ?? null;
-        $imageLink = $partData['image_link'] ?? $partData['imageLink'] ?? null;
-        $imagePath = $existingParts[$index]['image'] ?? null;
+        $incomingImageLink = $partData['image_link'] ?? $partData['imageLink'] ?? null;
+        $existingImage = $existingParts[$index]['image'] ?? null;
 
-        $files = [];
-        if ($request && $request->hasFile('print_parts_files')) {
-            $rawFiles = $request->file('print_parts_files');
-            if (is_array($rawFiles)) {
-                foreach ($rawFiles as $entry) {
-                    // Flat shape: $entry is a single UploadedFile.
-                    if ($entry instanceof \Illuminate\Http\UploadedFile) {
-                        if ($entry->isValid()) {
-                            $files[] = $entry->store('quotation-print-parts', 'public');
-                        }
-                        continue;
-                    }
-                    // Nested shape: $entry is an array of UploadedFile objects.
-                    if (is_array($entry)) {
-                        foreach ($entry as $sub) {
-                            if ($sub instanceof \Illuminate\Http\UploadedFile && $sub->isValid()) {
-                                $files[] = $sub->store('quotation-print-parts', 'public');
-                            }
-                        }
-                    }
-                }
-            }
-            // Store the array of files in the partData
-            if (! empty($files)) {
-                $partData['files'] = $files;
+        // Uploaded files arrive keyed by part index: print_parts_files[<index>].
+        $uploaded = ($request && $request->hasFile('print_parts_files'))
+            ? $request->file('print_parts_files')
+            : [];
+        $newFile = $uploaded[$index] ?? null;
+        if (is_array($newFile)) {
+            $newFile = $newFile[0] ?? null; // tolerate legacy nested shape
+        }
+
+        if ($imageInputType === 'link') {
+            // Link-type parts carry a URL in image_link and no stored file.
+            $imageLink = $incomingImageLink ?: null;
+            $imagePath = null;
+        } else {
+            // File-type parts NEVER carry image_link in the stored row — a
+            // stale link (e.g. the existing path the Edit form echoes back)
+            // would otherwise shadow image_path in the viewer, which checks
+            // image_link first. (Issue 8 — Edit upload fix.)
+            $imageLink = null;
+            if ($newFile instanceof \Illuminate\Http\UploadedFile && $newFile->isValid()) {
+                // A new file was uploaded for this part — store and use it.
+                $imagePath = $newFile->store('quotation-print-parts', 'public');
+            } else {
+                // No new file on this edit — preserve the existing artwork:
+                // the stored path if available, else the existing path the
+                // frontend echoed back via image_link.
+                $imagePath = $existingImage ?: ($incomingImageLink ?: null);
             }
         }
 
@@ -1102,6 +1192,9 @@ class QuotationService
             'imageLink' => $imageLink,
             'color_price_total' => round($colorCount * $pricePerColor, 2),
             'image' => $imagePath,
+            // Issue 8 — expose under image_path too; the View page resolver
+            // checks image_link || image_url || image_path || image.
+            'image_path' => $imagePath,
         ]);
     }
 

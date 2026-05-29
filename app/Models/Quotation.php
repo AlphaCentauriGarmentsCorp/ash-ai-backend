@@ -41,6 +41,26 @@ class Quotation extends Model
         self::STATUS_EXPIRED   => [],                     // terminal
     ];
 
+    // ── Issue 8: Graphic Artist design-review verdicts ───────────────────
+    // Distinct from the lifecycle status above. Null = not submitted to the GA.
+    public const DESIGN_REVIEW_PENDING     = 'Pending GA';
+    public const DESIGN_REVIEW_APPROVED    = 'GA Approved';
+    public const DESIGN_REVIEW_NEEDS_FILE  = 'Needs New File';
+
+    /**
+     * The verdicts a GA may set when reviewing a quotation's design.
+     *
+     * @return string[]
+     */
+    public static function designReviewStatuses(): array
+    {
+        return [
+            self::DESIGN_REVIEW_PENDING,
+            self::DESIGN_REVIEW_APPROVED,
+            self::DESIGN_REVIEW_NEEDS_FILE,
+        ];
+    }
+
     /**
      * Every valid status value.
      *
@@ -123,6 +143,12 @@ class Quotation extends Model
         'label_design_path',
         'pdf_path',
         'status',
+        // ── Issue 8: Graphic Artist design review
+        'design_review_status',
+        'design_color_count',
+        'design_review_note',
+        'design_reviewed_by',
+        'design_reviewed_at',
     ];
 
     protected $casts = [
@@ -135,11 +161,22 @@ class Quotation extends Model
         // ── Issue 7: label specs are read/written as arrays
         'brand_label_json' => 'array',
         'care_label_json'  => 'array',
+        // ── Issue 8: design review
+        'design_color_count' => 'integer',
+        'design_reviewed_at' => 'datetime',
     ];
 
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * Issue 8 — the GA/Superadmin who last set the design-review verdict.
+     */
+    public function designReviewer()
+    {
+        return $this->belongsTo(User::class, 'design_reviewed_by');
     }
 
     public function shareTokens()

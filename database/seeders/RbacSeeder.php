@@ -46,6 +46,10 @@ class RbacSeeder extends Seeder
             'access.sewing-subcontractor',
             'access.order-stages',
             'access.graphic-design',
+            // Issue 8 — narrow permission for the GA to review a quotation's
+            // design (colours/clarity) WITHOUT granting full access.quotations.
+            // Held by graphic_artist (+ superadmin via Gate::before).
+            'access.quotation-review',
             'access.screen-making',
             'access.screen-checking',
             'access.screen-maintenance',
@@ -265,6 +269,7 @@ class RbacSeeder extends Seeder
                     'access.orders',
                     'access.graphic-design',
                     'access.pantone',
+                    'access.quotation-review',
                     'access.notifications',
                     'portal.graphic-artist',
                     'action.upload-photos',
