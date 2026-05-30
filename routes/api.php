@@ -28,6 +28,8 @@ use App\Http\Controllers\Api\MaterialsController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\ScreenController;
 use App\Http\Controllers\Api\OrderStagesController;
+use App\Http\Controllers\Api\StageReviewController;
+use App\Http\Controllers\Api\StageUploadController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
@@ -466,6 +468,53 @@ Route::prefix('v2')->group(function () {
         Route::get('/orders/{id}/production-timeline', [ReportsController::class, 'orderTimeline'])
             ->whereNumber('id')
             ->middleware(['permission:access.orders', 'permission:access.reports']);
+
+        // ── CSR Review Hub ─────────────────────────────────────────────
+        // Read: the hub's per-order review history + per-stage current state.
+        // Anyone who can see the order can read its review state (so the
+        // owning role's portal can show its own rejection banner). The
+        // WRITE actions are gated more tightly below.
+        Route::get('/orders/{orderId}/stage-reviews', [StageReviewController::class, 'indexForOrder'])
+            ->whereNumber('orderId')
+            ->middleware('permission:access.orders');
+
+        // Single-stage state probe for a production portal's resubmit gate.
+        Route::get('/order-stages/{id}/review/state', [StageReviewController::class, 'state'])
+            ->whereNumber('id')
+            ->middleware('permission:access.orders');
+
+        // Reviewer actions (CSR / Super Admin / Admin) — approve or reject a
+        // stage's output. New dedicated permission keeps the review hub
+        // distinct from generic order access.
+        Route::middleware('permission:access.production-review')->group(function () {
+            Route::post('/order-stages/{id}/review/approve', [StageReviewController::class, 'approve'])
+                ->whereNumber('id');
+            Route::post('/order-stages/{id}/review/reject', [StageReviewController::class, 'reject'])
+                ->whereNumber('id');
+        });
+
+        // Owning-role action — resubmit after a rejection. Reuses the
+        // existing advance-stage permission (the roles that own/progress a
+        // stage are exactly the ones allowed to resubmit it).
+        Route::post('/order-stages/{id}/review/resubmit', [StageReviewController::class, 'resubmit'])
+            ->whereNumber('id')
+            ->middleware('permission:action.advance-stage');
+
+        // ── Phase 3: generic per-stage proof-of-work uploads ───────────
+        // Any role that can see the order may list a stage's attachments
+        // (so the Review Hub can render them); the producing roles upload
+        // and delete via the existing upload-photos permission.
+        Route::get('/order-stages/{id}/uploads', [StageUploadController::class, 'index'])
+            ->whereNumber('id')
+            ->middleware('permission:access.orders');
+
+        Route::post('/order-stages/{id}/uploads', [StageUploadController::class, 'store'])
+            ->whereNumber('id')
+            ->middleware('permission:action.upload-photos');
+
+        Route::delete('/stage-uploads/{uploadId}', [StageUploadController::class, 'destroy'])
+            ->whereNumber('uploadId')
+            ->middleware('permission:action.upload-photos');
 
         // ── Role Portals (Phase 5-A) ───────────────────────────────────
         // Each portal calls /portal/{role}/my-active on mount to find

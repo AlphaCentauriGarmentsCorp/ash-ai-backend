@@ -60,6 +60,8 @@ class RbacSeeder extends Seeder
             // Phase 3: MR/PR module access
             'access.material-requests',
             'access.purchase-requests',
+            // CSR Review Hub — gates approve/reject of stage outputs.
+            'access.production-review',
         ];
 
         $portalPermissions = [
@@ -243,6 +245,8 @@ class RbacSeeder extends Seeder
                 'action.advance-stage',
                 'action.upload-photos',
                 'action.switch-service-type',
+                // CSR Review Hub — CSR is the primary reviewer of stage outputs.
+                'access.production-review',
             ],
 
             // ============ FINANCE ============

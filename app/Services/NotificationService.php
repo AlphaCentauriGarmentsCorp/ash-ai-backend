@@ -93,6 +93,62 @@ class NotificationService
     }
 
     /**
+     * CSR Review Hub — a reviewer REJECTED a stage's output.
+     * → Notify the role that OWNS this stage (the people who must fix it),
+     *   plus its explicitly-assigned user if any. Deliberately NOT the
+     *   managers/CSR: the rejection is a "your work needs rework" alert
+     *   aimed at the producing role, not an approval queue item.
+     *
+     * The owning role is taken from the stage's assigned_role (set at
+     * initialization from the canonical WorkflowStages role), falling back
+     * to the stage definition's role so the notification still routes even
+     * if assigned_role was never populated.
+     *
+     * @param string|null $comment the reviewer's required reject comment
+     */
+    public function stageRejected(OrderStage $stage, ?string $comment = null): void
+    {
+        $roleSlug = $stage->assigned_role
+            ?: (\App\Support\WorkflowStages::find($stage->stage)['role'] ?? null);
+
+        $recipients = $this->collectRecipients(
+            roles: $roleSlug ? [$roleSlug] : [],
+            assignedUserId: $stage->assigned_to,
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'stage.rejected',
+            'title' => "Rework needed: {$this->stageLabel($stage)}",
+            'body'  => $comment
+                ? "Your {$this->stageLabel($stage)} output was rejected: {$comment}"
+                : "Your {$this->stageLabel($stage)} output was rejected and needs rework.",
+            'data'  => $this->stageContext($stage),
+        ]);
+    }
+
+    /**
+     * CSR Review Hub — the owning role RESUBMITTED a previously-rejected
+     * stage's output.
+     * → Notify the reviewers (CSR + managers) that there's work to re-review,
+     *   mirroring stageForApproval's audience.
+     */
+    public function stageResubmitted(OrderStage $stage, ?string $comment = null): void
+    {
+        $recipients = $this->collectRecipients(
+            roles: array_merge($this->managerRoles, ['csr']),
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'stage.resubmitted',
+            'title' => "Resubmitted for review: {$this->stageLabel($stage)}",
+            'body'  => $comment
+                ? "Corrected and resubmitted: {$comment}"
+                : 'A previously-rejected stage was corrected and resubmitted for review.',
+            'data'  => $this->stageContext($stage),
+        ]);
+    }
+
+    /**
      * A stage was assigned to a specific user.
      * → Notify ONLY that user (no spamming managers).
      */
