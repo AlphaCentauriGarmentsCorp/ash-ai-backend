@@ -12,6 +12,7 @@ use Endroid\QrCode\Writer\PngWriter;
 use Endroid\QrCode\Encoding\Encoding;
 use Picqer\Barcode\BarcodeGeneratorPNG;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 /**
  * OrderService — owns Order creation.
@@ -30,11 +31,13 @@ class OrderService
 {
     protected OrderStagesService $stagesService;
     protected NotificationService $notifications;
+    protected QuotationService $quotation;
 
-    public function __construct(OrderStagesService $stagesService, NotificationService $notifications)
+    public function __construct(OrderStagesService $stagesService, NotificationService $notifications, QuotationService $quotation)
     {
         $this->stagesService = $stagesService;
         $this->notifications = $notifications;
+        $this->quotation = $quotation;
     }
 
     public function store(array $data): Order
@@ -79,6 +82,48 @@ class OrderService
         $printPartsJson = $this->decodeJson($pick('print_parts_json'));
 
         $quotationId    = $pick('quotation_id');
+
+        // ── Option-A pricing hardening ───────────────────────────────────
+        // If the order carries an engine-priceable config (an
+        // apparel_pattern_price_id in item_config), RE-PRICE it here through
+        // the same engine the Add Order form previewed with, and persist the
+        // recomputed totals — so the saved price is authoritative and can't
+        // be tampered with from the client. Non-priceable (legacy/manual)
+        // orders keep their submitted totals. A pricing failure never blocks
+        // order creation; we fall back to the submitted values.
+        if (is_array($itemConfigJson) && ! empty($itemConfigJson['apparel_pattern_price_id'])) {
+            try {
+                $computed = $this->quotation->preview([
+                    'item_config_json'    => $itemConfigJson,
+                    'items_json'          => $itemsJson,
+                    'print_parts_json'    => $printPartsJson,
+                    'addons_json'         => $addonsJson,
+                    'apparel_neckline_id' => $necklineId,
+                    'discount_type'       => $discountType,
+                    'discount_price'      => $discountPrice,
+                ]);
+
+                $submittedGrand = (float) $grandTotal;
+
+                $subtotal       = $computed['subtotal'] ?? $subtotal;
+                $grandTotal     = $computed['grand_total'] ?? $grandTotal;
+                $discountAmount = $computed['discount_amount'] ?? $discountAmount;
+                if (! empty($computed['breakdown_json'])) {
+                    $breakdownJson = $computed['breakdown_json'];
+                }
+
+                if (abs($submittedGrand - (float) $grandTotal) > 0.01) {
+                    Log::warning('Order store: client grand_total overridden by engine recompute', [
+                        'submitted_grand_total' => $submittedGrand,
+                        'engine_grand_total'    => (float) $grandTotal,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Order store: engine recompute failed; using submitted totals', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
 
         $order = DB::transaction(function () use (
             $clientId, $clientBrand, $clientName,
@@ -138,6 +183,35 @@ class OrderService
                 // Artifacts
                 'qr_path'            => $codes['qr_path'],
                 'barcode_path'       => $codes['barcode_path'],
+
+                // ── Shipping / courier (Add Order) ──────────────────────
+                'courier'            => $data['courier'] ?? null,
+                'method'             => $data['method'] ?? null,
+                'receiver_name'      => $data['receiver_name'] ?? null,
+                'contact_number'     => $data['contact_number'] ?? null,
+                'street_address'     => $data['street_address'] ?? null,
+                'barangay_address'   => $data['barangay_address'] ?? null,
+                'city_address'       => $data['city_address'] ?? null,
+                'province_address'   => $data['province_address'] ?? null,
+                'postal_address'     => $data['postal_address'] ?? null,
+
+                // ── Production details (Add Order) ──────────────────────
+                'design_name'           => $data['design_name'] ?? null,
+                'service_type'          => $data['service_type'] ?? null,
+                'print_service'         => $data['print_service'] ?? null,
+                'size_label'            => $data['size_label'] ?? null,
+                'print_label_placement' => $data['print_label_placement'] ?? null,
+                'fabric_type'           => $data['fabric_type'] ?? null,
+                'fabric_supplier'       => $data['fabric_supplier'] ?? null,
+                'fabric_color'          => $data['fabric_color'] ?? null,
+                'thread_color'          => $data['thread_color'] ?? null,
+                'ribbing_color'         => $data['ribbing_color'] ?? null,
+                'freebie_items'         => $data['freebie_items'] ?? null,
+                'freebie_color'         => $data['freebie_color'] ?? null,
+                'freebie_others'        => $data['freebie_others'] ?? null,
+                'payment_plan'          => $data['payment_plan'] ?? null,
+                'payment_method'        => $data['payment_method'] ?? null,
+                'deposit_percentage'    => $data['deposit_percentage'] ?? null,
 
                 // Status defaults to 'Pending Approval' (column default)
             ]);

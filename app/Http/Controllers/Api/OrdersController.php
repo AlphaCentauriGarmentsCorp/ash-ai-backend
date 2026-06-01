@@ -19,6 +19,24 @@ class OrdersController extends Controller
         $this->service = $service;
     }
 
+    /**
+     * Live price preview for the Add Order form (Option A pricing).
+     *
+     * Delegates to the SAME pricing engine the Quotation form uses
+     * (QuotationService::preview → normalizePayload), so an order priced from
+     * scratch follows the exact Addendum rules and can never disagree with a
+     * quotation built from the same inputs. Computes only — no DB writes.
+     *
+     * Accepts the same payload shape as the quotation preview:
+     * item_config_json / items_json / print_parts_json / addons_json /
+     * apparel_neckline_id / discount_*.
+     */
+    public function pricePreview(Request $request, \App\Services\QuotationService $quotation)
+    {
+        $totals = $quotation->preview($request->all());
+
+        return response()->json($totals);
+    }
 
     public function index()
     {
@@ -67,6 +85,10 @@ class OrdersController extends Controller
         $order = Order::with([
             'client',
             'items',
+            'apparelType',
+            'patternType',
+            'printMethod',
+            'apparelNeckline',
             'orderStages' => fn ($q) => $q->orderBy('sequence'),
             'orderDesign.placements',
             'screenAssignment.screen',

@@ -35,6 +35,7 @@ class PricingSetting extends Model
     public const SILKSCREEN_ADDITIONAL_COLOR = 'silkscreen_additional_color_price';
     public const SILKSCREEN_FIRST_COLOR_FULL = 'silkscreen_first_color_full_price';
     public const SILKSCREEN_ADDITIONAL_COLOR_FULL = 'silkscreen_additional_color_full_price';
+    public const SPECIAL_PRINT_PER_COLOR = 'special_print_per_color_price';
     public const DTF_PRICE_PER_SQUARE_INCH = 'dtf_price_per_square_inch';
     public const EMBROIDERY_SMALL_PRICE = 'embroidery_small_price';
     public const SUBLIMATION_JERSEY_FULL_PRICE = 'sublimation_jersey_full_price';
