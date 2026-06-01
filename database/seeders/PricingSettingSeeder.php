@@ -52,6 +52,14 @@ class PricingSettingSeeder extends Seeder
                 'description' => 'Added for every color beyond the first that is printed on a full-print placement.',
             ],
             [
+                'key' => PricingSetting::SPECIAL_PRINT_PER_COLOR,
+                'label' => 'Silkscreen — Special Print Surcharge (per Color)',
+                'value' => 20.00,
+                'unit' => '₱ / color',
+                'group' => 'silkscreen',
+                'description' => 'Added per color when a Special Print (e.g. High Density, Puff) is selected for a silkscreen job. Applied to every color in the job: surcharge = this rate × number of colors. Set to 0 to disable.',
+            ],
+            [
                 'key' => PricingSetting::DTF_PRICE_PER_SQUARE_INCH,
                 'label' => 'DTF — Price per Square Inch',
                 'value' => 0.00,

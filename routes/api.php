@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ApparelPartController;
 use App\Http\Controllers\Api\ServiceTypeController;
 use App\Http\Controllers\Api\PrintMethodController;
+use App\Http\Controllers\Api\SpecialPrintController;
 use App\Http\Controllers\Api\SizeLabelController;
 use App\Http\Controllers\Api\PrintLabelPlacementController;
 use App\Http\Controllers\Api\FreebieController;
@@ -158,6 +159,9 @@ Route::prefix('v2')->group(function () {
             // with an active stage. Falls inside the same access.orders
             // gate since the user needs to see orders to pick from.
             Route::get('/with-active-stage', 'withActiveStage');
+            // Live engine pricing for the Add Order form (Option A). Delegates
+            // to the shared quotation pricing engine. Compute-only, no writes.
+            Route::post('/preview', 'pricePreview');
             Route::post('/', 'store');
             Route::get('/details/{po_code}', 'show');
             // Soft-delete an order (sets deleted_at; recoverable). Matches the
@@ -209,6 +213,14 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/print-method')->middleware('permission:access.dropdown-settings')->controller(PrintMethodController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        Route::prefix('/special-print')->middleware('permission:access.dropdown-settings')->controller(SpecialPrintController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -888,7 +900,11 @@ Route::prefix('v2')->group(function () {
             Route::get('/', 'index');
             Route::get('/{id}', 'show');
         });
-    });
+
+        Route::prefix('/special-print')->controller(SpecialPrintController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
 
     // ── Public Share Access (NO authentication required) ──────────────────────
     // These routes are intentionally OUTSIDE the auth middleware.
@@ -903,6 +919,6 @@ Route::prefix('v2')->group(function () {
         Route::get('/{token}/pdf', 'pdf');
     });
 
-
+    });
 
 });

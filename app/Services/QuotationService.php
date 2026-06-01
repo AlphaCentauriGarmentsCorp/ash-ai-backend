@@ -313,7 +313,9 @@ class QuotationService
         // If it's an update to print parts only
         if ($isPrintPartsOnlyUpdate) {
         $resolvedPrintParts = $this->handlePrintParts($printPartsMetadata, $request, $existing, false);
-        $printPartsUnitTotal = $this->calculatePrintPartsTotal($resolvedPrintParts);
+        $hasSpecialPrint = ! empty($existing?->special_print)
+            && strtolower(trim((string) $existing->special_print)) !== 'none';
+        $printPartsUnitTotal = $this->calculatePrintPartsTotal($resolvedPrintParts, null, $hasSpecialPrint);
 
         $existingItems = is_array($existing?->items_json) ? $existing->items_json : [];
         $totalQuantity = collect($existingItems)->sum(fn ($row) => (float) ($row['quantity'] ?? 0));
@@ -416,7 +418,16 @@ class QuotationService
         // Sourced from the incoming payload, else the saved record.
         $gaPooledColors = $data['design_color_count'] ?? $existing?->design_color_count ?? null;
         $gaPooledColors = $gaPooledColors !== null ? (int) $gaPooledColors : null;
-        $printPartsTotal = $this->calculatePerPiecePrintCharge($printMethodKey, $printPartsMetadata, $itemConfig, $gaPooledColors);
+        // Special Print (e.g. High Density, Puff) adds an editable per-color
+        // surcharge for silkscreen jobs. Source of truth: incoming data, then
+        // the item config, then the saved record. Empty / "none" means no
+        // special print.
+        $specialPrintValue = $data['special_print']
+            ?? ($itemConfig['special_print'] ?? null)
+            ?? $existing?->special_print;
+        $hasSpecialPrint = ! empty($specialPrintValue)
+            && strtolower(trim((string) $specialPrintValue)) !== 'none';
+        $printPartsTotal = $this->calculatePerPiecePrintCharge($printMethodKey, $printPartsMetadata, $itemConfig, $gaPooledColors, $hasSpecialPrint);
         $dtfOrderTotal = $printMethodKey === 'dtf'
             ? $this->calculateDtfTotal($printPartsMetadata, $itemConfig)
             : 0.0;
@@ -691,7 +702,7 @@ class QuotationService
      * Note: this is a per-piece amount, multiplied by total quantity later
      * in computeTotals (appliedPrintPartsTotal).
      */
-    protected function calculatePrintPartsTotal($printParts, ?int $gaPooledColors = null): float
+    protected function calculatePrintPartsTotal($printParts, ?int $gaPooledColors = null, bool $hasSpecialPrint = false): float
     {
         if (! is_array($printParts)) {
             return 0.0;
@@ -780,6 +791,16 @@ class QuotationService
         $total = $base
             + ($remainingFull * $addColorFull)
             + ($remainingRegular * $addColorRegular);
+
+        // Special Print surcharge (e.g. High Density, Puff). When a special
+        // print is selected for the job, every color carries an editable
+        // per-color surcharge (default ₱20). Total surcharge = rate × all
+        // colors in the job, e.g. 2 colors → +₱40. Rate is a Superadmin-
+        // editable PricingSetting; 0 disables it.
+        if ($hasSpecialPrint) {
+            $specialPrintPerColor = PricingSetting::rate(PricingSetting::SPECIAL_PRINT_PER_COLOR, 20.0);
+            $total += $specialPrintPerColor * $totalColors;
+        }
 
         return round($total, 2);
     }
@@ -896,10 +917,10 @@ class QuotationService
      *   - Partial / small: MANUAL per-piece price (~₱200), sent as
      *     item_config_json.sublimation_manual_price.
      */
-    protected function calculatePerPiecePrintCharge(string $methodKey, $printParts, $itemConfig, ?int $gaPooledColors = null): float
+    protected function calculatePerPiecePrintCharge(string $methodKey, $printParts, $itemConfig, ?int $gaPooledColors = null, bool $hasSpecialPrint = false): float
     {
         return match ($methodKey) {
-            'silkscreen' => $this->calculatePrintPartsTotal($printParts, $gaPooledColors),
+            'silkscreen' => $this->calculatePrintPartsTotal($printParts, $gaPooledColors, $hasSpecialPrint),
             'embroidery' => $this->calculateEmbroideryCharge($itemConfig),
             'sublimation' => $this->calculateSublimationCharge($itemConfig),
             // DTF is order-level, not per-piece.
@@ -1444,8 +1465,12 @@ class QuotationService
 
                 // Misc descriptive
                 'shirt_color'   => $quotation->shirt_color,
-                'special_print' => $itemConfig['special_print'] ?? null,
-                'print_area'    => $itemConfig['print_area'] ?? null,
+                // special_print / print_area live on the quotation columns
+                // (item_config_json may not carry them), so read the column
+                // first and fall back to item_config. Without this the
+                // converted order loses the special-print surcharge.
+                'special_print' => $quotation->special_print ?? ($itemConfig['special_print'] ?? null),
+                'print_area'    => $quotation->print_area ?? ($itemConfig['print_area'] ?? null),
                 'free_items'    => $quotation->free_items,
                 'notes'         => $quotation->notes,
 

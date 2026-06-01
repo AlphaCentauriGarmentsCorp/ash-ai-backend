@@ -85,6 +85,35 @@ class Order extends Model
         'assigned_csr_user_id',
         'deadline',
         'internal_notes',
+
+        // ── Shipping / courier (Add Order) ──────────────────────────
+        'courier',
+        'method',
+        'receiver_name',
+        'contact_number',
+        'street_address',
+        'barangay_address',
+        'city_address',
+        'province_address',
+        'postal_address',
+
+        // ── Production details (Add Order) ──────────────────────────
+        'design_name',
+        'service_type',
+        'print_service',
+        'size_label',
+        'print_label_placement',
+        'fabric_type',
+        'fabric_supplier',
+        'fabric_color',
+        'thread_color',
+        'ribbing_color',
+        'freebie_items',
+        'freebie_color',
+        'freebie_others',
+        'payment_plan',
+        'payment_method',
+        'deposit_percentage',
     ];
 
     protected $casts = [
