@@ -21,6 +21,7 @@ class ApparelPatternPriceResource extends JsonResource
             'apparel_type_name' => $this->apparel_type_name,
             'pattern_type_name' => $this->pattern_type_name,
             'price' => $this->price,
+            'size_prices' => $this->size_prices ?? (object) [],
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),
         ];

@@ -25,6 +25,8 @@ class Update extends FormRequest
             'apparel_type_id' => 'sometimes|integer',
             'pattern_type_id' => 'sometimes|integer',
             'price' => 'sometimes|numeric|min:0|max:999999.99',
+            'size_prices' => 'sometimes|nullable|array',
+            'size_prices.*' => 'nullable|numeric|min:0|max:999999.99',
         ];
     }
 

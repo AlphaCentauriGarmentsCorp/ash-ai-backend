@@ -25,6 +25,10 @@ class Store extends FormRequest
             'apparel_type_id' => 'required|integer',
             'pattern_type_id' => 'required|integer',
             'price' => 'required|numeric|min:0|max:999999.99',
+            // Optional per-size base prices: { "S": 200, "L": 210, ... }.
+            // The legacy `price` above is the fallback for any size not listed.
+            'size_prices' => 'sometimes|nullable|array',
+            'size_prices.*' => 'nullable|numeric|min:0|max:999999.99',
         ];
     }
 

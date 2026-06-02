@@ -464,22 +464,18 @@ class QuotationService
 
             // Per-size base price (Paraan 1): the CSR picked one
             // apparel+pattern combination; we resolve the correct base for
-            // THIS row's size from the pattern's size_prices map. Order of
-            // preference:
-            //   1) per-size price configured by Superadmin (size_prices)
-            //   2) the row's manual unit_price (legacy / overrides)
-            //   3) the legacy single base price
-            $sizeBasePrice = $patternPrice
+            // THIS row's size from the pattern's size_prices map. priceForSize
+            // already falls back to the pattern's legacy single `price` when a
+            // size has no specific entry, so older patterns keep working.
+            //
+            // Base pricing is fully Superadmin-driven now: it comes ONLY from
+            // the Apparel Pattern Price (per-size grid or legacy price). The
+            // old per-row unit_price is no longer a price source (the CSR no
+            // longer types a price in Add Quotation); it is still accepted in
+            // the payload for backward compatibility but never used to price.
+            $basePrice = $patternPrice
                 ? $patternPrice->priceForSize($size)
                 : 0.0;
-
-            $hasConfiguredSizePrice = $patternPrice
-                && is_array($patternPrice->size_prices)
-                && $patternPrice->size_prices !== [];
-
-            $basePrice = $hasConfiguredSizePrice
-                ? $sizeBasePrice
-                : ($unitPrice > 0 ? $unitPrice : $legacyBasePrice);
 
             $pricePerPiece = round($basePrice + $necklinePrice + $printPartsTotal + $hoodieOptionsPerPiece, 2);
             $totalAmount = round($pricePerPiece * $quantity, 2);

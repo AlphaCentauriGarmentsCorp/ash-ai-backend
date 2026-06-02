@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
         $this->call(UsersTableSeeder::class);
         $this->call(ClientSeeder::class);
         $this->call(ApparelTypeSeeder::class);
+        $this->call(ApparelPartSeeder::class);
         $this->call(LabelTypeSeeder::class);
         $this->call(PatternTypeSeeder::class);
         $this->call(PrintMethodSeeder::class);
