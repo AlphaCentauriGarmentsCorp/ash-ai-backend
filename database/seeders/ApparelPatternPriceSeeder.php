@@ -16,12 +16,12 @@ use Illuminate\Database\Seeder;
  * actual Excel: e.g. Tshirt Premium Standard Small base ₱200 + silkscreen
  * (Front 1 + Back 2 = ₱140) = ₱340 price-per-piece, matching the sheet.
  *
- * Confirmed prices:
- *   Tshirt - Premium / Standard:   S/M 200, L/XL 210, 2XL/3XL 230
- *   Tshirt - Premium / Boxy:       S/M 230, L/XL 240, 2XL/3XL 260
- *   Tshirt - Premium / Oversized:  S/M 230, L/XL 240, 2XL/3XL 260
- *   Hoodie - Heavyweight / Standard: S/M 650, L/XL 680, 2XL/3XL 710
- *   Long sleeve / Standard:        S/M 450, L/XL 470, 2XL/3XL 490
+ * Confirmed prices (XS matches the smallest configured size unless overridden):
+ *   Tshirt - Premium / Standard:   XS/S/M 200, L/XL 210, 2XL/3XL 230
+ *   Tshirt - Premium / Boxy:       XS/S/M 230, L/XL 240, 2XL/3XL 260
+ *   Tshirt - Premium / Oversized:  XS/S/M 230, L/XL 240, 2XL/3XL 260
+ *   Hoodie - Heavyweight / Standard: XS/S/M 650, L/XL 680, 2XL/3XL 710
+ *   Long sleeve / Standard:        XS/S/M 450, L/XL 470, 2XL/3XL 490
  *
  * Note: Custom fit has NO seeded price — the CSR manually picks the nearest
  * existing fit for the base, and a one-time ₱500 pattern fee (a PricingSetting)
@@ -29,8 +29,10 @@ use Illuminate\Database\Seeder;
  *
  * Sizes are manageable — Superadmin can add/remove sizes per combination in
  * the Settings grid. Idempotent: matches on (apparel_type_name,
- * pattern_type_name) and only fills size_prices if the row has none yet, so
- * re-running will NOT clobber Superadmin's later edits.
+ * pattern_type_name). On re-run it BACKFILLS any missing standard size (e.g.
+ * XS) into an existing row, compared by canonical token so it won't duplicate
+ * a size that already exists under another spelling — and it never overwrites
+ * a value the Superadmin has already set.
  */
 class ApparelPatternPriceSeeder extends Seeder
 {
@@ -41,6 +43,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Premium',
                 'pattern' => 'Standard',
                 'size_prices' => [
+                    'XS' => 200,
                     'Small' => 200, 'Medium' => 200,
                     'Large' => 210, 'XL' => 210,
                     '2XL' => 230, '3XL' => 230,
@@ -50,6 +53,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Premium',
                 'pattern' => 'Boxy',
                 'size_prices' => [
+                    'XS' => 230,
                     'Small' => 230, 'Medium' => 230,
                     'Large' => 240, 'XL' => 240,
                     '2XL' => 260, '3XL' => 260,
@@ -59,6 +63,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Premium',
                 'pattern' => 'Oversized',
                 'size_prices' => [
+                    'XS' => 230,
                     'Small' => 230, 'Medium' => 230,
                     'Large' => 240, 'XL' => 240,
                     '2XL' => 260, '3XL' => 260,
@@ -68,6 +73,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Hoodie - Heavyweight',
                 'pattern' => 'Standard',
                 'size_prices' => [
+                    'XS' => 650,
                     'Small' => 650, 'Medium' => 650,
                     'Large' => 680, 'XL' => 680,
                     '2XL' => 710, '3XL' => 710,
@@ -80,6 +86,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Non-Premium',
                 'pattern' => 'Standard',
                 'size_prices' => [
+                    'XS' => 200,
                     'Small' => 200, 'Medium' => 200,
                     'Large' => 210, 'XL' => 210,
                     '2XL' => 230, '3XL' => 230,
@@ -89,6 +96,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Non-Premium',
                 'pattern' => 'Boxy',
                 'size_prices' => [
+                    'XS' => 230,
                     'Small' => 230, 'Medium' => 230,
                     'Large' => 240, 'XL' => 240,
                     '2XL' => 260, '3XL' => 260,
@@ -98,6 +106,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Non-Premium',
                 'pattern' => 'Oversized',
                 'size_prices' => [
+                    'XS' => 230,
                     'Small' => 230, 'Medium' => 230,
                     'Large' => 240, 'XL' => 240,
                     '2XL' => 260, '3XL' => 260,
@@ -110,6 +119,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Long sleeve',
                 'pattern' => 'Standard',
                 'size_prices' => [
+                    'XS' => 450,
                     'Small' => 450, 'Medium' => 450,
                     'Large' => 470, 'XL' => 470,
                     '2XL' => 490, '3XL' => 490,
@@ -123,6 +133,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Heavyweight',
                 'pattern' => 'Standard',
                 'size_prices' => [
+                    'XS' => 200,
                     'Small' => 200, 'Medium' => 200,
                     'Large' => 210, 'XL' => 210,
                     '2XL' => 230, '3XL' => 230,
@@ -132,6 +143,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Acid Wash',
                 'pattern' => 'Standard',
                 'size_prices' => [
+                    'XS' => 200,
                     'Small' => 200, 'Medium' => 200,
                     'Large' => 210, 'XL' => 210,
                     '2XL' => 230, '3XL' => 230,
@@ -141,6 +153,7 @@ class ApparelPatternPriceSeeder extends Seeder
                 'apparel' => 'Tshirt - Tiedye',
                 'pattern' => 'Standard',
                 'size_prices' => [
+                    'XS' => 200,
                     'Small' => 200, 'Medium' => 200,
                     'Large' => 210, 'XL' => 210,
                     '2XL' => 230, '3XL' => 230,
@@ -167,13 +180,45 @@ class ApparelPatternPriceSeeder extends Seeder
                 ->first();
 
             if ($existing) {
-                // Only fill size_prices if not already configured.
-                if (empty($existing->size_prices)) {
+                $current = is_array($existing->size_prices) ? $existing->size_prices : [];
+
+                if (empty($current)) {
+                    // No per-size grid yet → seed the full default set.
                     $existing->update([
                         'apparel_type_id' => $existing->apparel_type_id ?? $apparel->id,
                         'pattern_type_id' => $existing->pattern_type_id ?? $pattern?->id,
                         'size_prices' => $row['size_prices'],
                     ]);
+                } else {
+                    // Already configured → only BACKFILL standard sizes that are
+                    // genuinely missing (e.g. XS), comparing by canonical token
+                    // so we never add a duplicate of a size that already exists
+                    // under a different spelling (e.g. "S" vs "Small"). Existing
+                    // values are never overwritten — Superadmin edits win.
+                    $existingTokens = [];
+                    foreach ($current as $key => $value) {
+                        $token = ApparelPatternPrice::canonicalSizeToken((string) $key);
+                        if ($token !== null) {
+                            $existingTokens[$token] = true;
+                        }
+                    }
+
+                    $merged = $current;
+                    foreach ($row['size_prices'] as $key => $value) {
+                        $token = ApparelPatternPrice::canonicalSizeToken((string) $key);
+                        if ($token !== null && ! isset($existingTokens[$token])) {
+                            $merged[$key] = $value;
+                            $existingTokens[$token] = true;
+                        }
+                    }
+
+                    if ($merged != $current) {
+                        $existing->update([
+                            'apparel_type_id' => $existing->apparel_type_id ?? $apparel->id,
+                            'pattern_type_id' => $existing->pattern_type_id ?? $pattern?->id,
+                            'size_prices' => $merged,
+                        ]);
+                    }
                 }
             } else {
                 ApparelPatternPrice::create([
