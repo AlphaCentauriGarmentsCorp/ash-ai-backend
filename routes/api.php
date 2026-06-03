@@ -66,6 +66,7 @@ use App\Http\Controllers\Api\MaterialPrepPortalController;
 use App\Http\Controllers\Api\GraphicArtistPortalController;
 use App\Http\Controllers\Api\LogisticsPortalController;
 use App\Http\Controllers\Api\CsrDashboardController;
+use App\Http\Controllers\Api\DashboardApprovalsController;
 use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\OrderPaymentController;
 use App\Http\Controllers\Api\ClientApprovalController;
@@ -388,6 +389,21 @@ Route::prefix('v2')->group(function () {
             });
         });
 
+        // ── Dashboard: Pending Approvals queue (Change 1B) ─────────────
+        // Surfaces every order awaiting a Payment Verification gate and lets
+        // an approver Approve / Reject / Hold in one click. Gated by
+        // action.verify-payment (Finance / Superadmin / Admin) — the same
+        // integrity control as Change 17, so CSR never reaches these actions.
+        Route::prefix('/dashboard')
+            ->middleware('permission:action.verify-payment')
+            ->controller(DashboardApprovalsController::class)
+            ->group(function () {
+                Route::get('/pending-approvals', 'index');
+                Route::post('/pending-approvals/{payment}/approve', 'approve')->whereNumber('payment');
+                Route::post('/pending-approvals/{payment}/reject', 'reject')->whereNumber('payment');
+                Route::post('/pending-approvals/{payment}/hold', 'hold')->whereNumber('payment');
+            });
+
         // ── Notifications (Phase 2) ────────────────────────────────────
         // All endpoints are scoped to the current user automatically.
         // No special permission required – every authenticated user can
@@ -535,7 +551,17 @@ Route::prefix('v2')->group(function () {
         // Slugs accept either underscores (cutter, screen_maker) or
         // hyphens (graphic-artist, screen-maker) — both map to the
         // same backend role.
+        // Change 3 — sidebar badge counts (per-portal active-task totals,
+        // pre-filtered to what the current user may see). Self-scoping, so
+        // it needs auth only — no per-portal permission. Declared before the
+        // /portal/{role}/... wildcard so 'badge-counts' is never read as a role.
+        Route::get('/portal/badge-counts', [PortalController::class, 'badgeCounts']);
+
         Route::get('/portal/{role}/my-active', [PortalController::class, 'myActive'])
+            ->where('role', '[a-z_-]+');
+
+        // Change 2 — the role's full "My Active Tasks" queue for the user.
+        Route::get('/portal/{role}/my-active-tasks', [PortalController::class, 'myActiveTasks'])
             ->where('role', '[a-z_-]+');
 
         // ── Cutter Portal (Phase 5-B) ─────────────────────────────────

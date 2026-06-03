@@ -54,6 +54,9 @@ beforeEach(function () {
         $t->text('domain_role')->nullable();
         $t->text('domain_access')->nullable();
         $t->timestamps();
+        // User model uses SoftDeletes — verify() eager-loads verifiedBy/
+        // uploadedBy, which query users WHERE deleted_at IS NULL.
+        $t->softDeletes();
     });
 
     Schema::create('orders', function (Blueprint $t) {

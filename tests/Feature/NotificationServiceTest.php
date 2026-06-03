@@ -45,6 +45,7 @@ beforeEach(function () {
         $table->string('email')->unique();
         $table->string('password')->default('hashed');
         $table->timestamps();
+        $table->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $table) {
@@ -252,7 +253,7 @@ it('notifies only the assigned user on stageAssigned', function () {
     $worker  = makeUserWithRole('worker', 'cutter');
 
     $order = makeOrderRow();
-    $stage = makeStageRow($order, 'sample_creation', 7, $worker);
+    $stage = makeStageRow($order, 'sample_cutting', 7, $worker);
 
     /** @var NotificationService $svc */
     $svc = app(NotificationService::class);
@@ -284,7 +285,7 @@ it('notifies users with the role that owns a stage on stageInProgress', function
     $printer = makeUserWithRole('printer1', 'printer');
 
     $order = makeOrderRow();
-    $stage = makeStageRow($order, 'sample_creation', 7, null, 'cutter');
+    $stage = makeStageRow($order, 'sample_cutting', 7, null, 'cutter');
 
     /** @var NotificationService $svc */
     $svc = app(NotificationService::class);

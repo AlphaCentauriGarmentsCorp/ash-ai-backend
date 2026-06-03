@@ -69,7 +69,7 @@ class ReportsController extends Controller
         // OR final stage has completed_at in the window.
         $ordersCompletedIds = OrderStage::query()
             ->whereBetween('completed_at', [$from, $to])
-            ->where('sequence', count(WorkflowStages::all()))
+            ->where('sequence', WorkflowStages::maxTier())
             ->where('status', OrderStage::STATUS_COMPLETED)
             ->pluck('order_id')
             ->unique();

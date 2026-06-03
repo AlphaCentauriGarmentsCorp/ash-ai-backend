@@ -50,6 +50,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('x');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -201,7 +202,7 @@ function phase5d_makeUser(string $name, bool $withPerm = true): User
     return User::find($id);
 }
 
-function phase5d_makeStage(string $stageSlug = 'sample_creation', string $serviceType = 'in_house', string $status = 'in_progress', ?int $assignedTo = null): OrderStage
+function phase5d_makeStage(string $stageSlug = 'sample_cutting', string $serviceType = 'in_house', string $status = 'in_progress', ?int $assignedTo = null): OrderStage
 {
     $orderId = DB::table('orders')->insertGetId([
         'po_code' => 'ASH-S5D-' . uniqid(),
@@ -227,7 +228,7 @@ it('switches in_house to subcontract and clears assigned_to', function () {
     $user = phase5d_makeUser('Manager');
     Auth::login($user);
 
-    $stage = phase5d_makeStage('sample_creation', 'in_house', 'in_progress', $user->id);
+    $stage = phase5d_makeStage('sample_cutting', 'in_house', 'in_progress', $user->id);
     expect($stage->assigned_to)->toBe($user->id);
 
     $svc = new StageServiceTypeService();
@@ -241,7 +242,7 @@ it('switches subcontract to in_house and cancels active SCA rows', function () {
     $user = phase5d_makeUser('Manager');
     Auth::login($user);
 
-    $stage = phase5d_makeStage('sample_creation', 'subcontract');
+    $stage = phase5d_makeStage('sample_cutting', 'subcontract');
 
     $vendorId = DB::table('subcontractors')->insertGetId([
         'name' => 'ABC Printing', 'created_at' => now(), 'updated_at' => now(),
@@ -281,7 +282,7 @@ it('returns unchanged stage when target type equals current', function () {
     $user = phase5d_makeUser('Manager');
     Auth::login($user);
 
-    $stage = phase5d_makeStage('sample_creation', 'in_house', 'in_progress', $user->id);
+    $stage = phase5d_makeStage('sample_cutting', 'in_house', 'in_progress', $user->id);
 
     $svc = new StageServiceTypeService();
     $result = $svc->switch($stage->id, 'in_house', $user);
@@ -306,7 +307,7 @@ it('rejects completed stages', function () {
     $user = phase5d_makeUser('Manager');
     Auth::login($user);
 
-    $stage = phase5d_makeStage('sample_creation', 'in_house', 'completed');
+    $stage = phase5d_makeStage('sample_cutting', 'in_house', 'completed');
 
     $svc = new StageServiceTypeService();
 
@@ -318,7 +319,7 @@ it('rejects invalid service_type values', function () {
     $user = phase5d_makeUser('Manager');
     Auth::login($user);
 
-    $stage = phase5d_makeStage('sample_creation');
+    $stage = phase5d_makeStage('sample_cutting');
 
     $svc = new StageServiceTypeService();
 
@@ -330,7 +331,7 @@ it('rejects users without action.switch-service-type permission', function () {
     $user = phase5d_makeUser('Random', withPerm: false);
     Auth::login($user);
 
-    $stage = phase5d_makeStage('sample_creation', 'in_house');
+    $stage = phase5d_makeStage('sample_cutting', 'in_house');
 
     $svc = new StageServiceTypeService();
 
@@ -342,7 +343,7 @@ it('writes an audit log entry on successful switch', function () {
     $user = phase5d_makeUser('Manager');
     Auth::login($user);
 
-    $stage = phase5d_makeStage('sample_creation', 'in_house');
+    $stage = phase5d_makeStage('sample_cutting', 'in_house');
 
     $svc = new StageServiceTypeService();
     $svc->switch($stage->id, 'subcontract', $user, 'Vendor needed for capacity');

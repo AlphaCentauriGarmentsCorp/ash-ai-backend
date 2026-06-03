@@ -44,7 +44,7 @@ class PrinterPortalService
             ]);
         }
 
-        $eligibleStages = ['sample_creation', 'mass_production'];
+        $eligibleStages = ['sample_printing', 'mass_printing'];
         if (! in_array($stage->stage, $eligibleStages, true)) {
             throw ValidationException::withMessages([
                 'order_stage_id' => "Stage '{$stage->stage}' is not a printer portal stage.",
@@ -58,7 +58,7 @@ class PrinterPortalService
             ]);
         }
 
-        $phase = $stage->stage === 'sample_creation' ? 'sample' : 'mass';
+        $phase = $stage->stage === 'sample_printing' ? 'sample' : 'mass';
 
         return [
             'order'            => $this->orderDetails($order),

@@ -53,6 +53,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('x');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {

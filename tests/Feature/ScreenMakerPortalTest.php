@@ -44,6 +44,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('x');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -235,7 +236,7 @@ it('builds full context for an active screen_making stage', function () {
 });
 
 it('rejects context for a stage outside screen_making scope', function () {
-    $made = phase5f_makeStage('sample_creation');
+    $made = phase5f_makeStage('sample_cutting');
 
     $svc = new ScreenMakerPortalService();
 

@@ -14,6 +14,7 @@ use App\Models\PrintLabelPlacement;
 use App\Models\ScreenAssignment;
 use App\Models\StageAuditLog;
 use App\Models\StageSampleUpload;
+use App\Models\StageUpload;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -69,6 +70,7 @@ class GraphicArtistPortalService
             'stage'               => $this->stageContext($stage),
             'design'              => $design ? $this->designContext($design) : null,
             'design_files'        => $this->designFiles($order),
+            'source_files'        => $this->sourceFiles($order),
             'placements'          => $this->placements($design),
             'pantones_used'       => $this->pantonesUsed($design),
             'placement_options'   => $this->placementOptions(),
@@ -438,6 +440,158 @@ class GraphicArtistPortalService
     }
 
     // ── Helpers ────────────────────────────────────────────────────
+
+    /**
+     * Change 14 — read-only "Source / Reference Files" for the artist.
+     *
+     * Aggregates everything uploaded for this order EARLIER in the flow so the
+     * Graphic Artist can pull the originals to work from. Three buckets:
+     *   1. Quotation references — custom pattern image + label design upload.
+     *   2. Per-placement artwork carried in print_parts_json (file or link).
+     *   3. Generic order/stage attachments (stage_uploads).
+     *
+     * Deliberately separate from the artist's own versioned outputs
+     * (design_files / label_assets). Read-only — view & download only.
+     *
+     * @return array<int,array>
+     */
+    protected function sourceFiles(Order $order): array
+    {
+        $files = [];
+        $quotation = $order->quotation; // belongsTo; null for a direct order
+
+        // 1. Quotation-level references.
+        if ($quotation) {
+            if (! empty($quotation->custom_pattern_image)) {
+                $files[] = $this->sourceEntry(
+                    'quotation',
+                    'Custom Pattern Reference',
+                    $quotation->custom_pattern_image,
+                    $quotation->created_at?->toDateTimeString(),
+                );
+            }
+            if (! empty($quotation->label_design_path)) {
+                $files[] = $this->sourceEntry(
+                    'quotation',
+                    'Label Design',
+                    $quotation->label_design_path,
+                    $quotation->created_at?->toDateTimeString(),
+                );
+            }
+        }
+
+        // 2. Per-placement artwork from print_parts_json. Prefer the order's
+        //    carried-over parts; fall back to the source quotation's parts.
+        $parts = $this->asArray($order->print_parts_json);
+        if (empty($parts) && $quotation) {
+            $parts = $this->asArray($quotation->print_parts_json);
+        }
+        foreach ($parts as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            $partName = $p['part'] ?? $p['name'] ?? 'Artwork';
+            $isLinkPart = ($p['image_input_type'] ?? null) === 'link';
+            $raw = $isLinkPart
+                ? ($p['image_link'] ?? null)
+                : ($p['image'] ?? $p['image_link'] ?? null);
+            if (empty($raw)) {
+                continue;
+            }
+            $files[] = $this->sourceEntry(
+                'print_part',
+                "Artwork — {$partName}",
+                $raw,
+                null,
+            );
+        }
+
+        // 3. Generic order/stage attachments (order-creation "Upload Additional
+        //    Files" and any other stage uploads recorded against this order).
+        $uploads = StageUpload::where('order_id', $order->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+        foreach ($uploads as $u) {
+            $entry = $this->sourceEntry(
+                'stage_upload',
+                $this->humanizeCategory($u->category),
+                $u->file_path,
+                $u->created_at?->toDateTimeString(),
+            );
+            // StageUpload carries richer metadata than the bare path allows.
+            $entry['original_name'] = $u->original_name ?: $entry['original_name'];
+            $entry['file_type']     = $u->mime_type ?: $entry['file_type'];
+            $entry['uploaded_by']   = $u->uploaded_by_user_id;
+            $entry['size_bytes']    = $u->size_bytes;
+            $files[] = $entry;
+        }
+
+        return $files;
+    }
+
+    /**
+     * Normalise one source file into a uniform read-only row. Accepts either a
+     * stored disk path or an external link (http…). External links pass through
+     * untouched; disk paths are resolved via publicUrl().
+     *
+     * @return array<string,mixed>
+     */
+    protected function sourceEntry(string $source, string $label, ?string $raw, ?string $createdAt): array
+    {
+        $isLink = is_string($raw) && str_starts_with($raw, 'http');
+        $name = $raw
+            ? basename(parse_url($raw, PHP_URL_PATH) ?: $raw)
+            : null;
+
+        return [
+            'source'        => $source,
+            'label'         => $label,
+            'original_name' => $name,
+            'file_type'     => $isLink ? 'link' : $this->extensionOf($name),
+            'is_link'       => $isLink,
+            'url'           => $raw ? ($isLink ? $raw : $this->publicUrl($raw)) : null,
+            'uploaded_by'   => null,
+            'size_bytes'    => null,
+            'created_at'    => $createdAt,
+        ];
+    }
+
+    protected function extensionOf(?string $name): ?string
+    {
+        if (! $name) {
+            return null;
+        }
+        $ext = pathinfo($name, PATHINFO_EXTENSION);
+        return $ext !== '' ? strtolower($ext) : null;
+    }
+
+    protected function humanizeCategory(?string $category): string
+    {
+        if (! $category) {
+            return 'Order Attachment';
+        }
+        $map = [
+            'proof'      => 'Proof / Attachment',
+            'reference'  => 'Reference File',
+            'attachment' => 'Order Attachment',
+            'additional' => 'Additional File',
+            'design'     => 'Design Reference',
+        ];
+        return $map[$category] ?? ucwords(str_replace(['_', '-'], ' ', $category));
+    }
+
+    /** Decode a JSON-or-array column to an array. */
+    protected function asArray($raw): array
+    {
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+        return [];
+    }
 
     /**
      * Build a publicly-servable URL for a stored path. Accepts paths

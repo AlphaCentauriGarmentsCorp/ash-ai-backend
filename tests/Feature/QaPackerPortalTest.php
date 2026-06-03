@@ -76,6 +76,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('x');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -346,14 +347,14 @@ function phase7b_makeOrderWithQaAndPackingStages(int $totalQty = 100): array
         'deadline' => now()->addDays(7)->toDateString(),
         'priority' => 'normal',
         'rush_order' => false,
-        'workflow_status' => 'quality_control',
+        'workflow_status' => 'mass_qa',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
     $qaStageId = DB::table('order_stages')->insertGetId([
         'order_id' => $orderId,
-        'stage' => 'quality_control',
+        'stage' => 'mass_qa',
         'sequence' => 10,
         'status' => 'in_progress',
         'started_at' => now(),
@@ -363,7 +364,7 @@ function phase7b_makeOrderWithQaAndPackingStages(int $totalQty = 100): array
 
     $packingStageId = DB::table('order_stages')->insertGetId([
         'order_id' => $orderId,
-        'stage' => 'packing',
+        'stage' => 'mass_packing',
         'sequence' => 11,
         'status' => 'pending',
         'created_at' => now(),
@@ -401,7 +402,7 @@ function phase7b_rejectService(): RejectLogService
 
 // ─── QaPackerPortalService tests ──────────────────────────────────
 
-it('builds full context for an active quality_control stage', function () {
+it('builds full context for an active mass_qa stage', function () {
     $made = phase7b_makeOrderWithQaAndPackingStages();
     $ctx = phase7b_portalService()->buildContext($made['qa_stage_id']);
 
@@ -416,7 +417,7 @@ it('builds full context for an active quality_control stage', function () {
         'activity_log',
     ]);
 
-    expect($ctx['task']['stage'])->toBe('quality_control')
+    expect($ctx['task']['stage'])->toBe('mass_qa')
         ->and($ctx['task']['stage_status'])->toBe('in_progress')
         ->and($ctx['task']['total_pcs'])->toBe(100)
         ->and($ctx['task']['client_name'])->toBe('Test Client')
@@ -432,7 +433,7 @@ it('builds full context for an active quality_control stage', function () {
     expect($qaSlugs[6])->toBe('correct_quantity');
 });
 
-it('builds full context for an active packing stage', function () {
+it('builds full context for an active mass_packing stage', function () {
     $made = phase7b_makeOrderWithQaAndPackingStages();
     DB::table('order_stages')->where('id', $made['qa_stage_id'])
         ->update(['status' => 'completed', 'completed_at' => now()]);
@@ -441,7 +442,7 @@ it('builds full context for an active packing stage', function () {
 
     $ctx = phase7b_portalService()->buildContext($made['packing_stage_id']);
 
-    expect($ctx['task']['stage'])->toBe('packing')
+    expect($ctx['task']['stage'])->toBe('mass_packing')
         ->and($ctx['task']['stage_status'])->toBe('in_progress');
 });
 
@@ -570,12 +571,12 @@ it('rejects writes to non-QA stages', function () {
     $orderId = DB::table('orders')->insertGetId([
         'po_code' => 'ASH-NQ-' . uniqid(),
         'items_json' => json_encode([['size' => 'M', 'quantity' => 10]]),
-        'workflow_status' => 'sample_creation',
+        'workflow_status' => 'sample_cutting',
         'created_at' => now(), 'updated_at' => now(),
     ]);
     $stageId = DB::table('order_stages')->insertGetId([
         'order_id' => $orderId,
-        'stage' => 'sample_creation',
+        'stage' => 'sample_cutting',
         'sequence' => 7,
         'status' => 'in_progress',
         'created_at' => now(), 'updated_at' => now(),
@@ -718,7 +719,7 @@ it('returns exceeds_threshold=false when both thresholds clear', function () {
     expect($summary['exceeds_threshold'])->toBeFalse();
 });
 
-it('submit advances quality_control → packing', function () {
+it('submit advances mass_qa → mass_packing', function () {
     $made = phase7b_makeOrderWithQaAndPackingStages();
     $user = phase7b_makeUser();
 
@@ -732,8 +733,8 @@ it('submit advances quality_control → packing', function () {
         $user,
     );
 
-    expect($result['stage'])->toBe('quality_control')
-        ->and($result['new_stage'])->toBe('packing');
+    expect($result['stage'])->toBe('mass_qa')
+        ->and($result['new_stage'])->toBe('mass_packing');
 
     $qa = OrderStage::find($made['qa_stage_id']);
     expect($qa->status)->toBe('completed');

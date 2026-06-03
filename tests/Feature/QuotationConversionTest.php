@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 beforeEach(function () {
-    foreach (['quotations', 'apparel_pattern_prices', 'apparel_types', 'pattern_types', 'print_methods'] as $t) {
+    foreach (['quotation_status_logs', 'quotations', 'apparel_pattern_prices', 'apparel_types', 'pattern_types', 'print_methods'] as $t) {
         Schema::dropIfExists($t);
     }
 
@@ -81,10 +81,24 @@ beforeEach(function () {
         $table->string('status')->default('Pending');
         $table->timestamps();
     });
+
+    // QuotationService writes an immutable status-log row on every transition
+    // (incl. conversion). Mirror the real migration's columns so the hand-built
+    // test schema doesn't 500 with "no such table: quotation_status_logs".
+    Schema::create('quotation_status_logs', function (Blueprint $table) {
+        $table->id();
+        $table->unsignedBigInteger('quotation_id');
+        $table->unsignedBigInteger('user_id')->nullable();
+        $table->string('from_status', 32)->nullable();
+        $table->string('to_status', 32);
+        $table->text('notes')->nullable();
+        $table->boolean('email_sent')->nullable();
+        $table->timestamp('created_at')->nullable();
+    });
 });
 
 afterEach(function () {
-    foreach (['quotations', 'apparel_pattern_prices', 'apparel_types', 'pattern_types', 'print_methods'] as $t) {
+    foreach (['quotation_status_logs', 'quotations', 'apparel_pattern_prices', 'apparel_types', 'pattern_types', 'print_methods'] as $t) {
         Schema::dropIfExists($t);
     }
 });

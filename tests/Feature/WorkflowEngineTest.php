@@ -47,6 +47,11 @@ beforeEach(function () {
         $table->string('email')->unique();
         $table->string('password')->default('hashed');
         $table->timestamps();
+        // The User model uses SoftDeletes (see migration
+        // 2026_05_25_145621_add_soft_deletes_to_users_table). Without this
+        // column, any role-resolving User query (e.g. NotificationService
+        // resolving recipients) fails with "no such column: users.deleted_at".
+        $table->softDeletes();
     });
 
     // Spatie Permission – minimum tables for User::role(...) to work.
@@ -254,43 +259,82 @@ function makeOrder(): Order
 // Tests
 // ---------------------------------------------------------------------
 
-it('exposes the canonical workflow definition with 16 stages', function () {
+it('exposes the canonical workflow definition with 23 stages', function () {
     $stages = WorkflowStages::all();
-    expect($stages)->toHaveCount(16);
+    expect($stages)->toHaveCount(23);
     expect(WorkflowStages::keys()[0])->toBe('inquiry');
+    expect(WorkflowStages::lastKey())->toBe('client_notification');
+    expect(WorkflowStages::maxTier())->toBe(22);
 
-    $keys = WorkflowStages::keys();
-    expect($keys[count($keys) - 1])->toBe('client_notification');
-
-    // sequenceOf works (graphic_artwork is BEFORE the new gates, unchanged)
+    // Tiers (sequenceOf returns the dependency tier, NOT a 1..N position).
     expect(WorkflowStages::sequenceOf('graphic_artwork'))->toBe(5);
     expect(WorkflowStages::sequenceOf('does_not_exist'))->toBeNull();
 
-    // The two new §5 mass-gate checkpoints sit between sample_approval (8)
-    // and mass_production (now 11), in the correct order.
-    expect(WorkflowStages::sequenceOf('sample_approval'))->toBe(8);
-    expect(WorkflowStages::sequenceOf('payment_verification_mass'))->toBe(9);
-    expect(WorkflowStages::sequenceOf('purchase_materials'))->toBe(10);
-    expect(WorkflowStages::sequenceOf('mass_production'))->toBe(11);
+    // The sample-phase fork: screen_making ‖ material_prep_sample share tier 6;
+    // sample_cutting (the join) is tier 7.
+    expect(WorkflowStages::sequenceOf('screen_making'))->toBe(6);
+    expect(WorkflowStages::sequenceOf('material_prep_sample'))->toBe(6);
+    expect(WorkflowStages::sequenceOf('sample_cutting'))->toBe(7);
+    expect(WorkflowStages::isParallelTier(6))->toBeTrue();
+    expect(WorkflowStages::isParallelTier(7))->toBeFalse();
+    expect(WorkflowStages::stagesAtTier(6))
+        ->toContain('screen_making')->toContain('material_prep_sample');
 
-    // nextAfter chains across the new gates correctly
-    expect(WorkflowStages::nextAfter('inquiry')['key'])->toBe('quotation');
-    expect(WorkflowStages::nextAfter('sample_approval')['key'])->toBe('payment_verification_mass');
-    expect(WorkflowStages::nextAfter('payment_verification_mass')['key'])->toBe('purchase_materials');
-    expect(WorkflowStages::nextAfter('purchase_materials')['key'])->toBe('mass_production');
-    expect(WorkflowStages::nextAfter('client_notification'))->toBeNull();
+    // The three blocking payment gates (Change 1/20).
+    expect(WorkflowStages::paymentGateKeys())->toBe([
+        'payment_verification_sample',
+        'payment_verification_mass',
+        'payment_verification_balance',
+    ]);
+    expect(WorkflowStages::isPaymentGate('payment_verification_balance'))->toBeTrue();
+    expect(WorkflowStages::isPaymentGate('sample_cutting'))->toBeFalse();
 
-    // The new gates are administrative checkpoints, not production-cycle
-    // work — they must classify as 'preprod' so mass cycle-time stays clean.
+    // Phase classification: mass build = 'mass'; gates + material prep = 'preprod'.
+    expect(WorkflowStages::phaseFor('mass_cutting'))->toBe('mass');
     expect(WorkflowStages::phaseFor('payment_verification_mass'))->toBe('preprod');
-    expect(WorkflowStages::phaseFor('purchase_materials'))->toBe('preprod');
-    expect(WorkflowStages::phaseFor('mass_production'))->toBe('mass');
+    expect(WorkflowStages::phaseFor('payment_verification_balance'))->toBe('preprod');
+    expect(WorkflowStages::phaseFor('material_prep_mass'))->toBe('preprod');
+    expect(WorkflowStages::phaseFor('delivery'))->toBe('delivery');
 
-    // The new gates resolve to their responsible portal roles.
+    // Portal-role routing for the now-split mass stages + material prep.
     expect(WorkflowStages::stagesForPortalRole('finance'))
-        ->toContain('payment_verification_mass');
-    expect(WorkflowStages::stagesForPortalRole('purchasing'))
-        ->toContain('purchase_materials');
+        ->toContain('payment_verification_balance');
+    expect(WorkflowStages::stagesForPortalRole('cutter'))
+        ->toBe(['sample_cutting', 'mass_cutting']);
+    expect(WorkflowStages::stagesForPortalRole('material_prep'))
+        ->toBe(['material_prep_sample', 'material_prep_mass']);
+});
+
+it('models the sample-phase fork-join via nextActivations', function () {
+    // Build a status map with everything pending, then walk the fork.
+    $status = [];
+    foreach (WorkflowStages::keys() as $k) {
+        $status[$k] = OrderStage::STATUS_PENDING;
+    }
+
+    // From scratch, only the first stage activates.
+    expect(WorkflowStages::nextActivations($status))->toBe(['inquiry']);
+
+    // Complete everything up to and including graphic_artwork.
+    foreach (['inquiry', 'quotation', 'quotation_approval',
+              'payment_verification_sample', 'graphic_artwork'] as $done) {
+        $status[$done] = OrderStage::STATUS_COMPLETED;
+    }
+
+    // FORK: graphic done activates BOTH tier-6 branches at once.
+    $forked = WorkflowStages::nextActivations($status);
+    sort($forked);
+    expect($forked)->toBe(['material_prep_sample', 'screen_making']);
+
+    // JOIN guard: finishing only ONE branch must NOT release sample_cutting.
+    $status['screen_making'] = OrderStage::STATUS_IN_PROGRESS;
+    $status['material_prep_sample'] = OrderStage::STATUS_IN_PROGRESS;
+    $status['screen_making'] = OrderStage::STATUS_COMPLETED;
+    expect(WorkflowStages::nextActivations($status))->toBe([]);
+
+    // Both branches done → sample_cutting (the join) activates.
+    $status['material_prep_sample'] = OrderStage::STATUS_COMPLETED;
+    expect(WorkflowStages::nextActivations($status))->toBe(['sample_cutting']);
 });
 
 it('prunes legacy non-canonical stages on init', function () {
@@ -299,13 +343,13 @@ it('prunes legacy non-canonical stages on init', function () {
     // Simulate legacy stage rows from the pre-Phase-1 system.
     OrderStage::create([
         'order_id' => $order->id,
-        'stage'    => 'graphic_editing',  // legacy slug, not in canonical 16
+        'stage'    => 'graphic_editing',  // legacy slug, not in canonical list
         'sequence' => 0,
         'status'   => OrderStage::STATUS_PENDING,
     ]);
     OrderStage::create([
         'order_id' => $order->id,
-        'stage'    => 'sample_cutting',  // legacy slug
+        'stage'    => 'sample_creation',  // legacy collapsed stage (now split)
         'sequence' => 0,
         'status'   => OrderStage::STATUS_PENDING,
     ]);
@@ -320,13 +364,15 @@ it('prunes legacy non-canonical stages on init', function () {
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    // After init, ONLY the 16 canonical stages remain.
+    // After init, ONLY the 23 canonical stages remain. (Note: a live data
+    // migration RENAMES sample_creation → sample_cutting to preserve history;
+    // raw initializeForOrder, with no rename, prunes unknown slugs.)
     $stages = $order->orderStages()->get();
-    expect($stages)->toHaveCount(16);
+    expect($stages)->toHaveCount(23);
 
     $keys = $stages->pluck('stage')->all();
     expect($keys)->not->toContain('graphic_editing');
-    expect($keys)->not->toContain('sample_cutting');
+    expect($keys)->not->toContain('sample_creation');
     expect($keys)->not->toContain('production_cutting');
 
     foreach (WorkflowStages::keys() as $expectedKey) {
@@ -334,14 +380,14 @@ it('prunes legacy non-canonical stages on init', function () {
     }
 });
 
-it('initializes all 16 workflow stages on order creation', function () {
+it('initializes all 23 workflow stages on order creation', function () {
     $order = makeOrder();
 
     /** @var OrderStagesService $svc */
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    expect($order->orderStages()->count())->toBe(16);
+    expect($order->orderStages()->count())->toBe(23);
 
     // First stage must be in_progress
     $first = $order->orderStages()->orderBy('sequence')->first();
@@ -369,7 +415,7 @@ it('is idempotent on re-initialization', function () {
     $svc->initializeForOrder($order);
     $svc->initializeForOrder($order); // safe to call twice
 
-    expect($order->orderStages()->count())->toBe(16);
+    expect($order->orderStages()->count())->toBe(23);
 });
 
 it('advances stage and auto-promotes next', function () {
@@ -402,7 +448,7 @@ it('blocks completing a stage out of sequence', function () {
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    // Try to complete sample_creation (sequence 7) while stage 1 is in progress
+    // Try to complete sample_cutting (tier 7) while stage 1 is still in progress
     $stage7 = $order->orderStages()->where('sequence', 7)->first();
 
     // Stage 7 is currently 'pending' – not in_progress – so ValidationException
@@ -482,7 +528,7 @@ it('moves stage to for_approval and back to completed', function () {
     expect($first->fresh()->status)->toBe(OrderStage::STATUS_COMPLETED);
 });
 
-it('can complete the entire 16-stage workflow', function () {
+it('can complete the entire 23-stage workflow (incl. the parallel fork)', function () {
     $order = makeOrder();
     /** @var OrderStagesService $svc */
     $svc = app(OrderStagesService::class);
@@ -505,65 +551,74 @@ it('can complete the entire 16-stage workflow', function () {
 // Workstream A — the two new §5 mass-gate checkpoints
 // ---------------------------------------------------------------------
 
-it('advances cleanly through the new mass-gate checkpoints in sequence', function () {
+it('advances through the mass-production sequence after the sample fork', function () {
     $order = makeOrder();
     /** @var OrderStagesService $svc */
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    // Walk up to sample_approval (sequence 8) and complete it.
-    foreach (['inquiry', 'quotation', 'quotation_approval',
-              'payment_verification_sample', 'graphic_artwork',
-              'screen_making', 'sample_creation', 'sample_approval'] as $key) {
+    $complete = function (string $expected) use ($svc, $order) {
         $current = $svc->getCurrentStage($order->id);
-        expect($current->stage)->toBe($key);
+        expect($current)->not->toBeNull();
+        expect($current->stage)->toBe($expected);
         $svc->markComplete($current->id);
-    }
+    };
 
-    // The next active stage must now be the mass payment gate.
+    // Pre-production + graphic artwork.
+    $complete('inquiry');
+    $complete('quotation');
+    $complete('quotation_approval');
+    $complete('payment_verification_sample');
+    $complete('graphic_artwork');
+
+    // Parallel fork (tier 6): both branches active at once; getCurrentStage
+    // returns the lower-id one first (screen_making), then material_prep_sample.
+    $complete('screen_making');
+    $complete('material_prep_sample');
+
+    // Join + sample build, then the client sample-approval checkpoint.
+    $complete('sample_cutting');
+    $complete('sample_printing');
+    $complete('sample_sewing');
+    $complete('sample_packing');
+    $complete('sample_approval');
+
+    // The mass payment gate is now active.
     $current = $svc->getCurrentStage($order->id);
     expect($current->stage)->toBe('payment_verification_mass');
     expect($current->status)->toBe(OrderStage::STATUS_IN_PROGRESS);
     expect($order->fresh()->workflow_status)->toBe('payment_verification_mass');
 
-    // Finance completes it → purchase_materials becomes active.
+    // Gate → Material Prep (mass) → Mass Cutting (role-routed mass build).
     $svc->markComplete($current->id);
-    $current = $svc->getCurrentStage($order->id);
-    expect($current->stage)->toBe('purchase_materials');
-    expect($current->status)->toBe(OrderStage::STATUS_IN_PROGRESS);
+    expect($svc->getCurrentStage($order->id)->stage)->toBe('material_prep_mass');
 
-    // Purchasing completes it → mass_production becomes active.
-    $svc->markComplete($current->id);
-    $current = $svc->getCurrentStage($order->id);
-    expect($current->stage)->toBe('mass_production');
-    expect($current->status)->toBe(OrderStage::STATUS_IN_PROGRESS);
+    $svc->markComplete($svc->getCurrentStage($order->id)->id);
+    expect($svc->getCurrentStage($order->id)->stage)->toBe('mass_cutting');
 });
 
-it('backfills gates inserted BEHIND an in-progress stage as completed', function () {
-    // Simulate a legacy/in-flight order that predates the two new gates:
-    // it has the OLD 14-stage shape and is sitting at mass_production.
+it('backfills stages inserted BEHIND an in-progress stage as completed', function () {
+    // Simulate an in-flight order sitting at mass_cutting whose row set is
+    // MISSING several stages that sit behind it — i.e. stages added to the
+    // workflow after this order had already progressed past that point.
     $order = makeOrder();
 
-    $legacyKeys = [
-        'inquiry', 'quotation', 'quotation_approval',
-        'payment_verification_sample', 'graphic_artwork', 'screen_making',
-        'sample_creation', 'sample_approval',
-        // (no payment_verification_mass / purchase_materials — they didn't exist)
-        'mass_production', 'quality_control', 'packing',
-        'delivery', 'order_completed', 'client_notification',
+    $present = [
+        'inquiry'                     => [1,  OrderStage::STATUS_COMPLETED],
+        'quotation'                   => [2,  OrderStage::STATUS_COMPLETED],
+        'quotation_approval'          => [3,  OrderStage::STATUS_COMPLETED],
+        'payment_verification_sample' => [4,  OrderStage::STATUS_COMPLETED],
+        'graphic_artwork'             => [5,  OrderStage::STATUS_COMPLETED],
+        'screen_making'               => [6,  OrderStage::STATUS_COMPLETED],
+        'sample_approval'             => [11, OrderStage::STATUS_COMPLETED],
+        'payment_verification_mass'   => [12, OrderStage::STATUS_COMPLETED],
+        'mass_cutting'                => [14, OrderStage::STATUS_IN_PROGRESS],
     ];
-    foreach ($legacyKeys as $i => $key) {
-        // Everything up to sample_approval completed; mass_production active;
-        // the rest pending — a realistic in-flight order.
-        $status = match (true) {
-            $key === 'mass_production'         => OrderStage::STATUS_IN_PROGRESS,
-            $i < array_search('mass_production', $legacyKeys, true) => OrderStage::STATUS_COMPLETED,
-            default                            => OrderStage::STATUS_PENDING,
-        };
+    foreach ($present as $key => [$seq, $status]) {
         OrderStage::create([
             'order_id'     => $order->id,
             'stage'        => $key,
-            'sequence'     => $i + 1,        // legacy sequence
+            'sequence'     => $seq,
             'status'       => $status,
             'started_at'   => $status === OrderStage::STATUS_PENDING ? null : now(),
             'completed_at' => $status === OrderStage::STATUS_COMPLETED ? now() : null,
@@ -574,32 +629,33 @@ it('backfills gates inserted BEHIND an in-progress stage as completed', function
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    // Now there should be 16 stages, correctly sequenced.
-    expect($order->orderStages()->count())->toBe(16);
+    // The full 23-stage set now exists.
+    expect($order->orderStages()->count())->toBe(23);
 
-    // The two inserted gates sit BEHIND mass_production, so the backfill
-    // guard must have marked them completed (NOT pending) — otherwise the
-    // order would be permanently stalled by the integrity guard.
-    $payGate = $order->orderStages()->where('stage', 'payment_verification_mass')->first();
-    $buyGate = $order->orderStages()->where('stage', 'purchase_materials')->first();
-    expect($payGate->status)->toBe(OrderStage::STATUS_COMPLETED);
-    expect($buyGate->status)->toBe(OrderStage::STATUS_COMPLETED);
-    expect($payGate->sequence)->toBe(9);
-    expect($buyGate->sequence)->toBe(10);
+    // Stages that sit BEHIND mass_cutting (tier 14) but were missing must be
+    // backfilled COMPLETED — otherwise the integrity guard would stall the
+    // order. (material_prep_sample is the new fork sibling at tier 6.)
+    foreach ([
+        'material_prep_sample', 'sample_cutting', 'sample_printing',
+        'sample_sewing', 'sample_packing', 'material_prep_mass',
+    ] as $behind) {
+        $row = $order->orderStages()->where('stage', $behind)->first();
+        expect($row->status)->toBe(OrderStage::STATUS_COMPLETED);
+    }
 
-    // mass_production is still the active stage and was re-sequenced to 11.
-    $mass = $order->orderStages()->where('stage', 'mass_production')->first();
+    // mass_cutting is still the active stage, re-sequenced to tier 14.
+    $mass = $order->orderStages()->where('stage', 'mass_cutting')->first();
     expect($mass->status)->toBe(OrderStage::STATUS_IN_PROGRESS);
-    expect($mass->sequence)->toBe(11);
+    expect($mass->sequence)->toBe(14);
 
-    // CRITICAL: the order is NOT stalled — mass_production can still be
-    // completed because no earlier stage is unfinished.
+    // CRITICAL: not stalled — completing mass_cutting advances to mass_printing.
     $next = $svc->markComplete($mass->id);
     expect($next)->not->toBeNull();
-    expect($next->stage)->toBe('quality_control');
+    expect($next->stage)->toBe('mass_printing');
 
-    // The backfilled gates have an honest audit row explaining themselves.
-    $bfAudit = \App\Models\StageAuditLog::where('order_stage_id', $payGate->id)
+    // The backfilled stages carry an honest audit row that explains themselves.
+    $bf = $order->orderStages()->where('stage', 'sample_printing')->first();
+    $bfAudit = \App\Models\StageAuditLog::where('order_stage_id', $bf->id)
         ->where('action', \App\Models\StageAuditLog::ACTION_COMPLETED)
         ->first();
     expect($bfAudit)->not->toBeNull();
@@ -607,40 +663,42 @@ it('backfills gates inserted BEHIND an in-progress stage as completed', function
     expect($bfAudit->notes)->toContain('backfilled');
 });
 
-it('resumes at the first new gate when an order finished sample_approval with nothing active', function () {
-    // Boundary case: an order that completed through sample_approval (8)
-    // but has NOTHING in progress (e.g. it was waiting). The new gates are
-    // inserted AHEAD of the high-water mark (8), so they must be PENDING,
-    // and the order must resume at the first of them.
+it('resumes at the mass gate when an order finished sample_approval with nothing active', function () {
+    // Boundary case: an order that completed through sample_approval (tier 11)
+    // but has NOTHING in progress (e.g. it was parked). The mass-phase stages
+    // are ahead of the high-water mark, so init must resume the order at the
+    // first eligible one — the mass payment gate.
     $order = makeOrder();
 
-    foreach (['inquiry', 'quotation', 'quotation_approval',
-              'payment_verification_sample', 'graphic_artwork',
-              'screen_making', 'sample_creation', 'sample_approval'] as $i => $key) {
+    $done = [
+        'inquiry' => 1, 'quotation' => 2, 'quotation_approval' => 3,
+        'payment_verification_sample' => 4, 'graphic_artwork' => 5,
+        'screen_making' => 6, 'sample_approval' => 11,
+    ];
+    foreach ($done as $key => $seq) {
         OrderStage::create([
             'order_id'     => $order->id,
             'stage'        => $key,
-            'sequence'     => $i + 1,
+            'sequence'     => $seq,
             'status'       => OrderStage::STATUS_COMPLETED,
             'completed_at' => now(),
         ]);
     }
-    // Note: deliberately NO mass_production+ rows and nothing in_progress.
+    // Deliberately nothing in_progress.
 
     /** @var OrderStagesService $svc */
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    expect($order->orderStages()->count())->toBe(16);
+    expect($order->orderStages()->count())->toBe(23);
 
-    // High-water mark was 8 (sample_approval). The new gates at 9 and 10 are
-    // AHEAD of it, so they are pending — and step-6 promotion starts the
-    // first pending stage = payment_verification_mass.
+    // High-water mark is 11 (sample_approval). The mass gate at tier 12 is the
+    // first stage ahead of it, so init promotes it to in_progress.
     $payGate = $order->orderStages()->where('stage', 'payment_verification_mass')->first();
     expect($payGate->status)->toBe(OrderStage::STATUS_IN_PROGRESS);
     expect($order->fresh()->workflow_status)->toBe('payment_verification_mass');
 
-    // purchase_materials remains pending behind it.
-    $buyGate = $order->orderStages()->where('stage', 'purchase_materials')->first();
-    expect($buyGate->status)->toBe(OrderStage::STATUS_PENDING);
+    // material_prep_mass (tier 13) remains pending behind it.
+    $prep = $order->orderStages()->where('stage', 'material_prep_mass')->first();
+    expect($prep->status)->toBe(OrderStage::STATUS_PENDING);
 });

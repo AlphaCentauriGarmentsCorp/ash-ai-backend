@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderStage;
+use App\Models\StageReview;
 use App\Models\User;
 use App\Support\WorkflowStages;
 use Illuminate\Support\Collection;
@@ -118,5 +119,215 @@ class PortalAssignmentService
                 'workflow_status' => $order->workflow_status,
             ] : null,
         ];
+    }
+
+    // ── Batch 2: active-task list (Change 2) + badge counts (Change 3) ─────
+
+    /**
+     * "Active workload" statuses: everything queued or in flight, but not
+     * finished, on hold, or cancelled. Drives both the My-Active list and the
+     * sidebar badge counts so they stay a single source of truth.
+     */
+    public const ACTIVE_WORKLOAD_STATUSES = [
+        OrderStage::STATUS_PENDING,
+        OrderStage::STATUS_IN_PROGRESS,
+        OrderStage::STATUS_FOR_APPROVAL,
+        OrderStage::STATUS_DELAYED,
+    ];
+
+    /** Portal roles that map to one or more workflow stages (for badges). */
+    public const STAGE_PORTAL_ROLES = [
+        'graphic_artist', 'screen_maker', 'cutter', 'printer', 'sewer',
+        'material_prep', 'qa_packer', 'logistics',
+    ];
+
+    /** Roles with org-wide oversight: they see every portal's badge total. */
+    public const OVERSIGHT_ROLES = ['superadmin', 'admin', 'csr'];
+
+    /**
+     * Change 2 — the role's "My Active Tasks" queue for $user.
+     *
+     * Same shared-queue scoping as myActive() (assigned to me OR unassigned at
+     * my station), but returns the FULL active workload as rich rows, sorted
+     * FIFO (oldest first) with Rush-flagged orders pinned to the top.
+     *
+     * @return array{count:int, tasks:array<int,array>}
+     */
+    public function activeTasks(User $user, string $portalRole): array
+    {
+        $stageSlugs = WorkflowStages::stagesForPortalRole($portalRole);
+        if (empty($stageSlugs)) {
+            return ['count' => 0, 'tasks' => []];
+        }
+
+        $stages = OrderStage::query()
+            ->where(function ($q) use ($user) {
+                $q->where('assigned_to', $user->id)->orWhereNull('assigned_to');
+            })
+            ->whereIn('status', self::ACTIVE_WORKLOAD_STATUSES)
+            ->whereIn('stage', $stageSlugs)
+            ->get();
+
+        return $this->buildTaskList($stages);
+    }
+
+    /**
+     * Change 3 — count of ALL active tasks at a role's stages (not user-scoped).
+     * Used for the oversight badge: the station's total active workload.
+     */
+    public function activeCountForRole(string $portalRole): int
+    {
+        $stageSlugs = WorkflowStages::stagesForPortalRole($portalRole);
+        if (empty($stageSlugs)) {
+            return 0;
+        }
+
+        return OrderStage::query()
+            ->whereIn('status', self::ACTIVE_WORKLOAD_STATUSES)
+            ->whereIn('stage', $stageSlugs)
+            ->count();
+    }
+
+    /**
+     * Change 3 — per-portal badge counts, honouring visibility:
+     *   - oversight roles (superadmin/admin/csr) → every portal's station total
+     *   - everyone else → only portals they hold portal.{slug} for, counted
+     *     against their own shared queue (so the badge matches their list).
+     *
+     * @return array<string,int>  portalRole => active count
+     */
+    public function badgeCounts(User $user): array
+    {
+        $isOversight = $user->hasAnyRole(self::OVERSIGHT_ROLES);
+        $counts = [];
+
+        foreach (self::STAGE_PORTAL_ROLES as $role) {
+            if ($isOversight) {
+                $counts[$role] = $this->activeCountForRole($role);
+                continue;
+            }
+
+            // Regular user: only their own portal(s), scoped to their queue.
+            $perm = 'portal.' . str_replace('_', '-', $role);
+            if ($user->can($perm)) {
+                $counts[$role] = $this->activeTasks($user, $role)['count'];
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Turn a collection of OrderStage rows into sorted, hydrated task rows.
+     * Rush orders pinned to top; otherwise FIFO by queue age (oldest first).
+     */
+    protected function buildTaskList(Collection $stages): array
+    {
+        if ($stages->isEmpty()) {
+            return ['count' => 0, 'tasks' => []];
+        }
+
+        $orders = Order::query()
+            ->whereIn('id', $stages->pluck('order_id')->unique()->all())
+            ->get()
+            ->keyBy('id');
+
+        $forRevision = $this->forRevisionStageIds($stages->pluck('id')->all());
+
+        $rows = $stages->map(fn (OrderStage $s) => $this->taskRow(
+            $s,
+            $orders->get($s->order_id),
+            in_array($s->id, $forRevision, true),
+        ))->values();
+
+        // Rush pinned to top; within each group, FIFO (oldest queue age first).
+        $sorted = $rows->sort(function ($a, $b) {
+            if ($a['rush'] !== $b['rush']) {
+                return $a['rush'] ? -1 : 1;
+            }
+            return strcmp((string) $a['queue_age_at'], (string) $b['queue_age_at']);
+        })->values()->all();
+
+        return ['count' => count($sorted), 'tasks' => $sorted];
+    }
+
+    /**
+     * Which of these order_stage_ids are currently "For Revision" — their
+     * latest advisory review decision is a reject not yet followed by a
+     * resubmit. (stage_reviews is append-only; highest id is the latest.)
+     *
+     * @param  array<int,int>  $stageIds
+     * @return array<int,int>
+     */
+    protected function forRevisionStageIds(array $stageIds): array
+    {
+        if (empty($stageIds)) {
+            return [];
+        }
+
+        return StageReview::query()
+            ->whereIn('order_stage_id', $stageIds)
+            ->orderBy('id', 'desc')
+            ->get(['order_stage_id', 'decision'])
+            ->unique('order_stage_id')
+            ->where('decision', StageReview::DECISION_REJECT)
+            ->pluck('order_stage_id')
+            ->all();
+    }
+
+    /** Rich row for the My-Active list. */
+    protected function taskRow(OrderStage $stage, ?Order $order, bool $forRevision): array
+    {
+        $rush = $order
+            ? ((bool) ($order->rush_order ?? false) || ($order->priority ?? null) === Order::PRIORITY_RUSH)
+            : false;
+
+        // Queue age = when the order entered this stage (start, else created).
+        $queueAgeAt = $stage->started_at ?? $stage->created_at;
+
+        return [
+            'order_stage_id' => $stage->id,
+            'order_id'       => $stage->order_id,
+            'stage'          => $stage->stage,
+            'sequence'       => $stage->sequence,
+            'status'         => $stage->status,
+            'for_revision'   => $forRevision,
+            // "For Revision" overrides the raw status for the badge display.
+            'display_status' => $forRevision ? 'for_revision' : $stage->status,
+            'rush'           => $rush,
+            'queue_age_at'   => $queueAgeAt?->toDateTimeString(),
+            'project_no'     => $order?->po_code,
+            'client_name'    => $order?->client_name,
+            'client_brand'   => $order?->client_brand,
+            'quantity'       => $order?->total_quantity,
+            'color'          => $order?->shirt_color,
+            'print_area'     => $this->printArea($order),
+            // due_date intentionally omitted — no such field yet (Change 2).
+        ];
+    }
+
+    /**
+     * "Print Area" for a row: distinct placement names from the order's print
+     * parts (e.g. "Front, Back"), falling back to the print_area column.
+     */
+    protected function printArea(?Order $order): ?string
+    {
+        if (! $order) {
+            return null;
+        }
+
+        $parts = $order->print_parts_json;
+        if (is_array($parts) && ! empty($parts)) {
+            $names = collect($parts)
+                ->map(fn ($p) => is_array($p) ? ($p['part'] ?? $p['placement'] ?? null) : null)
+                ->filter()
+                ->unique()
+                ->values();
+            if ($names->isNotEmpty()) {
+                return $names->implode(', ');
+            }
+        }
+
+        return $order->print_area;
     }
 }

@@ -33,7 +33,57 @@ class PortalController extends Controller
      */
     public function myActive(Request $request, string $role)
     {
-        // Sanity-check role slug against the registry. Rejects garbage.
+        $normalized = $this->resolveRole($role);
+        if ($normalized === null) {
+            return response()->json(['message' => 'Unknown portal role.'], 404);
+        }
+
+        return response()->json(
+            $this->assignments->myActive($request->user(), $normalized)
+        );
+    }
+
+    /**
+     * GET /api/v2/portal/{role}/my-active-tasks  (Change 2)
+     *
+     * The role's full "My Active Tasks" queue for the current user, as rich
+     * rows sorted FIFO with Rush pinned to top.
+     *
+     * Returns: { "count": int, "tasks": [ {...}, ... ] }
+     */
+    public function myActiveTasks(Request $request, string $role)
+    {
+        $normalized = $this->resolveRole($role);
+        if ($normalized === null) {
+            return response()->json(['message' => 'Unknown portal role.'], 404);
+        }
+
+        return response()->json(
+            $this->assignments->activeTasks($request->user(), $normalized)
+        );
+    }
+
+    /**
+     * GET /api/v2/portal/badge-counts  (Change 3)
+     *
+     * Per-portal active-task counts for the sidebar badges, already filtered to
+     * what the current user may see (oversight → all stations; regular user →
+     * own portal only). Returns: { "counts": { "cutter": 3, ... } }
+     */
+    public function badgeCounts(Request $request)
+    {
+        return response()->json([
+            'counts' => $this->assignments->badgeCounts($request->user()),
+        ]);
+    }
+
+    /**
+     * Validate the {role} slug against the registry and normalise hyphens to
+     * underscores so PortalAssignmentService's role matching works. Returns
+     * null for unknown roles.
+     */
+    private function resolveRole(string $role): ?string
+    {
         $allowedRoles = [
             'csr', 'finance',
             'graphic_artist', 'screen_maker', 'sample_maker',
@@ -43,19 +93,13 @@ class PortalController extends Controller
             'material_prep', 'purchasing', 'warehouse_manager',
             'graphic-artist', 'screen-maker', 'sample-maker',
             'material-prep', 'warehouse-manager',
-            // Phase 7-B: unified QA + Packer portal
             'qa_packer', 'qa-packer',
         ];
 
         if (! in_array($role, $allowedRoles, true)) {
-            return response()->json(['message' => 'Unknown portal role.'], 404);
+            return null;
         }
 
-        // Normalize hyphens to underscores so the service's match() works.
-        $normalized = str_replace('-', '_', $role);
-
-        $result = $this->assignments->myActive($request->user(), $normalized);
-
-        return response()->json($result);
+        return str_replace('-', '_', $role);
     }
 }

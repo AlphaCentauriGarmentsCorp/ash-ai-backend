@@ -49,6 +49,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('hashed');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -144,21 +145,21 @@ it('returns none when user has no active assignments', function () {
 
 it('returns single when user has exactly one active assignment', function () {
     $user = phase5_makeUser();
-    $made = phase5_makeOrderStage($user->id, 'sample_creation');
+    $made = phase5_makeOrderStage($user->id, 'sample_cutting');
 
     $svc = new PortalAssignmentService();
     $result = $svc->myActive($user, 'cutter');
 
     expect($result['status'])->toBe('single');
     expect($result['assignment']['order_stage_id'])->toBe($made['stage_id']);
-    expect($result['assignment']['stage'])->toBe('sample_creation');
+    expect($result['assignment']['stage'])->toBe('sample_cutting');
     expect($result['assignment']['order']['po_code'])->toStartWith('ASH-TEST-');
 });
 
 it('returns multiple when user has 2 or more active assignments', function () {
     $user = phase5_makeUser();
-    phase5_makeOrderStage($user->id, 'sample_creation');
-    phase5_makeOrderStage($user->id, 'mass_production');
+    phase5_makeOrderStage($user->id, 'sample_cutting');
+    phase5_makeOrderStage($user->id, 'mass_cutting');
 
     $svc = new PortalAssignmentService();
     $result = $svc->myActive($user, 'cutter');
@@ -169,9 +170,9 @@ it('returns multiple when user has 2 or more active assignments', function () {
 
 it('ignores completed and pending stages', function () {
     $user = phase5_makeUser();
-    phase5_makeOrderStage($user->id, 'sample_creation', 'in_progress');
-    phase5_makeOrderStage($user->id, 'mass_production', 'completed');
-    phase5_makeOrderStage($user->id, 'mass_production', 'pending');
+    phase5_makeOrderStage($user->id, 'sample_cutting', 'in_progress');
+    phase5_makeOrderStage($user->id, 'mass_cutting', 'completed');
+    phase5_makeOrderStage($user->id, 'mass_cutting', 'pending');
 
     $svc = new PortalAssignmentService();
     $result = $svc->myActive($user, 'cutter');
@@ -181,10 +182,10 @@ it('ignores completed and pending stages', function () {
 });
 
 it('filters by role stage slug list', function () {
-    // QA user assigned to a sample_creation stage shouldn't see it
-    // through the QA portal (QA only works on quality_control).
+    // QA user assigned to a sample_cutting stage shouldn't see it
+    // through the QA portal (QA only works on mass_qa).
     $user = phase5_makeUser();
-    phase5_makeOrderStage($user->id, 'sample_creation');
+    phase5_makeOrderStage($user->id, 'sample_cutting');
 
     $svc = new PortalAssignmentService();
     $result = $svc->myActive($user, 'qa');
@@ -192,11 +193,26 @@ it('filters by role stage slug list', function () {
     expect($result['status'])->toBe('none');
 });
 
-it('returns none for material_prep regardless of stage assignments', function () {
-    // Material prep is not stage-bound; it should always return 'none'
-    // and let the portal page take over with PR-based logic.
+it('surfaces material-prep stages to the material_prep portal', function () {
+    // Material Prep is now STAGE-BOUND (Change 18/21): the sample-phase fork
+    // branch (material_prep_sample) and the mass-phase sourcing stage
+    // (material_prep_mass) must appear in the Material Prep portal queue —
+    // otherwise the parallel fork would be invisible to that role.
     $user = phase5_makeUser();
-    phase5_makeOrderStage($user->id, 'sample_creation');
+    phase5_makeOrderStage($user->id, 'material_prep_sample');
+
+    $svc = new PortalAssignmentService();
+    $result = $svc->myActive($user, 'material_prep');
+
+    expect($result['status'])->toBe('single');
+    expect($result['assignment']['stage'])->toBe('material_prep_sample');
+});
+
+it('does not surface a non-material-prep stage to the material_prep portal', function () {
+    // A user whose only active stage is NOT a material-prep stage sees nothing
+    // through the Material Prep portal.
+    $user = phase5_makeUser();
+    phase5_makeOrderStage($user->id, 'sample_cutting');
 
     $svc = new PortalAssignmentService();
     $result = $svc->myActive($user, 'material_prep');
@@ -293,10 +309,10 @@ it('shows MINE + UNASSIGNED together, but not another users stage', function () 
 });
 
 it('still scopes the shared pool to the role station', function () {
-    // An UNASSIGNED stage at a DIFFERENT station (sample_creation) must not
+    // An UNASSIGNED stage at a DIFFERENT station (sample_cutting) must not
     // leak into the GA portal — the role slug filter still applies.
     $ga = phase5_makeUser('GA User');
-    phase5_makeStageAssigned(null, 'sample_creation'); // not a GA stage
+    phase5_makeStageAssigned(null, 'sample_cutting'); // not a GA stage
 
     $svc = new PortalAssignmentService();
     $result = $svc->myActive($ga, 'graphic_artist');

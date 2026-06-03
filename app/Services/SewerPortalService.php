@@ -53,7 +53,7 @@ class SewerPortalService
             ]);
         }
 
-        $eligibleStages = ['sample_creation', 'mass_production'];
+        $eligibleStages = ['sample_sewing', 'mass_sewing'];
         if (! in_array($stage->stage, $eligibleStages, true)) {
             throw ValidationException::withMessages([
                 'order_stage_id' => "Stage '{$stage->stage}' is not a sewer portal stage.",
@@ -67,7 +67,7 @@ class SewerPortalService
             ]);
         }
 
-        $phase = $stage->stage === 'sample_creation' ? 'sample' : 'mass';
+        $phase = $stage->stage === 'sample_sewing' ? 'sample' : 'mass';
 
         return [
             'order'              => $this->orderDetails($order),

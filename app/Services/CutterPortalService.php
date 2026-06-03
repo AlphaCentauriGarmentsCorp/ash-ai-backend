@@ -40,7 +40,7 @@ class CutterPortalService
             ]);
         }
 
-        $eligibleStages = ['sample_creation', 'mass_production'];
+        $eligibleStages = ['sample_cutting', 'mass_cutting'];
         if (! in_array($stage->stage, $eligibleStages, true)) {
             throw ValidationException::withMessages([
                 'order_stage_id' => "Stage '{$stage->stage}' is not a cutter portal stage.",
@@ -55,7 +55,7 @@ class CutterPortalService
         }
 
         // Phase = 'sample' or 'mass' based on stage slug.
-        $phase = $stage->stage === 'sample_creation' ? 'sample' : 'mass';
+        $phase = $stage->stage === 'sample_cutting' ? 'sample' : 'mass';
 
         return [
             'order'           => $this->orderDetails($order),

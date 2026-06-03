@@ -98,6 +98,20 @@ class OrderStagesController extends Controller
             'notes' => 'nullable|string|max:2000',
         ]);
 
+        // Change 17 — payment-verification gates may only be PASSED by
+        // Finance / Superadmin / Admin (holders of action.verify-payment).
+        // CSR may upload proof and advance ordinary stages, but completing a
+        // gate stage is the "approval" and is reserved. Enforced server-side
+        // so a forged request is refused even if the UI hid the button.
+        $stage = OrderStage::find($id);
+        if ($stage && WorkflowStages::isPaymentGate($stage->stage)
+            && ! $request->user()?->can('action.verify-payment')) {
+            return response()->json([
+                'message' => 'Only Finance, Superadmin, or Admin can approve a payment-verification gate.',
+                'errors'  => ['permission' => ['You are not allowed to approve payment verification.']],
+            ], 403);
+        }
+
         try {
             $next = $this->service->markComplete($id, $data['notes'] ?? null);
         } catch (ValidationException $e) {

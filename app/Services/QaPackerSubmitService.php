@@ -152,8 +152,8 @@ class QaPackerSubmitService
 
             return [
                 'stage_id'        => $completedStage->id,
-                'stage'           => $completedStage->stage,       // e.g. 'quality_control'
-                'new_stage'       => $nextStage?->stage,            // e.g. 'packing' or null
+                'stage'           => $completedStage->stage,       // e.g. 'mass_qa'
+                'new_stage'       => $nextStage?->stage,            // e.g. 'mass_packing' or null
                 'reject_summary'  => $rejectSummary,
                 'notifications'   => $notificationsFired,
             ];

@@ -69,6 +69,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('hashed');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -327,7 +328,7 @@ function phase4_makeOrderWithActiveStage(string $stageSlug = 'cutting', int $seq
     ];
 }
 
-function phase4_makePendingStage(int $orderId, string $stageSlug = 'packing', int $sequence = 11): OrderStage
+function phase4_makePendingStage(int $orderId, string $stageSlug = 'mass_packing', int $sequence = 11): OrderStage
 {
     $stageId = DB::table('order_stages')->insertGetId([
         'order_id' => $orderId,
@@ -489,7 +490,7 @@ it('logs reject against an in_progress stage', function () {
     $user = phase4_makeUser('QA', ['stage_inputs.log_reject']);
     Auth::login($user);
 
-    $built = phase4_makeOrderWithActiveStage('quality_control', 10);
+    $built = phase4_makeOrderWithActiveStage('mass_qa', 10);
 
     $svc = new StageInputsService(new NotificationService());
     $log = $svc->logReject([
@@ -511,7 +512,7 @@ it('walks a subcontract assignment through pending → out → returned', functi
     $user = phase4_makeUser('Sewer', ['stage_inputs.log_subcontract']);
     Auth::login($user);
 
-    $built = phase4_makeOrderWithActiveStage('mass_production', 9);
+    $built = phase4_makeOrderWithActiveStage('mass_sewing', 9);
     $vendor = phase4_makeSubcontractor('sewing', 200.00);
 
     $svc = new SubcontractService(new NotificationService());
@@ -539,7 +540,7 @@ it('refuses to mark sent on a non-pending assignment', function () {
     $user = phase4_makeUser('Sewer', ['stage_inputs.log_subcontract']);
     Auth::login($user);
 
-    $built = phase4_makeOrderWithActiveStage('mass_production', 9);
+    $built = phase4_makeOrderWithActiveStage('mass_sewing', 9);
     $vendor = phase4_makeSubcontractor();
 
     $svc = new SubcontractService(new NotificationService());
@@ -561,7 +562,7 @@ it('refuses to cancel a returned assignment', function () {
     $user = phase4_makeUser('Sewer', ['stage_inputs.log_subcontract']);
     Auth::login($user);
 
-    $built = phase4_makeOrderWithActiveStage('mass_production', 9);
+    $built = phase4_makeOrderWithActiveStage('mass_sewing', 9);
     $vendor = phase4_makeSubcontractor();
 
     $svc = new SubcontractService(new NotificationService());
@@ -583,7 +584,7 @@ it('refuses to subcontract when actor lacks permission', function () {
     $user = phase4_makeUser('NoPermsUser');
     Auth::login($user);
 
-    $built = phase4_makeOrderWithActiveStage('mass_production', 9);
+    $built = phase4_makeOrderWithActiveStage('mass_sewing', 9);
     $vendor = phase4_makeSubcontractor();
 
     $svc = new SubcontractService(new NotificationService());
