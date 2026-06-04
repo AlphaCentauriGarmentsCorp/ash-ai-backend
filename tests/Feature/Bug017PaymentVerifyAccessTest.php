@@ -278,3 +278,68 @@ test('BUG-017: Finance with BOTH permissions (e.g. via workaround grant) can sti
 
     $response->assertStatus(200);
 });
+// ── Change 17 follow-up: dedicated Finance payments page (/finance/payments) ──
+// Finance uploads + verifies here; CSR's /csr/payments is now read-only.
+
+test('Finance can list payments via /finance/payments', function () {
+    $finance = bug017MakeUser(['action.verify-payment']);
+    bug017MakePaymentInForVerification();
+
+    $this->actingAs($finance, 'sanctum');
+    $this->getJson('/api/v2/finance/payments')
+        ->assertStatus(200)
+        ->assertJsonStructure(['data']);
+});
+
+test('Finance can upload payment proof via /finance/payments', function () {
+    $finance = bug017MakeUser(['action.verify-payment']);
+    $order = Order::create([
+        'po_code'         => 'ASH-2026-' . str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT),
+        'client_name'     => 'Finance Upload',
+        'workflow_status' => 'in_progress',
+    ]);
+
+    $this->actingAs($finance, 'sanctum');
+    $this->postJson('/api/v2/finance/payments', [
+        'order_id'     => $order->id,
+        'payment_type' => 'down_payment',
+        'amount'       => 5000,
+    ])
+        ->assertStatus(201)
+        // No proof file → the record opens in 'waiting'.
+        ->assertJsonPath('data.status', 'waiting');
+});
+
+test('Finance can verify via /finance/payments/{id}/verify', function () {
+    $finance = bug017MakeUser(['action.verify-payment']);
+    $payment = bug017MakePaymentInForVerification();
+
+    $this->actingAs($finance, 'sanctum');
+    $this->patchJson("/api/v2/finance/payments/{$payment->id}/verify", [
+        'decision' => 'verified',
+    ])
+        ->assertStatus(200)
+        ->assertJsonPath('data.status', 'verified');
+});
+
+test('CSR (no verify-payment) cannot reach the Finance payments page (403)', function () {
+    $csr = bug017MakeUser(['portal.csr']);
+
+    $this->actingAs($csr, 'sanctum');
+    $this->getJson('/api/v2/finance/payments')->assertStatus(403);
+    $this->postJson('/api/v2/finance/payments', [
+        'order_id' => 1, 'payment_type' => 'down_payment', 'amount' => 100,
+    ])->assertStatus(403);
+});
+
+test('CSR payments view is read-only — upload route is gone (405), list still works', function () {
+    $csr = bug017MakeUser(['portal.csr']);
+
+    $this->actingAs($csr, 'sanctum');
+    // Read-only list still available.
+    $this->getJson('/api/v2/csr/payments')->assertStatus(200);
+    // Upload route removed for CSR.
+    $this->postJson('/api/v2/csr/payments', [
+        'order_id' => 1, 'payment_type' => 'down_payment', 'amount' => 100,
+    ])->assertStatus(405);
+});

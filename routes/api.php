@@ -679,6 +679,11 @@ Route::prefix('v2')->group(function () {
                 Route::get('/active-prs',          'myActive');
                 Route::get('/context/{prId}',      'showContext')->whereNumber('prId');
                 Route::patch('/{prId}/supplier',   'assignSupplier')->whereNumber('prId');
+
+                // Change 18 — order material requirements at the Material Prep stage.
+                Route::get('/orders',                       'ordersAtStage');
+                Route::get('/order/{orderId}/requirements', 'orderRequirements')->whereNumber('orderId');
+                Route::post('/order/{orderId}/requirements','saveOrderRequirements')->whereNumber('orderId');
             });
 
         // ── Graphic Artist Portal (Phase 5-H) ─────────────────────────
@@ -748,10 +753,11 @@ Route::prefix('v2')->group(function () {
                         ->name('csr.inquiries.convertToQuotation');
                 });
 
-                // Order Payments (LIST + UPLOAD only — verify is split below)
+                // Order Payments — CSR is READ-ONLY (list only). Upload + verify
+                // are Finance-only under /finance/payments (Change 17 follow-up:
+                // Finance uploads + verifies; CSR may only view payment status).
                 Route::prefix('/payments')->controller(OrderPaymentController::class)->group(function () {
                     Route::get('/',                'index');
-                    Route::post('/',               'store');
                 });
 
                 // Client Approvals
@@ -783,6 +789,20 @@ Route::prefix('v2')->group(function () {
                 Route::patch('/payments/{id}/verify', [OrderPaymentController::class, 'verify'])
                     ->whereNumber('id')
                     ->name('csr.payments.verify');
+            });
+
+        // ── Finance: dedicated Payments page (list + upload + verify) ──
+        // Gated by action.verify-payment so Finance / Superadmin / Admin reach
+        // it WITHOUT portal.csr. This is where payment proof is uploaded and
+        // verified; the CSR view (above) is read-only.
+        Route::prefix('/finance/payments')
+            ->middleware('permission:action.verify-payment')
+            ->controller(OrderPaymentController::class)
+            ->group(function () {
+                Route::get('/',              'index');
+                Route::post('/',             'store');
+                Route::patch('/{id}/verify', 'verify')->whereNumber('id')
+                    ->name('finance.payments.verify');
             });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {

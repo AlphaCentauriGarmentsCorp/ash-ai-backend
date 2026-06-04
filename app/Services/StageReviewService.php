@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderStage;
 use App\Models\StageReview;
 use App\Models\User;
+use App\Support\WorkflowStages;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -70,6 +71,16 @@ class StageReviewService
         return DB::transaction(function () use ($stageId, $reviewer, $comment) {
             /** @var OrderStage $stage */
             $stage = OrderStage::lockForUpdate()->findOrFail($stageId);
+
+            // Change 17 — a payment-verification gate is a Finance approval, not
+            // a production review. Passing it requires action.verify-payment
+            // regardless of entry point, so the Review Hub cannot be used to
+            // bypass the gate. (The button is also hidden client-side, but a
+            // forged request must still be refused here.)
+            if (WorkflowStages::isPaymentGate($stage->stage)
+                && ! $reviewer->can('action.verify-payment')) {
+                abort(403, 'Only Finance, Superadmin, or Admin can approve a payment-verification gate.');
+            }
 
             $review = StageReview::create([
                 'order_id'       => $stage->order_id,
@@ -218,7 +229,7 @@ class StageReviewService
      *     started (not pending) — and it isn't already sitting in an open
      *     rejection (no point rejecting twice before a resubmit).
      */
-    public function stateFor(int $stageId): array
+    public function stateFor(int $stageId, ?User $viewer = null): array
     {
         $latest = $this->latestReview($stageId);
         $stage  = OrderStage::find($stageId);
@@ -243,14 +254,25 @@ class StageReviewService
         $started = $stageStatus !== null
             && $stageStatus !== OrderStage::STATUS_PENDING;
 
+        // Change 17 — a payment-verification gate is a Finance approval, not a
+        // production review. Hide Approve from anyone without
+        // action.verify-payment so the Review Hub never offers a button the
+        // backend will reject. (The server still refuses a forged request.)
+        $isPaymentGate = $stage && WorkflowStages::isPaymentGate($stage->stage);
+        $mayPassGate    = ! $isPaymentGate
+            || (bool) $viewer?->can('action.verify-payment');
+
         return [
             'review_state'   => $state,
             'open_rejection' => $openRejection,
             'stage_status'   => $stageStatus,
-            // Hide Approve once approved/completed or before the stage is active.
-            'can_approve'    => $awaitingDecision && $state !== 'approved',
-            // Hide Reject before the stage has output or while already rejected.
-            'can_reject'     => $started && ! $openRejection,
+            // Hide Approve once approved/completed or before the stage is active,
+            // and on a payment gate unless the viewer may pass it.
+            'can_approve'    => $awaitingDecision && $state !== 'approved' && $mayPassGate,
+            // Hide Reject before the stage has output or while already rejected,
+            // and on a payment gate unless the viewer may pass it (Change 17 —
+            // payment verification is a Finance action, read-only for others).
+            'can_reject'     => $started && ! $openRejection && $mayPassGate,
             'latest'         => $latest ? $this->summarize($latest) : null,
         ];
     }

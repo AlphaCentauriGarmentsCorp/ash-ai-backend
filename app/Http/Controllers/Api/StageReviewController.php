@@ -40,7 +40,7 @@ class StageReviewController extends Controller
      * (design files, sample photos, QA final photos, and generic proof-of-work
      * uploads) so the reviewer sees whatever output the stage actually produced.
      */
-    public function indexForOrder(int $orderId)
+    public function indexForOrder(Request $request, int $orderId)
     {
         $order = Order::find($orderId);
         if (! $order) {
@@ -53,7 +53,7 @@ class StageReviewController extends Controller
         $states = OrderStage::where('order_id', $orderId)
             ->orderBy('sequence')
             ->get(['id'])
-            ->mapWithKeys(fn ($s) => [$s->id => $this->service->stateFor($s->id)]);
+            ->mapWithKeys(fn ($s) => [$s->id => $this->service->stateFor($s->id, $request->user())]);
 
         // Per-stage artifacts from every source, keyed by order_stage_id.
         $uploads = $this->artifacts->forOrder($orderId);
@@ -131,10 +131,10 @@ class StageReviewController extends Controller
      * Lightweight single-stage state probe, used by a production portal to
      * decide whether to show the rejection banner + resubmit action.
      */
-    public function state(int $id)
+    public function state(Request $request, int $id)
     {
         OrderStage::findOrFail($id);
 
-        return response()->json($this->service->stateFor($id));
+        return response()->json($this->service->stateFor($id, $request->user()));
     }
 }

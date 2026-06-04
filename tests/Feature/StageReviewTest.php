@@ -43,6 +43,9 @@ beforeEach(function () {
         'stage_reviews',
         'stage_audit_logs',
         'notifications',
+        'role_has_permissions',
+        'model_has_permissions',
+        'permissions',
         'model_has_roles',
         'roles',
         'order_stages',
@@ -146,6 +149,26 @@ beforeEach(function () {
         $t->timestamps();
     });
 
+    // Change 17 — the payment-gate guard calls $reviewer->can('action.verify-payment'),
+    // which resolves through Spatie's permission tables, so the test schema needs them.
+    Schema::create('permissions', function (Blueprint $t) {
+        $t->id();
+        $t->string('name');
+        $t->string('guard_name')->default('web');
+        $t->timestamps();
+    });
+    Schema::create('model_has_permissions', function (Blueprint $t) {
+        $t->unsignedBigInteger('permission_id');
+        $t->string('model_type');
+        $t->unsignedBigInteger('model_id');
+        $t->primary(['permission_id', 'model_id', 'model_type']);
+    });
+    Schema::create('role_has_permissions', function (Blueprint $t) {
+        $t->unsignedBigInteger('permission_id');
+        $t->unsignedBigInteger('role_id');
+        $t->primary(['permission_id', 'role_id']);
+    });
+
     foreach ([
         'superadmin', 'admin', 'general_manager',
         'csr', 'finance', 'purchasing', 'warehouse_manager',
@@ -159,12 +182,19 @@ beforeEach(function () {
         ]);
     }
 
+    DB::table('permissions')->insert([
+        'name' => 'action.verify-payment', 'guard_name' => 'web',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
     app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 });
 
 afterEach(function () {
     foreach ([
-        'stage_reviews', 'stage_audit_logs', 'notifications', 'model_has_roles', 'roles',
+        'stage_reviews', 'stage_audit_logs', 'notifications',
+        'role_has_permissions', 'model_has_permissions', 'permissions',
+        'model_has_roles', 'roles',
         'order_stages', 'orders', 'users',
     ] as $t) {
         Schema::dropIfExists($t);
@@ -386,4 +416,71 @@ it('groups history by stage in chronological order', function () {
         ->and($rows[0]['decision'])->toBe('reject')
         ->and($rows[1]['decision'])->toBe('resubmit')
         ->and($rows[2]['decision'])->toBe('approve');
+});
+// ---------------------------------------------------------------------
+// Change 17 — payment-verification gates can only be PASSED by holders of
+// action.verify-payment (Finance / Superadmin / Admin), regardless of entry
+// point. The Review Hub must NOT let a CSR bypass the gate.
+// ---------------------------------------------------------------------
+
+it('blocks a reviewer without action.verify-payment from passing a payment gate', function () {
+    $csr   = sr_makeUser('csr_pay', 'csr');           // CSR has no action.verify-payment
+    $stage = sr_makeStage('payment_verification_sample', 'finance', 'in_progress');
+
+    expect($csr->can('action.verify-payment'))->toBeFalse();
+
+    expect(fn () => sr_service()->approve($stage->id, $csr, 'paid daw'))
+        ->toThrow(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+
+    // Gate did NOT pass: stage untouched, and the review row was rolled back.
+    expect($stage->fresh()->status)->toBe('in_progress');
+    expect(DB::table('stage_reviews')->where('order_stage_id', $stage->id)->count())->toBe(0);
+});
+
+it('lets a reviewer with action.verify-payment pass a payment gate via the Review Hub', function () {
+    $finance = sr_makeUser('fin_pay', 'finance');
+    $finance->givePermissionTo('action.verify-payment');
+    expect($finance->fresh()->can('action.verify-payment'))->toBeTrue();
+
+    $stage = sr_makeStage('payment_verification_sample', 'finance', 'in_progress');
+
+    $review = sr_service()->approve($stage->id, $finance, 'confirmed received');
+
+    expect($review->decision)->toBe(StageReview::DECISION_APPROVE);
+    expect($stage->fresh()->status)->toBe('completed');
+});
+
+it('still lets a CSR approve a normal production stage (guard is payment-gate only)', function () {
+    $csr   = sr_makeUser('csr_norm', 'csr');           // no action.verify-payment
+    $stage = sr_makeStage('screen_making', 'screen_maker', 'for_approval');
+
+    $review = sr_service()->approve($stage->id, $csr, 'ok');
+
+    expect($review->decision)->toBe(StageReview::DECISION_APPROVE);
+    expect($stage->fresh()->status)->toBe('completed');
+});
+
+it('hides Approve on a payment gate for a reviewer without verify-payment (stateFor)', function () {
+    $csr     = sr_makeUser('csr_state', 'csr');           // no action.verify-payment
+    $finance = sr_makeUser('fin_state', 'finance');
+    $finance->givePermissionTo('action.verify-payment');
+
+    $gate = sr_makeStage('payment_verification_mass', 'finance', 'in_progress');
+
+    // A reviewer without verify-payment sees the payment gate fully read-only:
+    // neither Approve nor Reject is offered.
+    $csrState = sr_service()->stateFor($gate->id, $csr);
+    expect($csrState['can_approve'])->toBeFalse();
+    expect($csrState['can_reject'])->toBeFalse();
+
+    // Finance (or Admin/Superadmin) may act on it.
+    $finState = sr_service()->stateFor($gate->id, $finance->fresh());
+    expect($finState['can_approve'])->toBeTrue();
+    expect($finState['can_reject'])->toBeTrue();
+
+    // A normal in-progress production stage stays actionable for the CSR.
+    $normal = sr_makeStage('screen_making', 'screen_maker', 'in_progress');
+    $normalState = sr_service()->stateFor($normal->id, $csr);
+    expect($normalState['can_approve'])->toBeTrue();
+    expect($normalState['can_reject'])->toBeTrue();
 });
