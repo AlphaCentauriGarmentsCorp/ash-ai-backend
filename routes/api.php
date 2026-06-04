@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ApparelPartController;
 use App\Http\Controllers\Api\ServiceTypeController;
+use App\Http\Controllers\Api\FabricTypeController;
 use App\Http\Controllers\Api\PrintMethodController;
 use App\Http\Controllers\Api\SpecialPrintController;
 use App\Http\Controllers\Api\SizeLabelController;
@@ -206,6 +207,15 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/service-type')->middleware('permission:access.dropdown-settings')->controller(ServiceTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        // Change 7.1 — Fabric Type managed dropdown (mirrors service-type).
+        Route::prefix('/fabric-type')->middleware('permission:access.dropdown-settings')->controller(FabricTypeController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
