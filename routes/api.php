@@ -962,6 +962,66 @@ Route::prefix('v2')->group(function () {
             Route::get('/{id}', 'show');
         });
 
+        // ── Reference-dropdown READ access for order/quotation forms ──────────
+        // The managed-dropdown groups above gate EVERY verb behind
+        // access.dropdown-settings (a settings-management permission). Reading
+        // the lists is needed by anyone filling an order/quotation (CSR, etc.),
+        // so — mirroring the apparel-neckline / special-print read routes above
+        // — these GETs are registered AFTER the gated groups so they win
+        // (Laravel keys routes by method+URI; the later registration overrides)
+        // and require only authentication. The write verbs above stay gated.
+        Route::prefix('/pattern-type')->controller(PatternTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/apparel-type')->controller(ApparelTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/apparel-parts')->controller(ApparelPartController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/service-type')->controller(ServiceTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/fabric-type')->controller(FabricTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/print-method')->controller(PrintMethodController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/size-label')->controller(SizeLabelController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/print-label-placement')->controller(PrintLabelPlacementController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/freebie')->controller(FreebieController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/placement-measurement')->controller(PlacementMeasurementController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/additional-option')->controller(AdditionalOptionController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        // Material suppliers: the Fabric Supplier field on the order/quotation
+        // forms needs this list. Reads open to any authenticated user; writes
+        // stay behind access.suppliers (the gated /supplier group above).
+        Route::prefix('/supplier')->controller(SupplierController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+
     // ── Public Share Access (NO authentication required) ──────────────────────
     // These routes are intentionally OUTSIDE the auth middleware.
     // Access is governed solely by the validity of the share token.

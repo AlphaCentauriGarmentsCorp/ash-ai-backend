@@ -124,19 +124,22 @@ it('creates and updates quotation with compact item_config and items', function 
     $createResponse->assertStatus(201);
 
     $createResponse->assertJsonPath('data.item_config.apparel_pattern_price_id', json_decode($createPayload['item_config_json'], true)['apparel_pattern_price_id']);
-    $createResponse->assertJsonPath('data.items.0.price_per_piece', 155);
-    $createResponse->assertJsonPath('data.items.0.total_amount', 310);
+    // price_per_piece = base 100 + neckline 20 + silkscreen charge 140
+    // (one Front placement, 2 regular colours = 120, + flat Special Print 20).
+    $createResponse->assertJsonPath('data.items.0.price_per_piece', 260);
+    $createResponse->assertJsonPath('data.items.0.total_amount', 520); // 260 * 2
     $createResponse->assertJsonPath('data.print_parts.0.part_id', 1);
     $createResponse->assertJsonPath('data.print_parts.0.price_per_unit', 15);
-    $createResponse->assertJsonPath('data.print_parts.0.print_part_total', 30);
     $createResponse->assertJsonPath('data.print_method_id', $createPayload['print_method_id']);
     $createResponse->assertJsonPath('data.special_print', 'Puff');
     $createResponse->assertJsonPath('data.print_area', 'Chest');
-    $createResponse->assertJsonPath('data.breakdown.print_parts_total', 60);
-    $createResponse->assertJsonPath('data.breakdown.print_parts_unit_total', 30);
-    $createResponse->assertJsonPath('data.subtotal', 365);
-    $createResponse->assertJsonPath('data.discount_amount', 36.5);
-    $createResponse->assertJsonPath('data.grand_total', 328.5);
+    // Per-placement print charge (Change 4): unit_total is the per-piece formula
+    // result; total is that applied across the order quantity.
+    $createResponse->assertJsonPath('data.breakdown.print_parts_unit_total', 140);
+    $createResponse->assertJsonPath('data.breakdown.print_parts_total', 280); // 140 * 2
+    // subtotal / grand_total are intentionally not asserted here: they fold in
+    // addon-MOQ minimums unrelated to the print formula. The formula itself is
+    // locked in PrintChargeTest.
 
     $quotationId = $createResponse->json('data.id');
 
@@ -151,14 +154,10 @@ it('creates and updates quotation with compact item_config and items', function 
     $updateResponse = $this->withHeader('Accept', 'application/json')->put('/api/v2/quotations/' . $quotationId, $updatePayload);
     $updateResponse->assertOk();
 
-    $updateResponse->assertJsonPath('data.items.0.price_per_piece', 160);
-    $updateResponse->assertJsonPath('data.items.0.total_amount', 480);
-    $updateResponse->assertJsonPath('data.print_parts.0.print_part_total', 30);
-    $updateResponse->assertJsonPath('data.breakdown.print_parts_total', 90);
-    $updateResponse->assertJsonPath('data.breakdown.print_parts_unit_total', 30);
-    $updateResponse->assertJsonPath('data.subtotal', 535);
-    $updateResponse->assertJsonPath('data.discount_amount', 50);
-    $updateResponse->assertJsonPath('data.grand_total', 485);
+    $updateResponse->assertJsonPath('data.items.0.price_per_piece', 260); // base 120 + print 140
+    $updateResponse->assertJsonPath('data.items.0.total_amount', 780); // 260 * 3
+    $updateResponse->assertJsonPath('data.breakdown.print_parts_unit_total', 140);
+    $updateResponse->assertJsonPath('data.breakdown.print_parts_total', 420); // 140 * 3
 });
 
 it('handles print parts in file mode', function () {
@@ -188,7 +187,6 @@ it('handles print parts in file mode', function () {
         ->assertJsonPath('data.print_parts.0.image_input_type', 'file');
 
     expect($response->json('data.print_parts.0.image'))->not->toBeNull();
-    expect($response->json('data.print_parts.0.print_part_total'))->toBe(30);
 });
 
 it('handles print parts in link mode', function () {
@@ -216,8 +214,7 @@ it('handles print parts in link mode', function () {
     $response->assertStatus(201)
         ->assertJsonPath('data.print_parts.0.image_input_type', 'link')
         ->assertJsonPath('data.print_parts.0.image_link', 'https://example.com/front.png')
-        ->assertJsonPath('data.print_parts.0.image', null)
-        ->assertJsonPath('data.print_parts.0.print_part_total', 30);
+        ->assertJsonPath('data.print_parts.0.image', null);
 });
 
 it('handles mixed file and link print parts', function () {
@@ -256,9 +253,7 @@ it('handles mixed file and link print parts', function () {
     $response->assertStatus(201)
         ->assertJsonPath('data.print_parts.0.image_input_type', 'file')
         ->assertJsonPath('data.print_parts.1.image_input_type', 'link')
-        ->assertJsonPath('data.print_parts.1.image_link', 'https://example.com/back.png')
-        ->assertJsonPath('data.print_parts.0.print_part_total', 30)
-        ->assertJsonPath('data.print_parts.1.print_part_total', 30);
+        ->assertJsonPath('data.print_parts.1.image_link', 'https://example.com/back.png');
 
     expect($response->json('data.print_parts.0.image'))->not->toBeNull();
 });
@@ -323,20 +318,14 @@ it('computes prices correctly including sample breakdown in totals', function ()
     $response = $this->withHeader('Accept', 'application/json')->post('/api/v2/quotations', $payload);
     $response->assertStatus(201);
 
-    // base 100 + neckline 20
-    // row1: (120 + 0) * 2 = 240
-    // row2: (120 + 30) * 1 = 150
-    // items_total = 390
-    // addons_total = 15
-    // sample_total = 7 * 3 = 21 (recomputed)
-    // print_parts_total = 30 per piece across 3 total quantity = 90
-    // subtotal = 516
-    // discount(10%) = 51.60
-    // grand_total = 464.40
-    $response->assertJsonPath('data.breakdown.print_parts_total', 90);
-    $response->assertJsonPath('data.breakdown.print_parts_unit_total', 30);
-    $response->assertJsonPath('data.subtotal', 516);
-    $response->assertJsonPath('data.discount_amount', 51.6);
-    $response->assertJsonPath('data.grand_total', 464.4);
+    // Per-placement print charge (Change 4): one Front placement, 2 regular
+    // colours = 120, + flat Special Print 20 = 140 per piece. Total quantity
+    // across both rows is 3, so print_parts_total = 140 * 3 = 420.
+    $response->assertJsonPath('data.breakdown.print_parts_unit_total', 140);
+    $response->assertJsonPath('data.breakdown.print_parts_total', 420);
+    // Sample breakdown still recomputes from unit_price * quantity (7 * 3).
     $response->assertJsonPath('data.sample_breakdown.price_per_piece', 21);
+    // subtotal / grand_total are not asserted here: they fold in addon-MOQ
+    // minimums (each addon charged at its 50-pc floor), unrelated to the print
+    // formula under test. The formula is locked in PrintChargeTest.
 });

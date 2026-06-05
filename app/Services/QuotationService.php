@@ -667,36 +667,42 @@ class QuotationService
     }
 
     /**
-     * Silkscreen print charge (Blueprint Section 3.2 + full-print rule).
+     * Silkscreen print charge — POOLED across placements (Addendum §4.1).
      *
-     * Per-color pricing where each color's rate depends on whether the
-     * placement it sits on is a FULL PRINT (larger than 14 × 20 inches) or a
-     * regular size. A placement is full print when its row carries
-     * print_size === 'full' (or is_full_print truthy).
+     * Front, Back and Sleeves share ONE colour count for the whole job. There
+     * is a single first-colour base — ₱150 if ANY placement is a full print,
+     * otherwise ₱100 — and that base accounts for one colour (a full-print
+     * colour when any full placement exists, so the dearer colour is the
+     * "first"; otherwise a regular colour). Every REMAINING colour is charged
+     * at its own placement's rate: +₱50 full, +₱20 regular.
      *
-     * Rule (verified against client examples):
-     *   - The job's FIRST color sets the base:
-     *       * ₱150 if ANY placement in the job is full print
-     *       * ₱100 if all placements are regular
-     *   - EVERY remaining color is charged at its own placement's rate:
-     *       * +₱20 if that color is on a regular placement
-     *       * +₱50 if that color is on a full-print placement
-     *   - The first color is drawn from a full-print placement when one
-     *     exists, so the base (₱150) "uses up" one full-print color.
+     * Rates are Superadmin-editable PricingSetting rows (defaults in brackets):
+     *   regular     first ₱100 / succeeding ₱20
+     *   full_print  first ₱150 / succeeding ₱50
      *
-     * Worked examples:
-     *   Front 3 + Back 2, all regular   = 100 + 4×20            = ₱180
-     *   Front full(1) + Back reg(1)     = 150 + 1×20            = ₱170
-     *   Front full(1) + Back full(1)    = 150 + 1×50            = ₱200
-     *   Front reg(1)  + Back full(1)    = 150 + 1×20            = ₱170
-     *   Front full(2) + Back reg(1)     = 150 + 1×50 + 1×20     = ₱220
+     * Worked examples (Addendum §4.1):
+     *   regular(1)            = 100
+     *   regular(3)            = 100 + 2×20         = 140
+     *   full_print(2)         = 150 + 1×50         = 200
+     *   reg(3) + reg(2)       = 100 + 4×20         = 180
+     *   full(1) + reg(1)      = 150 + 1×20         = 170
+     *   full(1) + full(1)     = 150 + 1×50         = 200
+     *   full(2) + reg(1)      = 150 + 1×50 + 1×20  = 220
+     *   reg(1) + sleeve(1)    = 100 + 1×20         = 120
      *
-     * All four rates are Superadmin-editable PricingSetting rows. Defaults
-     * (100 / 20 / 150 / 50) are only used if a fresh DB has no seeded rows,
-     * so quoting never hard-fails.
+     * Special Print (e.g. High Density, Puff) adds a FLAT per-piece surcharge
+     * once when the job has any print — independent of color count (Brief §4.5;
+     * default ₱20). Editable PricingSetting; 0 disables it.
      *
-     * Note: this is a per-piece amount, multiplied by total quantity later
-     * in computeTotals (appliedPrintPartsTotal).
+     * Back-compat: a placement may still arrive in a legacy shape
+     * (unit_count / full_unit_count / color_count + is_full_print|print_size).
+     * resolvePlacementPrint() collapses any such row to one {print_type,
+     * num_colors}. The single pooled GA override ($gaPooledColors) is applied
+     * only to a single-placement job; the GA's per-side counts now arrive on
+     * the placements themselves, so multi-placement jobs keep their counts.
+     *
+     * Note: this is a per-piece amount, multiplied by total quantity later in
+     * computeTotals.
      */
     protected function calculatePrintPartsTotal($printParts, ?int $gaPooledColors = null, bool $hasSpecialPrint = false): float
     {
@@ -704,101 +710,150 @@ class QuotationService
             return 0.0;
         }
 
-        // Count colors per placement. The frontend sends an explicit split:
-        //   unit_count       = number of REGULAR-size colors on this placement
-        //   full_unit_count  = number of FULL-print colors on this placement
-        // When that split is present we use it directly (most precise). If a
-        // payload instead carries a single color_count plus a whole-placement
-        // print_size/is_full_print flag, we fall back to classifying the whole
-        // placement (legacy / simpler shape).
-        $regularColors = 0;
-        $fullColors = 0;
+        // Normalize every placement to one {print_type, num_colors} pair and
+        // drop empty placements (no colors → no print on that spot).
+        $placements = [];
         foreach ($printParts as $partData) {
             if (! is_array($partData)) {
                 continue;
             }
-
-            $hasExplicitSplit = array_key_exists('unit_count', $partData)
-                || array_key_exists('full_unit_count', $partData)
-                || array_key_exists('unitCount', $partData)
-                || array_key_exists('fullUnitCount', $partData);
-
-            if ($hasExplicitSplit) {
-                $regularColors += max(0, (int) ($partData['unit_count'] ?? $partData['unitCount'] ?? 0));
-                $fullColors += max(0, (int) ($partData['full_unit_count'] ?? $partData['fullUnitCount'] ?? 0));
+            [$type, $colors] = $this->resolvePlacementPrint($partData);
+            if ($colors < 1) {
                 continue;
             }
-
-            $count = max(0, (int) (
-                $partData['color_count']
-                ?? $partData['colorCount']
-                ?? 0
-            ));
-            if ($count <= 0) {
-                continue;
-            }
-
-            if ($this->isFullPrintPart($partData)) {
-                $fullColors += $count;
-            } else {
-                $regularColors += $count;
-            }
+            $placements[] = ['print_type' => $type, 'num_colors' => $colors];
         }
 
-        $totalColors = $regularColors + $fullColors;
-
-        // Issue 8 (stage D) — once the Graphic Artist verifies the pooled colour
-        // count it becomes the source of truth, overriding the CSR's per-
-        // placement spot-colour entries. The count is the TOTAL across all
-        // placements (front + back). Full-print placements are structural
-        // (CSR-flagged), so their colours are preserved and consume part of the
-        // GA total first; whatever remains is the regular spot-colour pool.
+        // Legacy single pooled GA override: unambiguous only with exactly one
+        // priced placement. The GA's per-side counts now arrive on the
+        // placements directly, so multi-placement jobs keep their own counts.
         if ($gaPooledColors !== null) {
             $gaPooledColors = max(0, (int) $gaPooledColors);
-            $fullColors = min($fullColors, $gaPooledColors);
-            $regularColors = max(0, $gaPooledColors - $fullColors);
-            $totalColors = $regularColors + $fullColors;
+            if (count($placements) === 1) {
+                if ($gaPooledColors < 1) {
+                    return 0.0;
+                }
+                $placements[0]['num_colors'] = $gaPooledColors;
+            } elseif (count($placements) === 0 && $gaPooledColors >= 1) {
+                // No placement metadata but a GA total exists: price it as a
+                // single regular placement so the override still applies.
+                $placements[] = ['print_type' => 'regular', 'num_colors' => $gaPooledColors];
+            }
         }
 
-        if ($totalColors <= 0) {
+        if (count($placements) === 0) {
             return 0.0;
         }
 
-        $firstColorRegular = PricingSetting::rate(PricingSetting::SILKSCREEN_FIRST_COLOR, 100.0);
-        $firstColorFull = PricingSetting::rate(PricingSetting::SILKSCREEN_FIRST_COLOR_FULL, 150.0);
-        $addColorRegular = PricingSetting::rate(PricingSetting::SILKSCREEN_ADDITIONAL_COLOR, 20.0);
-        $addColorFull = PricingSetting::rate(PricingSetting::SILKSCREEN_ADDITIONAL_COLOR_FULL, 50.0);
+        $rates = [
+            'regular' => [
+                'first_color'      => PricingSetting::rate(PricingSetting::SILKSCREEN_FIRST_COLOR, 100.0),
+                'succeeding_color' => PricingSetting::rate(PricingSetting::SILKSCREEN_ADDITIONAL_COLOR, 20.0),
+            ],
+            'full_print' => [
+                'first_color'      => PricingSetting::rate(PricingSetting::SILKSCREEN_FIRST_COLOR_FULL, 150.0),
+                'succeeding_color' => PricingSetting::rate(PricingSetting::SILKSCREEN_ADDITIONAL_COLOR_FULL, 50.0),
+            ],
+        ];
 
-        $hasFull = $fullColors > 0;
+        // POOLED silkscreen charge (Addendum §4.1). Front, Back and Sleeves
+        // share ONE colour count. The job has a single first-colour base —
+        // ₱150 if ANY placement is a full print, otherwise ₱100 — and that base
+        // accounts for one colour (a full-print colour when any full placement
+        // exists, so the dearer colour is the "first"; otherwise a regular
+        // one). Every REMAINING colour is charged at its own placement's rate:
+        // +₱50 on a full placement, +₱20 on a regular one.
+        $fullColors = 0;
+        $regularColors = 0;
+        foreach ($placements as $p) {
+            if ($p['print_type'] === 'full_print') {
+                $fullColors += $p['num_colors'];
+            } else {
+                $regularColors += $p['num_colors'];
+            }
+        }
+        $totalColors = $fullColors + $regularColors;
 
-        // The first color sets the base. If any placement is full print, the
-        // base is the full-print first-color rate, and that color is taken
-        // from the full-print pool so we don't double-charge it below.
-        if ($hasFull) {
-            $base = $firstColorFull;
-            $remainingFull = $fullColors - 1;      // one full color consumed by the base
-            $remainingRegular = $regularColors;
-        } else {
-            $base = $firstColorRegular;
-            $remainingFull = 0;
-            $remainingRegular = $regularColors - 1; // one regular color consumed by the base
+        if ($totalColors < 1) {
+            return 0.0;
         }
 
-        $total = $base
-            + ($remainingFull * $addColorFull)
-            + ($remainingRegular * $addColorRegular);
+        $anyFull = $fullColors > 0;
+        $total = $anyFull
+            ? (float) $rates['full_print']['first_color']
+            : (float) $rates['regular']['first_color'];
 
-        // Special Print surcharge (e.g. High Density, Puff). When a special
-        // print is selected for the job, every color carries an editable
-        // per-color surcharge (default ₱20). Total surcharge = rate × all
-        // colors in the job, e.g. 2 colors → +₱40. Rate is a Superadmin-
-        // editable PricingSetting; 0 disables it.
-        if ($hasSpecialPrint) {
-            $specialPrintPerColor = PricingSetting::rate(PricingSetting::SPECIAL_PRINT_PER_COLOR, 20.0);
-            $total += $specialPrintPerColor * $totalColors;
+        // The base consumes the job's first colour from the full pool when any
+        // full placement exists, else from the regular pool.
+        if ($anyFull) {
+            $fullColors--;
+        } else {
+            $regularColors--;
+        }
+
+        $total += $fullColors * (float) $rates['full_print']['succeeding_color'];
+        $total += $regularColors * (float) $rates['regular']['succeeding_color'];
+
+        // Special Print: flat per-piece surcharge, applied once when the job has
+        // any print (Brief §4.5).
+        if ($hasSpecialPrint && $totalColors > 0) {
+            $total += PricingSetting::rate(PricingSetting::SPECIAL_PRINT_PER_COLOR, 20.0);
         }
 
         return round($total, 2);
+    }
+
+    /**
+     * Normalize one placement row to [print_type, num_colors].
+     *
+     * Preferred (Change 12): explicit print_type ('regular'|'full_print') +
+     * num_colors. Legacy shapes are mapped:
+     *   - whole-placement full flag (print_size==='full' / is_full_print) →
+     *     full_print
+     *   - old per-color split with any full colors (full_unit_count > 0) →
+     *     full_print, colors = unit_count + full_unit_count (the two were never
+     *     meant to coexist under Change 12, so they collapse to one full type)
+     *   - otherwise → regular
+     */
+    protected function resolvePlacementPrint(array $partData): array
+    {
+        $explicitType = $partData['print_type'] ?? $partData['printType'] ?? null;
+        if (is_string($explicitType) && trim($explicitType) !== '') {
+            $type = strtolower(trim($explicitType)) === 'full_print' ? 'full_print' : 'regular';
+
+            return [$type, $this->resolveNumColors($partData)];
+        }
+
+        if ($this->isFullPrintPart($partData)) {
+            return ['full_print', $this->resolveNumColors($partData)];
+        }
+
+        $fullSplit = (int) ($partData['full_unit_count'] ?? $partData['fullUnitCount'] ?? 0);
+        if ($fullSplit > 0) {
+            $regSplit = (int) ($partData['unit_count'] ?? $partData['unitCount'] ?? 0);
+
+            return ['full_print', max(0, $regSplit + $fullSplit)];
+        }
+
+        return ['regular', $this->resolveNumColors($partData)];
+    }
+
+    /**
+     * Resolve a placement's color count across the new (num_colors) and legacy
+     * (color_count / unit_count + full_unit_count) keys.
+     */
+    protected function resolveNumColors(array $partData): int
+    {
+        if (array_key_exists('num_colors', $partData) || array_key_exists('numColors', $partData)) {
+            return max(0, (int) ($partData['num_colors'] ?? $partData['numColors'] ?? 0));
+        }
+        if (array_key_exists('color_count', $partData) || array_key_exists('colorCount', $partData)) {
+            return max(0, (int) ($partData['color_count'] ?? $partData['colorCount'] ?? 0));
+        }
+        $reg = (int) ($partData['unit_count'] ?? $partData['unitCount'] ?? 0);
+        $full = (int) ($partData['full_unit_count'] ?? $partData['fullUnitCount'] ?? 0);
+
+        return max(0, $reg + $full);
     }
 
     /**
