@@ -64,6 +64,7 @@ beforeEach(function () {
         $t->text('domain_role')->nullable();
         $t->text('domain_access')->nullable();
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -273,8 +274,8 @@ function logiMakeAssignment(int $qty = 100): StageSubcontractAssignment
     ]);
     $stage = \App\Models\OrderStage::create([
         'order_id'     => $order->id,
-        'stage'        => 'sample_creation',
-        'sequence'     => 6,
+        'stage'        => 'sample_sewing',
+        'sequence'     => 9,
         'status'       => 'in_progress',
         'service_type' => 'subcontract',
     ]);

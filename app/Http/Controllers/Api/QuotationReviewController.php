@@ -56,6 +56,30 @@ class QuotationReviewController extends Controller
         $quotation->design_reviewed_at   = now();
         $quotation->save();
 
+        // Per-side override (artist front/back): when the GA supplies a colour
+        // count per placement, write each onto its print_parts row so the
+        // per-placement pricing engine charges each side on its own. The single
+        // design_color_count is kept in sync (sum) for display, the single-
+        // placement path, and the recompute gate below.
+        $perSide = $validated['design_color_counts'] ?? null;
+        if (is_array($perSide) && count($perSide) > 0) {
+            $parts = is_array($quotation->print_parts_json) ? $quotation->print_parts_json : [];
+            foreach ($perSide as $entry) {
+                $i = (int) ($entry['index'] ?? -1);
+                if ($i >= 0 && isset($parts[$i]) && is_array($parts[$i])) {
+                    $colors = (int) ($entry['num_colors'] ?? 0);
+                    $parts[$i]['num_colors']  = $colors; // authoritative for pricing
+                    $parts[$i]['color_count'] = $colors; // keep display in sync
+                }
+            }
+            $quotation->print_parts_json = array_values($parts);
+            $quotation->design_color_count = array_sum(array_map(
+                static fn ($e) => (int) ($e['num_colors'] ?? 0),
+                $perSide
+            ));
+            $quotation->save();
+        }
+
         // ── Stage D — pricing recompute ──────────────────────────────────
         // Only an APPROVED design with a verified colour count drives pricing
         // (a "Needs New File" verdict means the colours are not final). When it

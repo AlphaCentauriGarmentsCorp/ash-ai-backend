@@ -28,6 +28,17 @@ function makeAshUser(array $roleNames = ['admin'], array $permissionNames = []):
 
     if ($roleNames !== []) {
         $user->syncRoles($roleNames);
+
+        // Grant the requested permissions to the role(s) as well, so the auth
+        // payload's roles[].permissions (built from $role->permissions) reflects
+        // them — this mirrors how RbacSeeder attaches permissions to roles in
+        // production, where the admin role carries its permission set.
+        if ($permissionNames !== []) {
+            foreach ($roleNames as $roleName) {
+                Role::where('name', $roleName)->where('guard_name', 'web')
+                    ->first()?->givePermissionTo($permissionNames);
+            }
+        }
     }
 
     if ($permissionNames !== []) {

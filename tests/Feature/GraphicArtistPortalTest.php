@@ -51,6 +51,8 @@ beforeEach(function () {
         'placement_measurements',
         'print_label_placements',
         'pantones',
+        'stage_uploads',
+        'quotations',
         'order_stages',
         'orders',
         'users',
@@ -69,16 +71,19 @@ beforeEach(function () {
         $t->text('domain_role')->nullable();
         $t->text('domain_access')->nullable();
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
         $t->id();
+        $t->unsignedBigInteger('quotation_id')->nullable();
         $t->string('po_code')->unique();
         $t->string('client_name')->nullable();
         $t->string('client_brand')->nullable();
         $t->string('shirt_color', 64)->nullable();
         $t->string('special_print', 64)->nullable();
         $t->string('print_area', 64)->nullable();
+        $t->json('print_parts_json')->nullable();
         $t->text('items_json')->nullable();
         $t->text('notes')->nullable();
         $t->string('workflow_status', 32)->default('inquiry');
@@ -238,6 +243,30 @@ beforeEach(function () {
         $t->timestamp('created_at')->nullable();
     });
 
+    // Change 14 — source/reference buckets touched by sourceFiles().
+    Schema::create('stage_uploads', function (Blueprint $t) {
+        $t->id();
+        $t->unsignedBigInteger('order_id');
+        $t->unsignedBigInteger('order_stage_id')->nullable();
+        $t->unsignedBigInteger('uploaded_by_user_id')->nullable();
+        $t->string('category', 64)->nullable();
+        $t->string('file_path')->nullable();
+        $t->string('original_name')->nullable();
+        $t->string('mime_type', 128)->nullable();
+        $t->unsignedBigInteger('size_bytes')->nullable();
+        $t->text('notes')->nullable();
+        $t->timestamps();
+    });
+
+    Schema::create('quotations', function (Blueprint $t) {
+        $t->id();
+        $t->json('print_parts_json')->nullable();
+        $t->string('custom_pattern_image')->nullable();
+        $t->string('label_design_path')->nullable();
+        $t->string('design_review_status')->nullable();
+        $t->timestamps();
+    });
+
     // ── All 5 Spatie tables (BUG-004 lesson) ────────────────────
     Schema::create('permissions', function (Blueprint $t) {
         $t->id();
@@ -305,6 +334,8 @@ afterEach(function () {
         'placement_measurements',
         'print_label_placements',
         'pantones',
+        'stage_uploads',
+        'quotations',
         'order_stages',
         'orders',
         'users',
@@ -376,7 +407,7 @@ test('buildContext returns full payload for active graphic_artwork stage', funct
     $ctx = $svc->buildContext($stage->id);
 
     expect($ctx)->toHaveKeys([
-        'order', 'stage', 'design', 'design_files',
+        'order', 'stage', 'design', 'design_files', 'source_files',
         'placements', 'pantones_used',
         'placement_options', 'measurement_options',
         'label_assets', 'screen_details',
@@ -390,7 +421,7 @@ test('buildContext returns full payload for active graphic_artwork stage', funct
 });
 
 test('buildContext rejects stages outside graphic_artwork scope', function () {
-    [, $stage] = gaMakeOrderWithStage('mass_production');
+    [, $stage] = gaMakeOrderWithStage('mass_cutting');
 
     $svc = app(GraphicArtistPortalService::class);
     $svc->buildContext($stage->id);
@@ -400,6 +431,99 @@ test('buildContext rejects unknown stage id', function () {
     $svc = app(GraphicArtistPortalService::class);
     $svc->buildContext(999999);
 })->throws(\Illuminate\Validation\ValidationException::class);
+
+test('buildContext aggregates source files from quotation, print parts, and stage uploads', function () {
+    // Source quotation: custom pattern + label design + a link-type print part.
+    $quotation = \App\Models\Quotation::create([
+        'custom_pattern_image' => 'quotation/patterns/pattern.png',
+        'label_design_path'    => 'quotation/labels/label.pdf',
+        'print_parts_json'     => [
+            ['part' => 'Sleeve', 'image_input_type' => 'link', 'image_link' => 'https://canva.com/design/AAA/edit'],
+        ],
+    ]);
+
+    // Order carries its own file-type print part and links to the quotation.
+    $order = \App\Models\Order::create([
+        'quotation_id'     => $quotation->id,
+        'po_code'          => 'ASH-2026-SRC001',
+        'client_name'      => 'ACME Co',
+        'print_parts_json' => [
+            ['part' => 'Front', 'image_input_type' => 'file', 'image' => 'orders/front-art.ai'],
+        ],
+    ]);
+    $stage = OrderStage::create([
+        'order_id'     => $order->id,
+        'stage'        => 'graphic_artwork',
+        'sequence'     => 5,
+        'status'       => 'in_progress',
+        'service_type' => 'in_house',
+    ]);
+
+    // A generic stage upload recorded against the order.
+    \App\Models\StageUpload::create([
+        'order_id'            => $order->id,
+        'order_stage_id'      => $stage->id,
+        'uploaded_by_user_id' => null,
+        'category'            => 'reference',
+        'file_path'           => 'uploads/brief.pdf',
+        'original_name'       => 'client-brief.pdf',
+        'mime_type'           => 'application/pdf',
+        'size_bytes'          => 2048,
+    ]);
+
+    $ctx = app(GraphicArtistPortalService::class)->buildContext($stage->id);
+    $src = collect($ctx['source_files']);
+
+    // 2 quotation refs + 1 order print part + 1 stage upload = 4
+    expect($src)->toHaveCount(4);
+    expect($src->where('source', 'quotation'))->toHaveCount(2);
+    expect($src->where('source', 'print_part'))->toHaveCount(1);
+    expect($src->where('source', 'stage_upload'))->toHaveCount(1);
+
+    // The order's file-type part is preferred over the quotation's parts.
+    $printPart = $src->firstWhere('source', 'print_part');
+    expect($printPart['label'])->toBe('Artwork — Front');
+    expect($printPart['is_link'])->toBeFalse();
+    expect($printPart['file_type'])->toBe('ai');
+
+    // The quotation custom pattern resolves to a stored-file URL (not a link).
+    $pattern = $src->firstWhere('label', 'Custom Pattern Reference');
+    expect($pattern['is_link'])->toBeFalse();
+    expect($pattern['url'])->toContain('quotation/patterns/pattern.png');
+
+    // The stage upload carries its real metadata.
+    $upload = $src->firstWhere('source', 'stage_upload');
+    expect($upload['original_name'])->toBe('client-brief.pdf');
+    expect($upload['file_type'])->toBe('application/pdf');
+    expect($upload['size_bytes'])->toBe(2048);
+});
+
+test('buildContext falls back to quotation print parts when the order has none', function () {
+    $quotation = \App\Models\Quotation::create([
+        'print_parts_json' => [
+            ['part' => 'Back', 'image_input_type' => 'file', 'image' => 'quotation/back.png'],
+        ],
+    ]);
+    $order = \App\Models\Order::create([
+        'quotation_id' => $quotation->id,
+        'po_code'      => 'ASH-2026-SRC002',
+        'client_name'  => 'ACME Co',
+        // no print_parts_json on the order → falls back to the quotation's
+    ]);
+    $stage = OrderStage::create([
+        'order_id'     => $order->id,
+        'stage'        => 'graphic_artwork',
+        'sequence'     => 5,
+        'status'       => 'in_progress',
+        'service_type' => 'in_house',
+    ]);
+
+    $ctx = app(GraphicArtistPortalService::class)->buildContext($stage->id);
+    $parts = collect($ctx['source_files'])->where('source', 'print_part')->values();
+
+    expect($parts)->toHaveCount(1);
+    expect($parts->first()['label'])->toBe('Artwork — Back');
+});
 
 test('uploading a design file bumps version and flips is_latest', function () {
     [$order, $stage] = gaMakeOrderWithStage();

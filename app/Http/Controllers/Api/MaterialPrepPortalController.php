@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\MaterialPrep\AssignSupplier;
+use App\Http\Requests\MaterialPrep\SaveMaterialRequirement;
+use App\Models\Order;
 use App\Services\MaterialPrepPortalService;
+use App\Services\MaterialPrepRequirementService;
 use Illuminate\Http\Request;
 
 /**
@@ -25,6 +28,7 @@ class MaterialPrepPortalController extends Controller
 {
     public function __construct(
         protected MaterialPrepPortalService $service,
+        protected MaterialPrepRequirementService $requirements,
     ) {
     }
 
@@ -61,5 +65,39 @@ class MaterialPrepPortalController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    // ── Change 18: order material requirements at the Material Prep stage ──
+
+    /** Orders currently sitting at the Material Prep (mass) stage. */
+    public function ordersAtStage()
+    {
+        return response()->json([
+            'data' => $this->requirements->ordersAtMaterialPrep(),
+        ]);
+    }
+
+    /** Requirement state for an order (saved requirement, else a suggestion). */
+    public function orderRequirements(int $orderId)
+    {
+        $order = Order::findOrFail($orderId);
+
+        return response()->json([
+            'data' => $this->requirements->stateForOrder($order),
+        ]);
+    }
+
+    /** Save the confirmed requirement → create MR + auto-process (Auto-PR). */
+    public function saveOrderRequirements(SaveMaterialRequirement $request, int $orderId)
+    {
+        $order = Order::findOrFail($orderId);
+
+        $result = $this->requirements->saveForOrder(
+            $order,
+            $request->validated()['items'],
+            $request->user(),
+        );
+
+        return response()->json(['data' => $result], 201);
     }
 }

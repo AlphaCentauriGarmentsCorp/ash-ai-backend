@@ -14,11 +14,11 @@ use Illuminate\Validation\ValidationException;
  * Phase 5-D — Switches a stage between in-house and subcontract.
  *
  * Eligible stages (flippable):
- *   - sample_creation
- *   - mass_production
+ *   - sample_cutting / sample_printing / sample_sewing
+ *   - mass_cutting / mass_printing / mass_sewing
  *   - screen_making
- *   - quality_control
- *   - packing
+ *   - mass_qa
+ *   - sample_packing / mass_packing
  *
  * Other stages (inquiry, quotation, payment_verification, delivery, etc.)
  * are NOT flippable — they're either intrinsically in-house (CSR work)
@@ -47,11 +47,16 @@ class StageServiceTypeService
      * Stages where in-house vs subcontract makes sense.
      */
     public const FLIPPABLE_STAGES = [
-        'sample_creation',
-        'mass_production',
+        'sample_cutting',
+        'sample_printing',
+        'sample_sewing',
+        'mass_cutting',
+        'mass_printing',
+        'mass_sewing',
         'screen_making',
-        'quality_control',
-        'packing',
+        'mass_qa',
+        'sample_packing',
+        'mass_packing',
     ];
 
     /**

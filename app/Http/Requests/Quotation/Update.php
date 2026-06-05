@@ -169,7 +169,7 @@ class Update extends FormRequest
                 // and the pricing engine defaults missing values to 0.
                 $optionalNumericFields = [
                     'color_count', 'price_per_color', 'full_color_count', 'price_per_full_color',
-                    'unit_count', 'full_unit_count', 'width', 'height', 'pieces',
+                    'unit_count', 'full_unit_count', 'num_colors', 'width', 'height', 'pieces',
                 ];
                 foreach ($optionalNumericFields as $numericField) {
                     if (! array_key_exists($numericField, $part)) {

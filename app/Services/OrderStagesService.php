@@ -115,7 +115,7 @@ class OrderStagesService
                     continue;
                 }
 
-                $sequence = $idx + 1;
+                $sequence = $stage['seq'];
 
                 // Default everything new to pending. The first canonical
                 // stage gets set to in_progress only when this is a
@@ -156,32 +156,20 @@ class OrderStagesService
 
             // 5. Make sure every existing row has the right sequence number
             //    (in case a legacy row was kept but its sequence was 0).
-            foreach (WorkflowStages::all() as $idx => $stage) {
+            foreach (WorkflowStages::all() as $stage) {
                 OrderStage::where('order_id', $order->id)
                     ->where('stage', $stage['key'])
-                    ->where('sequence', '!=', $idx + 1)
-                    ->update(['sequence' => $idx + 1]);
+                    ->where('sequence', '!=', $stage['seq'])
+                    ->update(['sequence' => $stage['seq']]);
             }
 
-            // 6. If no stage is in_progress yet (e.g. an order that was
-            //    fully pruned to just pending stages), promote the first
-            //    pending one.
-            $anyInProgress = OrderStage::where('order_id', $order->id)
-                ->where('status', OrderStage::STATUS_IN_PROGRESS)
-                ->exists();
-
-            if (! $anyInProgress) {
-                $firstPending = OrderStage::where('order_id', $order->id)
-                    ->where('status', OrderStage::STATUS_PENDING)
-                    ->orderBy('sequence')
-                    ->first();
-                if ($firstPending) {
-                    $firstPending->update([
-                        'status'     => OrderStage::STATUS_IN_PROGRESS,
-                        'started_at' => now(),
-                    ]);
-                }
-            }
+            // 6. Promote whatever tier is now eligible. This handles the
+            //    normal "start stage 1" case AND a parallel fork tier, and is
+            //    idempotent: nextActivations() returns [] when a stage is
+            //    already active, or when a fork branch is still waiting on its
+            //    sibling. (On a fresh order, step 4's $shouldStartFirst has
+            //    already started inquiry, so this is a no-op there.)
+            $this->promoteEligible($order);
 
             // Phase 4 — write a 'started' audit row for any stage that's
             // now in_progress but doesn't have one yet. Covers both the
@@ -243,8 +231,65 @@ class OrderStagesService
     }
 
     /**
+     * Promote every stage that is now eligible to start, using the pure
+     * fork-join brain in WorkflowStages::nextActivations(). Promotes 0..n
+     * stages (n>1 only at the sample-phase parallel fork). Idempotent.
+     *
+     * MUST be called inside a DB transaction (it writes stage + audit rows).
+     *
+     * @return array<int, OrderStage> the newly-started stages, lowest tier first
+     */
+    protected function promoteEligible(Order $order): array
+    {
+        $stages = OrderStage::where('order_id', $order->id)->get();
+
+        $statusBySlug = [];
+        foreach ($stages as $s) {
+            $statusBySlug[$s->stage] = $s->status;
+        }
+
+        $toStart = WorkflowStages::nextActivations($statusBySlug);
+        if (empty($toStart)) {
+            return [];
+        }
+
+        $promoted = [];
+        foreach ($toStart as $slug) {
+            $row = $stages->firstWhere('stage', $slug);
+            if ($row && $row->status === OrderStage::STATUS_PENDING) {
+                $row->update([
+                    'status'     => OrderStage::STATUS_IN_PROGRESS,
+                    'started_at' => now(),
+                ]);
+
+                $this->writeAudit(
+                    $row->fresh(),
+                    StageAuditLog::ACTION_STARTED,
+                    OrderStage::STATUS_PENDING,
+                    OrderStage::STATUS_IN_PROGRESS,
+                    null,
+                );
+
+                $promoted[] = $row->fresh();
+            }
+        }
+
+        // Lowest tier first, so callers can treat $promoted[0] as the primary
+        // next stage while still seeing every started branch.
+        usort($promoted, static fn ($a, $b) => $a->sequence <=> $b->sequence);
+
+        return $promoted;
+    }
+
+    /**
      * Returns the currently active stage for an Order (the one in_progress
      * or for_approval). Falls back to the first non-completed stage.
+     *
+     * During the sample-phase fork TWO stages are in_progress at once
+     * (tier 6: screen_making + material_prep_sample). This returns the
+     * lowest-tier one deterministically (sequence, then id) so the cached
+     * Order.workflow_status is stable; the full timeline still exposes both
+     * via the order_stages list.
      */
     public function getCurrentStage(int $orderId): ?OrderStage
     {
@@ -254,10 +299,12 @@ class OrderStagesService
                 OrderStage::STATUS_FOR_APPROVAL,
             ])
             ->orderBy('sequence')
+            ->orderBy('id')
             ->first()
             ?: OrderStage::where('order_id', $orderId)
                 ->where('status', '!=', OrderStage::STATUS_COMPLETED)
                 ->orderBy('sequence')
+                ->orderBy('id')
                 ->first();
     }
 
@@ -318,46 +365,40 @@ class OrderStagesService
                 $notes,
             );
 
-            // Promote the next pending stage to in_progress.
-            $next = OrderStage::where('order_id', $stage->order_id)
-                ->where('sequence', '>', $stage->sequence)
-                ->orderBy('sequence')
-                ->first();
+            // Promote the next ELIGIBLE tier. For a normal stage this is the
+            // single next stage; at the graphic_artwork → (screen_making ‖
+            // material_prep_sample) fork it promotes BOTH branches at once;
+            // at the join (sample_cutting) it promotes nothing until both
+            // branches have completed.
+            $order = Order::find($stage->order_id);
+            $promoted = $order ? $this->promoteEligible($order) : [];
 
-            if ($next) {
-                if ($next->status === OrderStage::STATUS_PENDING) {
-                    $next->update([
-                        'status'     => OrderStage::STATUS_IN_PROGRESS,
-                        'started_at' => now(),
-                    ]);
-
-                    $this->writeAudit(
-                        $next->fresh(),
-                        StageAuditLog::ACTION_STARTED,
-                        OrderStage::STATUS_PENDING,
-                        OrderStage::STATUS_IN_PROGRESS,
-                        null,
-                    );
-                }
-            }
+            // "Last stage" = no remaining non-completed stage anywhere in the
+            // workflow. An empty $promoted does NOT imply completion — a fork
+            // branch may simply be waiting on its sibling.
+            $remaining = OrderStage::where('order_id', $stage->order_id)
+                ->where('status', '!=', OrderStage::STATUS_COMPLETED)
+                ->exists();
 
             // Refresh cached current_stage_id + workflow_status on the order
-            $order = Order::find($stage->order_id);
             if ($order) {
                 $this->refreshOrderCache($order);
             }
 
             return [
-                'order' => $order,
-                'next'  => $next?->fresh(),
-                'wasLastStage' => $next === null,
+                'order'        => $order,
+                'promoted'     => $promoted,
+                'next'         => $promoted[0] ?? null,
+                'wasLastStage' => ! $remaining,
             ];
         });
 
         // Notifications fire AFTER the transaction so we don't block the
         // commit and so we don't roll them back on a hypothetical retry.
-        if ($result['next']) {
-            $this->notifications->stageInProgress($result['next']);
+        // Notify EVERY newly-started stage — at the fork this is both the
+        // Screen Maker and Material Prep branches.
+        foreach ($result['promoted'] as $startedStage) {
+            $this->notifications->stageInProgress($startedStage);
         }
 
         if ($result['wasLastStage'] && $result['order']) {

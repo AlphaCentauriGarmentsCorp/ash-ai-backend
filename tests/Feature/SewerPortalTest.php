@@ -7,7 +7,7 @@
  *   php artisan test --filter=SewerPortalTest
  *
  * Coverage:
- *   1. buildContext returns full payload for an active sample_creation
+ *   1. buildContext returns full payload for an active sample_sewing
  *   2. buildContext rejects stages outside sewer scope
  *   3. buildContext rejects unknown stage
  *   4. buildContext returns subcontract info when service_type=subcontract
@@ -58,6 +58,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('x');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -273,7 +274,7 @@ function phase5e_makeUser(string $name, array $permissions = []): User
     return User::find($id);
 }
 
-function phase5e_makeStage(string $stageSlug = 'sample_creation', string $serviceType = 'in_house', string $status = 'in_progress'): array
+function phase5e_makeStage(string $stageSlug = 'sample_sewing', string $serviceType = 'in_house', string $status = 'in_progress'): array
 {
     $orderId = DB::table('orders')->insertGetId([
         'po_code' => 'ASH-SW-' . uniqid(),
@@ -308,7 +309,7 @@ function phase5e_makeStage(string $stageSlug = 'sample_creation', string $servic
 
 // ─── SewerPortalService tests ──────────────────────────────────
 
-it('builds full context for an active sample_creation stage', function () {
+it('builds full context for an active sample_sewing stage', function () {
     $made = phase5e_makeStage();
 
     $svc = new SewerPortalService();
@@ -345,7 +346,7 @@ it('rejects context for an unknown stage', function () {
 });
 
 it('returns subcontract info when service_type is subcontract', function () {
-    $made = phase5e_makeStage('sample_creation', 'subcontract');
+    $made = phase5e_makeStage('sample_sewing', 'subcontract');
 
     $vendorId = DB::table('subcontractors')->insertGetId([
         'name' => 'Lita Garments',

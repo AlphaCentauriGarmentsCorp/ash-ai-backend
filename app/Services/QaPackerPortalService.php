@@ -42,7 +42,7 @@ class QaPackerPortalService
     /**
      * Stage slugs the QA/Packer portal serves.
      */
-    public const ELIGIBLE_STAGES = ['quality_control', 'packing'];
+    public const ELIGIBLE_STAGES = ['mass_qa', 'sample_packing', 'mass_packing'];
 
     /**
      * How many recent audit entries to include in the activity feed.

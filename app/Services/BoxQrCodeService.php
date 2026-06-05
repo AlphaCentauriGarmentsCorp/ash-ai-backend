@@ -128,10 +128,10 @@ class BoxQrCodeService
             ]);
         }
 
-        // "Before submit" guard: find the order's packing stage and
+        // "Before submit" guard: find the order's (mass) packing stage and
         // ensure it isn't completed yet.
         $packingStage = OrderStage::where('order_id', $box->order_id)
-            ->where('stage', 'packing')
+            ->where('stage', 'mass_packing')
             ->first();
 
         if ($packingStage && $packingStage->status === OrderStage::STATUS_COMPLETED) {

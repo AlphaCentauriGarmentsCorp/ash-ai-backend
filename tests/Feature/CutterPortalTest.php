@@ -7,7 +7,7 @@
  *   php artisan test --filter=CutterPortalTest
  *
  * Coverage:
- *   1. buildContext() returns full payload for an active sample_creation stage
+ *   1. buildContext() returns full payload for an active sample_cutting stage
  *   2. buildContext() rejects stages outside cutter scope (e.g., quotation)
  *   3. buildContext() rejects a stage that doesn't exist
  *   4. FabricLogService creates a log with correct auto-computed remaining
@@ -58,6 +58,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('x');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -237,7 +238,7 @@ function phase5b_makeUser(string $name, array $permissions = []): User
     return User::find($id);
 }
 
-function phase5b_makeOrderWithStage(string $stageSlug = 'sample_creation', string $status = 'in_progress'): array
+function phase5b_makeOrderWithStage(string $stageSlug = 'sample_cutting', string $status = 'in_progress'): array
 {
     $orderId = DB::table('orders')->insertGetId([
         'po_code' => 'ASH-CT-' . uniqid(),
@@ -276,7 +277,7 @@ function phase5b_makeOrderWithStage(string $stageSlug = 'sample_creation', strin
 
 // ─── CutterPortalService tests ────────────────────────────────────
 
-it('builds full context for an active sample_creation stage', function () {
+it('builds full context for an active sample_cutting stage', function () {
     $made = phase5b_makeOrderWithStage();
 
     $svc = new CutterPortalService();
@@ -358,7 +359,7 @@ it('rejects fabric log against a non-active stage', function () {
     $user = phase5b_makeUser('Cutter', ['stage_inputs.log_waste']);
     Auth::login($user);
 
-    $made = phase5b_makeOrderWithStage('sample_creation', 'pending');
+    $made = phase5b_makeOrderWithStage('sample_cutting', 'pending');
 
     $svc = new FabricLogService();
 

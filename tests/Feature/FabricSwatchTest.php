@@ -47,6 +47,7 @@ beforeEach(function () {
         $t->text('domain_role')->nullable();
         $t->text('domain_access')->nullable();
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('suppliers', function (Blueprint $t) {

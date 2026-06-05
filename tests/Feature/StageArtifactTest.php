@@ -163,7 +163,7 @@ it('shows only the latest version of a design file kind', function () {
 
 it('expands qa final photos json into artifacts', function () {
     $o = art_order();
-    $qa = art_stage($o, 'quality_control', 13);
+    $qa = art_stage($o, 'mass_qa', 13);
 
     DB::table('qa_packer_task_completions')->insert([
         'order_id' => $o->id, 'order_stage_id' => $qa->id, 'submitted_by_user_id' => 1,

@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\PatternTypeController;
 use App\Http\Controllers\Api\ApparelTypeController;
 use App\Http\Controllers\Api\ApparelPartController;
 use App\Http\Controllers\Api\ServiceTypeController;
+use App\Http\Controllers\Api\FabricTypeController;
 use App\Http\Controllers\Api\PrintMethodController;
 use App\Http\Controllers\Api\SpecialPrintController;
 use App\Http\Controllers\Api\SizeLabelController;
@@ -66,6 +67,7 @@ use App\Http\Controllers\Api\MaterialPrepPortalController;
 use App\Http\Controllers\Api\GraphicArtistPortalController;
 use App\Http\Controllers\Api\LogisticsPortalController;
 use App\Http\Controllers\Api\CsrDashboardController;
+use App\Http\Controllers\Api\DashboardApprovalsController;
 use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\OrderPaymentController;
 use App\Http\Controllers\Api\ClientApprovalController;
@@ -205,6 +207,15 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/service-type')->middleware('permission:access.dropdown-settings')->controller(ServiceTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show');
+            Route::put('/{id}', 'update');
+            Route::delete('/{id}', 'destroy');
+        });
+
+        // Change 7.1 — Fabric Type managed dropdown (mirrors service-type).
+        Route::prefix('/fabric-type')->middleware('permission:access.dropdown-settings')->controller(FabricTypeController::class)->group(function () {
             Route::get('/', 'index');
             Route::post('/', 'store');
             Route::get('/{id}', 'show');
@@ -388,6 +399,21 @@ Route::prefix('v2')->group(function () {
             });
         });
 
+        // ── Dashboard: Pending Approvals queue (Change 1B) ─────────────
+        // Surfaces every order awaiting a Payment Verification gate and lets
+        // an approver Approve / Reject / Hold in one click. Gated by
+        // action.verify-payment (Finance / Superadmin / Admin) — the same
+        // integrity control as Change 17, so CSR never reaches these actions.
+        Route::prefix('/dashboard')
+            ->middleware('permission:action.verify-payment')
+            ->controller(DashboardApprovalsController::class)
+            ->group(function () {
+                Route::get('/pending-approvals', 'index');
+                Route::post('/pending-approvals/{payment}/approve', 'approve')->whereNumber('payment');
+                Route::post('/pending-approvals/{payment}/reject', 'reject')->whereNumber('payment');
+                Route::post('/pending-approvals/{payment}/hold', 'hold')->whereNumber('payment');
+            });
+
         // ── Notifications (Phase 2) ────────────────────────────────────
         // All endpoints are scoped to the current user automatically.
         // No special permission required – every authenticated user can
@@ -535,7 +561,17 @@ Route::prefix('v2')->group(function () {
         // Slugs accept either underscores (cutter, screen_maker) or
         // hyphens (graphic-artist, screen-maker) — both map to the
         // same backend role.
+        // Change 3 — sidebar badge counts (per-portal active-task totals,
+        // pre-filtered to what the current user may see). Self-scoping, so
+        // it needs auth only — no per-portal permission. Declared before the
+        // /portal/{role}/... wildcard so 'badge-counts' is never read as a role.
+        Route::get('/portal/badge-counts', [PortalController::class, 'badgeCounts']);
+
         Route::get('/portal/{role}/my-active', [PortalController::class, 'myActive'])
+            ->where('role', '[a-z_-]+');
+
+        // Change 2 — the role's full "My Active Tasks" queue for the user.
+        Route::get('/portal/{role}/my-active-tasks', [PortalController::class, 'myActiveTasks'])
             ->where('role', '[a-z_-]+');
 
         // ── Cutter Portal (Phase 5-B) ─────────────────────────────────
@@ -653,6 +689,11 @@ Route::prefix('v2')->group(function () {
                 Route::get('/active-prs',          'myActive');
                 Route::get('/context/{prId}',      'showContext')->whereNumber('prId');
                 Route::patch('/{prId}/supplier',   'assignSupplier')->whereNumber('prId');
+
+                // Change 18 — order material requirements at the Material Prep stage.
+                Route::get('/orders',                       'ordersAtStage');
+                Route::get('/order/{orderId}/requirements', 'orderRequirements')->whereNumber('orderId');
+                Route::post('/order/{orderId}/requirements','saveOrderRequirements')->whereNumber('orderId');
             });
 
         // ── Graphic Artist Portal (Phase 5-H) ─────────────────────────
@@ -722,10 +763,11 @@ Route::prefix('v2')->group(function () {
                         ->name('csr.inquiries.convertToQuotation');
                 });
 
-                // Order Payments (LIST + UPLOAD only — verify is split below)
+                // Order Payments — CSR is READ-ONLY (list only). Upload + verify
+                // are Finance-only under /finance/payments (Change 17 follow-up:
+                // Finance uploads + verifies; CSR may only view payment status).
                 Route::prefix('/payments')->controller(OrderPaymentController::class)->group(function () {
                     Route::get('/',                'index');
-                    Route::post('/',               'store');
                 });
 
                 // Client Approvals
@@ -757,6 +799,20 @@ Route::prefix('v2')->group(function () {
                 Route::patch('/payments/{id}/verify', [OrderPaymentController::class, 'verify'])
                     ->whereNumber('id')
                     ->name('csr.payments.verify');
+            });
+
+        // ── Finance: dedicated Payments page (list + upload + verify) ──
+        // Gated by action.verify-payment so Finance / Superadmin / Admin reach
+        // it WITHOUT portal.csr. This is where payment proof is uploaded and
+        // verified; the CSR view (above) is read-only.
+        Route::prefix('/finance/payments')
+            ->middleware('permission:action.verify-payment')
+            ->controller(OrderPaymentController::class)
+            ->group(function () {
+                Route::get('/',              'index');
+                Route::post('/',             'store');
+                Route::patch('/{id}/verify', 'verify')->whereNumber('id')
+                    ->name('finance.payments.verify');
             });
 
         Route::prefix('/graphic-design')->middleware('permission:access.graphic-design')->controller(GraphicDesignController::class)->group(function () {
@@ -902,6 +958,66 @@ Route::prefix('v2')->group(function () {
         });
 
         Route::prefix('/special-print')->controller(SpecialPrintController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+
+        // ── Reference-dropdown READ access for order/quotation forms ──────────
+        // The managed-dropdown groups above gate EVERY verb behind
+        // access.dropdown-settings (a settings-management permission). Reading
+        // the lists is needed by anyone filling an order/quotation (CSR, etc.),
+        // so — mirroring the apparel-neckline / special-print read routes above
+        // — these GETs are registered AFTER the gated groups so they win
+        // (Laravel keys routes by method+URI; the later registration overrides)
+        // and require only authentication. The write verbs above stay gated.
+        Route::prefix('/pattern-type')->controller(PatternTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/apparel-type')->controller(ApparelTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/apparel-parts')->controller(ApparelPartController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/service-type')->controller(ServiceTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/fabric-type')->controller(FabricTypeController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/print-method')->controller(PrintMethodController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/size-label')->controller(SizeLabelController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/print-label-placement')->controller(PrintLabelPlacementController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/freebie')->controller(FreebieController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/placement-measurement')->controller(PlacementMeasurementController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        Route::prefix('/additional-option')->controller(AdditionalOptionController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::get('/{id}', 'show');
+        });
+        // Material suppliers: the Fabric Supplier field on the order/quotation
+        // forms needs this list. Reads open to any authenticated user; writes
+        // stay behind access.suppliers (the gated /supplier group above).
+        Route::prefix('/supplier')->controller(SupplierController::class)->group(function () {
             Route::get('/', 'index');
             Route::get('/{id}', 'show');
         });

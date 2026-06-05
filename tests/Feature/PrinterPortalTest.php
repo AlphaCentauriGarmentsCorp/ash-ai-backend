@@ -7,7 +7,7 @@
  *   php artisan test --filter=PrinterPortalTest
  *
  * Coverage:
- *   1. buildContext returns full payload for active sample_creation
+ *   1. buildContext returns full payload for active sample_printing
  *   2. buildContext rejects stages outside printer scope
  *   3. buildContext rejects unknown stage
  *   4. InkLogService creates with auto-computed remaining (3 decimals)
@@ -55,6 +55,7 @@ beforeEach(function () {
         $t->string('email')->unique();
         $t->string('password')->default('x');
         $t->timestamps();
+        $t->softDeletes(); // User model uses SoftDeletes
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -261,7 +262,7 @@ function phase5c_makeUser(string $name, array $permissions = []): User
     return User::find($id);
 }
 
-function phase5c_makeOrderWithStage(string $stageSlug = 'sample_creation', string $status = 'in_progress'): array
+function phase5c_makeOrderWithStage(string $stageSlug = 'sample_printing', string $status = 'in_progress'): array
 {
     $orderId = DB::table('orders')->insertGetId([
         'po_code' => 'ASH-PT-' . uniqid(),
@@ -297,7 +298,7 @@ function phase5c_makeOrderWithStage(string $stageSlug = 'sample_creation', strin
 
 // ─── PrinterPortalService tests ───────────────────────────────
 
-it('builds full context for an active sample_creation stage', function () {
+it('builds full context for an active sample_printing stage', function () {
     $made = phase5c_makeOrderWithStage();
 
     $svc = new PrinterPortalService();
@@ -378,7 +379,7 @@ it('rejects ink log against a non-active stage', function () {
     $user = phase5c_makeUser('Printer', ['stage_inputs.log_waste']);
     Auth::login($user);
 
-    $made = phase5c_makeOrderWithStage('sample_creation', 'pending');
+    $made = phase5c_makeOrderWithStage('sample_printing', 'pending');
 
     $svc = new InkLogService();
 
