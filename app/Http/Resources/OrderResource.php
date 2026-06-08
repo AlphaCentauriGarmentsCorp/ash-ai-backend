@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\OrderPayment;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -70,6 +71,10 @@ class OrderResource extends JsonResource
             // Status + Phase 1 workflow
             'status'           => $this->status,
             'workflow_status'  => $this->workflow_status,
+            'is_incomplete'    => (bool) $this->is_incomplete,
+            'incomplete_fields'=> $this->incomplete_fields ?? [],
+            // Editable until the order enters production (no verified payment).
+            'is_editable'      => $this->editableNow(),
             'current_stage_id' => $this->current_stage_id,
             'delayed_at'       => $this->delayed_at?->toDateTimeString(),
 
@@ -91,7 +96,7 @@ class OrderResource extends JsonResource
             // We expose them as null since the columns no longer exist.
             // Removing these keys would crash the pages outright; nulling
             // them out lets the pages render empty until they're rebuilt.
-            'brand'                  => null,
+            'brand'                  => $this->brand,
             'priority'               => $this->priority,
             'deadline'               => $this->deadline,
             'courier'                => $this->courier,
@@ -141,5 +146,26 @@ class OrderResource extends JsonResource
             'size_label_files'       => null,
             'freebies_files'         => null,
         ];
+    }
+
+    /**
+     * Whether the order may still be edited — true until it enters
+     * production, i.e. until a payment has been verified (the chokepoint
+     * that advances it past the gate). Uses the withCount alias when the
+     * caller provided it (list view) to avoid an N+1, else a relation/query.
+     */
+    private function editableNow(): bool
+    {
+        if (isset($this->resource->verified_payments_count)) {
+            return (int) $this->resource->verified_payments_count === 0;
+        }
+        if ($this->resource->relationLoaded('payments')) {
+            return ! $this->resource->payments->contains(
+                fn ($p) => $p->status === OrderPayment::STATUS_VERIFIED
+            );
+        }
+        return ! $this->resource->payments()
+            ->where('status', OrderPayment::STATUS_VERIFIED)
+            ->exists();
     }
 }

@@ -83,6 +83,13 @@ class StoreOrderRequest extends FormRequest
             'samples' => 'nullable',
             'selectedOptions' => 'nullable',
 
+            // Change 11 — superadmin override. The role gate is enforced in
+            // OrdersController; here we only shape the inputs. `incomplete_fields`
+            // is the list of SOFT-required fields the superadmin chose to skip.
+            'override_incomplete' => 'nullable|boolean',
+            'incomplete_fields'   => 'nullable|array',
+            'incomplete_fields.*' => 'string|max:64',
+
             // Legacy form fields — accepted but not stored on Order
             'priority' => 'nullable|string',
             'deadline' => 'nullable|date',
@@ -131,7 +138,7 @@ class StoreOrderRequest extends FormRequest
         foreach ([
             'sizes', 'samples', 'selectedOptions',
             'item_config_json', 'items_json', 'addons_json',
-            'breakdown_json', 'print_parts_json',
+            'breakdown_json', 'print_parts_json', 'incomplete_fields',
         ] as $key) {
             $value = $this->input($key);
             if (is_string($value) && $value !== '') {

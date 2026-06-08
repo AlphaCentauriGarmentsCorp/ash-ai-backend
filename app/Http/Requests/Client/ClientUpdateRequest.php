@@ -30,18 +30,20 @@ class ClientUpdateRequest extends FormRequest
             'email'            => 'sometimes|email|max:255',
             'contact_number'   => 'sometimes|string|min:10|max:15',
 
-            // Address
-            'street_address'   => 'sometimes|string|max:255',
-            'city'             => 'sometimes|string|max:255',
-            'province'         => 'sometimes|string|max:255',
-            'barangay'         => 'sometimes|string|max:255',
-            'postal_code'      => 'sometimes|string|max:10',
+            // Address — nullable so a cleared/empty optional field (which the
+            // global ConvertEmptyStringsToNull middleware turns into null)
+            // passes instead of failing the `string` rule with a 422.
+            'street_address'   => 'sometimes|nullable|string|max:255',
+            'city'             => 'sometimes|nullable|string|max:255',
+            'province'         => 'sometimes|nullable|string|max:255',
+            'barangay'         => 'sometimes|nullable|string|max:255',
+            'postal_code'      => 'sometimes|nullable|string|max:10',
 
-            'courier'          => 'sometimes|string|max:255',
-            'method'           => 'sometimes|string|max:255',
+            'courier'          => 'sometimes|nullable|string|max:255',
+            'method'           => 'sometimes|nullable|string|max:255',
 
             // Optional
-            'notes'            => 'sometimes|string',
+            'notes'            => 'sometimes|nullable|string',
 
             // Brands array
             'brands'           => 'sometimes|array|min:1',

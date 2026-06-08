@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\BusinessRuleException;
 use App\Models\Order;
 use App\Models\OrderPayment;
 use App\Models\OrderStage;
@@ -64,6 +65,21 @@ class PendingApprovalsService
      */
     public function approve(int $paymentId): array
     {
+        // Change 11 (gate): an order saved as Incomplete via the superadmin
+        // "save anyway" override must have its missing details completed before
+        // it can be approved into production. Block here — the payment-
+        // verification gate is the single chokepoint that activates the
+        // production pipeline, so refusing it keeps the order parked.
+        $pending = OrderPayment::with('order')->findOrFail($paymentId);
+        if ($pending->order && $pending->order->is_incomplete) {
+            throw new BusinessRuleException(
+                'This order has missing details and must be completed before it can be approved.',
+                'ORDER_INCOMPLETE',
+                422,
+                ['order' => 'Order is marked incomplete.'],
+            );
+        }
+
         $payment = $this->payments->verify($paymentId, OrderPayment::STATUS_VERIFIED);
 
         $advancedTo = null;

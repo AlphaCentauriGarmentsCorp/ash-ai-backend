@@ -217,6 +217,9 @@ class CsrDashboardService
                 'rush_order'      => (bool) $o->rush_order,
                 'deadline'        => optional($o->deadline)->toDateString(),
                 'created_at'      => $o->created_at?->toIso8601String(),
+                // Change 11: surface the incomplete flag for the portal badge.
+                'is_incomplete'    => (bool) $o->is_incomplete,
+                'incomplete_fields' => $o->incomplete_fields ?? [],
             ])
             ->all();
     }

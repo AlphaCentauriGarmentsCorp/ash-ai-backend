@@ -98,8 +98,13 @@
             padding: 8px;
             border-radius: 4px;
             margin-bottom: 12px;
-            display: flex;
-            justify-content: space-between;
+        }
+
+        .client-info,
+        .order-info {
+            display: inline-block;
+            width: 48%;
+            vertical-align: top;
         }
 
         .client-info h3,
@@ -223,7 +228,7 @@
         }
 
         .summary-box {
-            width: 220px;
+            width: 100%;
             border: 0.5px solid #E5E7EB;
             border-radius: 4px;
             overflow: hidden;
@@ -279,12 +284,31 @@
         }
 
         .payment-item {
-            flex: 1;
             text-align: center;
             padding: 6px;
             background: white;
             border-radius: 4px;
             border: 0.5px solid #E5E7EB;
+            margin-bottom: 6px;
+        }
+
+        .pay-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .pay-col {
+            vertical-align: top;
+            padding: 0;
+        }
+
+        .pay-col-left {
+            width: 44%;
+            padding-right: 10px;
+        }
+
+        .pay-col-right {
+            width: 56%;
         }
 
         .payment-label {
@@ -401,6 +425,47 @@
                 display: none;
             }
         }
+        /* Change 5 — design/mockup + proof-of-payment image sections */
+        .assets-section {
+            margin-bottom: 12px;
+        }
+
+        .assets-title {
+            font-size: 9px;
+            font-weight: bold;
+            color: #1F2937;
+            border-bottom: 0.5px solid #E5E7EB;
+            padding-bottom: 3px;
+            margin-bottom: 6px;
+        }
+
+        .asset-card {
+            display: inline-block;
+            vertical-align: top;
+            width: 140px;
+            margin: 0 8px 8px 0;
+            text-align: center;
+        }
+
+        .asset-img {
+            width: 140px;
+            height: auto;
+            border: 0.5px solid #E5E7EB;
+            border-radius: 4px;
+            background: #FAFAFA;
+        }
+
+        .asset-label {
+            font-size: 7px;
+            font-weight: bold;
+            color: #374151;
+            margin-top: 3px;
+        }
+
+        .asset-meta {
+            font-size: 6px;
+            color: #777;
+        }
     </style>
 </head>
 
@@ -456,6 +521,30 @@
                 @endif
             </div>
         </div>
+
+        {{-- Change 5: Design and Mockups. Omitted when nothing resolves. --}}
+        @if (!empty($mockups) || !empty($designAssets))
+            <div class="assets-section">
+                <div class="assets-title">Design &amp; Mockups</div>
+                <div>
+                    @foreach ($mockups as $m)
+                        <div class="asset-card">
+                            <img class="asset-img" src="{{ $m['src'] }}" alt="{{ $m['label'] }}">
+                            <div class="asset-label">{{ $m['label'] }}</div>
+                            @if (!empty($m['meta']))
+                                <div class="asset-meta">{{ $m['meta'] }}</div>
+                            @endif
+                        </div>
+                    @endforeach
+                    @foreach ($designAssets as $a)
+                        <div class="asset-card">
+                            <img class="asset-img" src="{{ $a['src'] }}" alt="{{ $a['label'] }}">
+                            <div class="asset-label">{{ $a['label'] }}</div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
 
         <!-- Items Table -->
         <table class="items-table">
@@ -575,50 +664,77 @@
         @endif
 
         <!-- Summary -->
-        <div class="summary-section">
-            <div class="summary-box">
-                <div class="summary-row">
-                    <span class="summary-label">Subtotal:</span>
-                    <span class="summary-value">₱{{ number_format($quotation->subtotal, 2) }}</span>
-                </div>
-
-                @if ($quotation->discount_price > 0)
-                    <div class="summary-row discount">
-                        <span class="summary-label">
-                            Discount ({{ ucfirst($quotation->discount_type) }}):
-                            @if ($quotation->discount_type == 'percentage')
-                                ({{ $quotation->discount_price }}% off)
-                            @endif
-                        </span>
-                        <span class="summary-value">
-                            -₱{{ number_format($quotation->discount_price, 2) }}
-                        </span>
-                    </div>
-                @endif
-
-                <div class="summary-row total">
-                    <span class="summary-label">Grand Total:</span>
-                    <span class="summary-value">₱{{ number_format($quotation->grand_total, 2) }}</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Payment Summary -->
+        <!-- Payment Summary (totals + schedule) -->
         <div class="payment-section">
             <div class="payment-title">Payment Summary</div>
-            <div class="payment-grid">
-                <div class="payment-item">
-                    <div class="payment-label">Downpayment (60%)</div>
-                    <div class="payment-amount">₱{{ number_format($quotation->grand_total * 0.6, 2) }}</div>
-                    <div class="text-muted">Due upon order confirmation</div>
-                </div>
-                <div class="payment-item">
-                    <div class="payment-label">Balance (40%)</div>
-                    <div class="payment-amount">₱{{ number_format($quotation->grand_total * 0.4, 2) }}</div>
-                    <div class="text-muted">Due upon delivery</div>
+            <table class="pay-table">
+                <tr>
+                    <td class="pay-col pay-col-left">
+                        <div class="summary-box">
+                            <div class="summary-row">
+                                <span class="summary-label">Subtotal:</span>
+                                <span class="summary-value">₱{{ number_format($quotation->subtotal, 2) }}</span>
+                            </div>
+
+                            @if ($quotation->discount_price > 0)
+                                <div class="summary-row discount">
+                                    <span class="summary-label">
+                                        Discount ({{ ucfirst($quotation->discount_type) }}):
+                                        @if ($quotation->discount_type == 'percentage')
+                                            ({{ $quotation->discount_price }}% off)
+                                        @endif
+                                    </span>
+                                    <span class="summary-value">
+                                        -₱{{ number_format($quotation->discount_price, 2) }}
+                                    </span>
+                                </div>
+                            @endif
+
+                            <div class="summary-row total">
+                                <span class="summary-label">Grand Total:</span>
+                                <span class="summary-value">₱{{ number_format($quotation->grand_total, 2) }}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="pay-col pay-col-right">
+                        <div class="payment-item">
+                            <div class="payment-label">Downpayment (60%)</div>
+                            <div class="payment-amount">₱{{ number_format($quotation->grand_total * 0.6, 2) }}</div>
+                            <div class="text-muted">Due upon order confirmation</div>
+                        </div>
+                        <div class="payment-item">
+                            <div class="payment-label">Balance (40%)</div>
+                            <div class="payment-amount">₱{{ number_format($quotation->grand_total * 0.4, 2) }}</div>
+                            <div class="text-muted">Due upon delivery</div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        {{-- Change 5: Proof of Payment. Verified payments from the converted order. --}}
+        @if (!empty($paymentProofs))
+            <div class="assets-section">
+                <div class="assets-title">Proof of Payment</div>
+                <div>
+                    @foreach ($paymentProofs as $p)
+                        <div class="asset-card">
+                            <img class="asset-img" src="{{ $p['src'] }}" alt="{{ $p['label'] }}">
+                            <div class="asset-label">{{ $p['label'] }}</div>
+                            <div class="asset-meta">
+                                @if (!is_null($p['amount']))₱{{ number_format((float) $p['amount'], 2) }}@endif
+                                @if (!empty($p['ref'])) · Ref: {{ $p['ref'] }}@endif
+                            </div>
+                            @if (!empty($p['verifiedAt']))
+                                <div class="asset-meta">
+                                    Verified {{ \Illuminate\Support\Carbon::parse($p['verifiedAt'])->format('M d, Y') }}
+                                </div>
+                            @endif
+                        </div>
+                    @endforeach
                 </div>
             </div>
-        </div>
+        @endif
 
         <!-- Notes -->
         @if ($quotation->notes)

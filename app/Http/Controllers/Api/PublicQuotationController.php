@@ -8,6 +8,8 @@ use App\Http\Resources\PublicQuotationResource;
 use App\Services\QuotationService;
 use App\Services\QuotationShareTokenService;
 use Illuminate\Support\Facades\Storage;
+use Barryvdh\DomPDF\Facade\Pdf;
+use App\Support\QuotationPdfAssets;
 
 /**
  * Public controller — NO authentication required.
@@ -118,8 +120,15 @@ class PublicQuotationController extends Controller
         $fileName = $quotation->quotation_id . '.pdf';
         $filePath = "quotations/{$fileName}";
 
-        if (!Storage::disk('public')->exists($filePath)) {
-            return response()->json(['message' => 'PDF not found.'], 404);
+        // Regenerate so the shared PDF reflects current mockups + verified
+        // payment proofs (Change 5). Falls back to any existing copy on error.
+        try {
+            $pdf = Pdf::loadView('pdf', QuotationPdfAssets::for($quotation));
+            Storage::disk('public')->put($filePath, $pdf->output());
+        } catch (\Throwable $e) {
+            if (!Storage::disk('public')->exists($filePath)) {
+                return response()->json(['message' => 'PDF not found.'], 404);
+            }
         }
 
         $fullPath = Storage::disk('public')->path($filePath);

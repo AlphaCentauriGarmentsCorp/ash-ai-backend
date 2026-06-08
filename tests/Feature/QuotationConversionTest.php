@@ -19,9 +19,45 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 beforeEach(function () {
-    foreach (['quotation_status_logs', 'quotations', 'apparel_pattern_prices', 'apparel_types', 'pattern_types', 'print_methods'] as $t) {
+    foreach (['quotation_status_logs', 'quotations', 'apparel_pattern_prices', 'apparel_types', 'pattern_types', 'print_methods', 'clients'] as $t) {
         Schema::dropIfExists($t);
     }
+
+    // Change 6 (option B): confirmAndConvert now loads the client master to
+    // carry its granular address into the order payload, so the isolated test
+    // schema needs a minimal clients table + a seeded client (id = 1, which
+    // makeQuotationRow references by default).
+    Schema::create('clients', function (Blueprint $table) {
+        $table->id();
+        $table->string('name');
+        $table->string('email')->nullable();
+        $table->string('contact_number')->nullable();
+        $table->string('address')->nullable();
+        $table->string('street_address')->nullable();
+        $table->string('barangay')->nullable();
+        $table->string('city')->nullable();
+        $table->string('province')->nullable();
+        $table->string('postal_code', 10)->nullable();
+        $table->string('courier')->nullable();
+        $table->string('method')->nullable();
+        $table->text('notes')->nullable();
+        $table->timestamps();
+    });
+
+    DB::table('clients')->insert([
+        'id'             => 1,
+        'name'           => 'Test Client',
+        'email'          => 'client@example.com',
+        'contact_number' => '09171234567',
+        'street_address' => '123 Rizal St',
+        'barangay'       => 'Brgy Uno',
+        'city'           => 'Cebu City',
+        'province'       => 'Cebu',
+        'postal_code'    => '6000',
+        'address'        => '123 Rizal St, Brgy Uno, Cebu City, Cebu, 6000',
+        'created_at'     => now(),
+        'updated_at'     => now(),
+    ]);
 
     Schema::create('apparel_types', function (Blueprint $table) {
         $table->id();
@@ -98,7 +134,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    foreach (['quotation_status_logs', 'quotations', 'apparel_pattern_prices', 'apparel_types', 'pattern_types', 'print_methods'] as $t) {
+    foreach (['quotation_status_logs', 'quotations', 'apparel_pattern_prices', 'apparel_types', 'pattern_types', 'print_methods', 'clients'] as $t) {
         Schema::dropIfExists($t);
     }
 });
@@ -262,4 +298,34 @@ it('handles missing item_config_json gracefully', function () {
 
     // Quotation still gets marked Converted
     expect($quotation->fresh()->status)->toBe('Converted');
+});
+
+it('carries the client master granular address into the order payload (Change 6)', function () {
+    // The client (id = 1) is seeded in beforeEach with a full granular address.
+    $quotation = makeQuotationRow();
+
+    /** @var QuotationService $svc */
+    $svc = app(QuotationService::class);
+    $payload = $svc->confirmAndConvert($quotation->id)['order_payload'];
+
+    // Mapped onto the order form's shipping-block keys.
+    expect($payload['receiver_name'])->toBe('Test Client');
+    expect($payload['contact_number'])->toBe('09171234567');
+    expect($payload['street_address'])->toBe('123 Rizal St');
+    expect($payload['barangay_address'])->toBe('Brgy Uno');
+    expect($payload['city_address'])->toBe('Cebu City');
+    expect($payload['province_address'])->toBe('Cebu');
+    expect($payload['postal_address'])->toBe('6000');
+});
+
+it('returns null address keys when the quotation has no linked client (Change 6)', function () {
+    $quotation = makeQuotationRow(['client_id' => null]);
+
+    /** @var QuotationService $svc */
+    $svc = app(QuotationService::class);
+    $payload = $svc->confirmAndConvert($quotation->id)['order_payload'];
+
+    expect($payload['street_address'])->toBeNull();
+    expect($payload['city_address'])->toBeNull();
+    expect($payload['postal_address'])->toBeNull();
 });

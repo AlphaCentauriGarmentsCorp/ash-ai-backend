@@ -1,0 +1,184 @@
+<?php
+
+use App\Models\Client;
+use App\Models\CsrActivityLog;
+use App\Models\Order;
+use App\Models\OrderPayment;
+use App\Models\PoItem;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
+
+/**
+ * Issue 1 — Edit Order.
+ *
+ * Covers: completing an incomplete order clears the flag (+ audits
+ * order.completed); a superadmin can re-flag during edit; an order that has
+ * entered production (verified payment) can no longer be edited; the PO-item
+ * diff preserves SKUs for unchanged sizes and adds/removes as needed; and the
+ * previously-dropped deadline/priority/brand now persist.
+ *
+ * Helpers are uniquely named (updXxx) — Pest loads all test files in one
+ * process and the other order tests already declare makeOrderUser/etc.
+ */
+
+uses(RefreshDatabase::class);
+
+function updMakeSuperadmin(): User
+{
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    Role::firstOrCreate(['name' => 'superadmin', 'guard_name' => 'web']);
+    $user = User::factory()->create([
+        'username'      => 'upd_' . uniqid(),
+        'domain_role'   => ['superadmin'],
+        'domain_access' => ['ash'],
+    ]);
+    $user->syncRoles(['superadmin']);
+    return $user;
+}
+
+function updMakeClient(): Client
+{
+    return Client::create([
+        'name'           => 'Upd Apparel',
+        'email'          => 'upd@example.com',
+        'contact_number' => '09170000000',
+    ]);
+}
+
+function updPayload(Client $client, array $overrides = []): array
+{
+    return array_merge([
+        'client_id'    => $client->id,
+        'client_name'  => 'Upd Apparel',
+        'client_brand' => 'Upd Brand',
+        'shirt_color'  => 'Black',
+        'design_name'  => 'Logo Tee',
+        'items_json'   => [
+            ['size' => 'M', 'quantity' => 10, 'unit_price' => 250],
+        ],
+        'subtotal'    => 2500,
+        'grand_total' => 2500,
+    ], $overrides);
+}
+
+beforeEach(function () {
+    Storage::fake('public');
+});
+
+it('completes an incomplete order and clears the flag', function () {
+    $super  = updMakeSuperadmin();
+    $client = updMakeClient();
+    $this->actingAs($super, 'sanctum');
+
+    // Create it incomplete.
+    $this->postJson('/api/v2/orders', updPayload($client, [
+        'override_incomplete' => true,
+        'incomplete_fields'   => ['deadline', 'brand', 'priority'],
+    ]))->assertSuccessful();
+
+    $order = Order::latest('id')->first();
+    expect($order->is_incomplete)->toBeTrue();
+
+    // Edit it complete — no override this time, with the formerly-dropped fields.
+    $res = $this->putJson("/api/v2/orders/{$order->id}", updPayload($client, [
+        'deadline' => '2026-07-01',
+        'brand'    => 'Reefer',
+        'priority' => 'high',
+    ]))->assertSuccessful();
+
+    expect($res->json('data.is_incomplete'))->toBeFalse();
+    expect($res->json('data.incomplete_fields'))->toEqual([]);
+
+    $order->refresh();
+    expect($order->is_incomplete)->toBeFalse();
+    expect($order->incomplete_fields)->toBeNull();
+
+    // Previously-dropped columns now persist.
+    expect($order->brand)->toBe('Reefer');
+    expect($order->priority)->toBe('high');
+    expect((string) $order->deadline?->toDateString())->toBe('2026-07-01');
+
+    expect(CsrActivityLog::where('action', 'order.completed')->count())->toBe(1);
+});
+
+it('lets a superadmin re-flag an order during edit', function () {
+    $super  = updMakeSuperadmin();
+    $client = updMakeClient();
+    $this->actingAs($super, 'sanctum');
+
+    $this->postJson('/api/v2/orders', updPayload($client, [
+        'override_incomplete' => true,
+        'incomplete_fields'   => ['deadline'],
+    ]))->assertSuccessful();
+    $order = Order::latest('id')->first();
+
+    $res = $this->putJson("/api/v2/orders/{$order->id}", updPayload($client, [
+        'override_incomplete' => true,
+        'incomplete_fields'   => ['priority', 'brand'],
+    ]))->assertSuccessful();
+
+    expect($res->json('data.is_incomplete'))->toBeTrue();
+    expect($res->json('data.incomplete_fields'))->toEqual(['priority', 'brand']);
+});
+
+it('refuses to edit an order that has entered production', function () {
+    $super  = updMakeSuperadmin();
+    $client = updMakeClient();
+    $this->actingAs($super, 'sanctum');
+
+    $this->postJson('/api/v2/orders', updPayload($client))->assertSuccessful();
+    $order = Order::latest('id')->first();
+
+    // Simulate the order having passed its payment gate into production.
+    OrderPayment::create([
+        'order_id'     => $order->id,
+        'payment_type' => OrderPayment::TYPE_SAMPLE,
+        'amount'       => 500,
+        'status'       => OrderPayment::STATUS_VERIFIED,
+    ]);
+
+    $res = $this->putJson("/api/v2/orders/{$order->id}", updPayload($client, [
+        'design_name' => 'Changed',
+    ]));
+
+    $res->assertStatus(422);
+    expect($res->json('code'))->toBe('ORDER_LOCKED_FOR_EDIT');
+    expect($res->json('type'))->toBe('business');
+});
+
+it('diffs PO items: keeps unchanged size SKUs, adds new, removes gone', function () {
+    $super  = updMakeSuperadmin();
+    $client = updMakeClient();
+    $this->actingAs($super, 'sanctum');
+
+    $this->postJson('/api/v2/orders', updPayload($client))->assertSuccessful();
+    $order = Order::latest('id')->first();
+
+    $mSkuBefore = PoItem::where('order_id', $order->id)->where('size', 'M')->value('sku');
+    expect($mSkuBefore)->not->toBeNull();
+
+    // Add size L, keep M.
+    $this->putJson("/api/v2/orders/{$order->id}", updPayload($client, [
+        'items_json' => [
+            ['size' => 'M', 'quantity' => 10, 'unit_price' => 250],
+            ['size' => 'L', 'quantity' => 5,  'unit_price' => 250],
+        ],
+    ]))->assertSuccessful();
+
+    $mSkuAfter = PoItem::where('order_id', $order->id)->where('size', 'M')->value('sku');
+    expect($mSkuAfter)->toBe($mSkuBefore);                       // preserved
+    expect(PoItem::where('order_id', $order->id)->where('size', 'L')->exists())->toBeTrue();
+
+    // Drop M, keep L.
+    $this->putJson("/api/v2/orders/{$order->id}", updPayload($client, [
+        'items_json' => [
+            ['size' => 'L', 'quantity' => 5, 'unit_price' => 250],
+        ],
+    ]))->assertSuccessful();
+
+    expect(PoItem::where('order_id', $order->id)->where('size', 'M')->exists())->toBeFalse();
+    expect(PoItem::where('order_id', $order->id)->where('size', 'L')->exists())->toBeTrue();
+});

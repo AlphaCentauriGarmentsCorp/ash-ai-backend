@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\ApparelNeckline;
 use App\Models\ApparelPatternPrice;
 use App\Models\ApparelType;
+use App\Models\Client;
+use App\Support\QuotationPdfAssets;
 use App\Models\PatternType;
 use App\Models\PricingSetting;
 use App\Models\PrintMethod;
@@ -125,7 +127,7 @@ class QuotationService
             ])->save();
 
             // Regenerate the client PDF so it reflects the new colour count.
-            $pdf = Pdf::loadView('pdf', ['quotation' => $quotation->fresh()]);
+            $pdf = Pdf::loadView('pdf', QuotationPdfAssets::for($quotation->fresh()));
             $filePath = "quotations/{$quotation->quotation_id}.pdf";
             Storage::disk('public')->put($filePath, $pdf->output());
             $quotation->update(['pdf_path' => $filePath]);
@@ -175,7 +177,7 @@ class QuotationService
             ])->save();
 
             // Generate PDF after creation
-            $pdf = Pdf::loadView('pdf', ['quotation' => $quotation]);
+            $pdf = Pdf::loadView('pdf', QuotationPdfAssets::for($quotation));
 
             $fileName = $quotation->quotation_id . '.pdf';
             $filePath = "quotations/{$fileName}";
@@ -278,7 +280,7 @@ class QuotationService
            ])->save();
 
            // Regenerate PDF after update
-           $pdf = Pdf::loadView('pdf', ['quotation' => $quotation->fresh()]);
+           $pdf = Pdf::loadView('pdf', QuotationPdfAssets::for($quotation->fresh()));
 
            $fileName = $quotation->quotation_id . '.pdf';
            $filePath = "quotations/{$fileName}";
@@ -1376,7 +1378,7 @@ class QuotationService
         // Make sure the PDF actually exists before attempting to attach it.
         if (! Storage::disk('public')->exists($filePath)) {
             try {
-                $pdf = Pdf::loadView('pdf', ['quotation' => $quotation->fresh()]);
+                $pdf = Pdf::loadView('pdf', QuotationPdfAssets::for($quotation->fresh()));
                 Storage::disk('public')->put($filePath, $pdf->output());
                 $quotation->update(['pdf_path' => $filePath]);
             } catch (\Throwable $e) {
@@ -1496,6 +1498,13 @@ class QuotationService
             }
 
             // ── Build the order_payload ──────────────────────────────────
+            // Change 6 (option B): pull the client master's granular address
+            // so the converted order's shipping block is pre-filled. Mapped
+            // onto the ORDER form's key names (client `barangay` → order
+            // `barangay_address`, etc.) so useQuotationPrefill can pass them
+            // straight through. Missing client / parts simply yield nulls.
+            $client = $quotation->client_id ? Client::find($quotation->client_id) : null;
+
             $payload = [
                 // Linkage
                 'quotation_id' => $quotation->id,
@@ -1504,6 +1513,16 @@ class QuotationService
                 'client_id'      => $quotation->client_id,
                 'client_brand'   => $quotation->client_brand,
                 'client_name'    => $quotation->client_name,
+
+                // Change 6 (option B): client master address → order shipping
+                // block (order-form key names).
+                'receiver_name'    => $quotation->client_name ?? $client?->name,
+                'contact_number'   => $client?->contact_number,
+                'street_address'   => $client?->street_address,
+                'barangay_address' => $client?->barangay,
+                'city_address'     => $client?->city,
+                'province_address' => $client?->province,
+                'postal_address'   => $client?->postal_code,
 
                 // Resolved apparel / pattern / print
                 'apparel_type_id'      => $apparelTypeId,

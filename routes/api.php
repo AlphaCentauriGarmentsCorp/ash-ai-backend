@@ -165,6 +165,9 @@ Route::prefix('v2')->group(function () {
             // to the shared quotation pricing engine. Compute-only, no writes.
             Route::post('/preview', 'pricePreview');
             Route::post('/', 'store');
+            // Edit an existing order (Issue 1). Numeric id; refused once the
+            // order has entered production (see OrdersController::update).
+            Route::put('/{id}', 'update')->whereNumber('id');
             Route::get('/details/{po_code}', 'show');
             // Soft-delete an order (sets deleted_at; recoverable). Matches the
             // frontend orderApi.delete() call: DELETE /orders/{id}.

@@ -35,21 +35,21 @@ class ClientService
         return DB::transaction(function () use ($data) {
 
             $fullName = $data['first_name'] . ' ' . $data['last_name'];
-            $address = implode(', ', [
-                $data['street_address'],
-                $data['barangay'],
-                $data['city'],
-                $data['province'],
-                $data['postal_code'],
-            ]);
 
             $client = Client::create([
                 'name'           => $fullName,
                 'email'          => $data['email'],
                 'contact_number' => $data['contact_number'],
-                'address'        => $address,
-                'method'         => $data['method'],
-                'courier'        => $data['courier'],
+                // Change 6 (option B): persist granular address columns…
+                'street_address' => $data['street_address'] ?? null,
+                'barangay'       => $data['barangay'] ?? null,
+                'city'           => $data['city'] ?? null,
+                'province'       => $data['province'] ?? null,
+                'postal_code'    => $data['postal_code'] ?? null,
+                // …and keep `address` as a derived single-line convenience value.
+                'address'        => $this->composeAddress($data),
+                'method'         => $data['method'] ?? null,
+                'courier'        => $data['courier'] ?? null,
                 'notes'          => $data['notes'] ?? null,
             ]);
 
@@ -97,21 +97,24 @@ class ClientService
                 $data['name'] = $data['first_name'] . ' ' . $data['last_name'];
             }
 
+            // Change 6 (option B): granular address columns are now real and
+            // fillable. Merge any incoming parts over the client's existing
+            // values so a partial update never blanks out an untouched part,
+            // then recompose the derived single-line `address`.
             $addressFields = ['street_address', 'barangay', 'city', 'province', 'postal_code'];
-            if (collect($addressFields)->some(fn($field) => isset($data[$field]))) {
-                $existing = explode(', ', $client->address);
-                $data['address'] = implode(', ', [
-                    $data['street_address'] ?? $existing[0] ?? '',
-                    $data['barangay'] ?? $existing[1] ?? '',
-                    $data['city'] ?? $existing[2] ?? '',
-                    $data['province'] ?? $existing[3] ?? '',
-                    $data['postal_code'] ?? $existing[4] ?? '',
-                ]);
+            if (collect($addressFields)->some(fn ($field) => array_key_exists($field, $data))) {
+                $merged = [];
+                foreach ($addressFields as $field) {
+                    $merged[$field] = array_key_exists($field, $data)
+                        ? $data[$field]
+                        : $client->{$field};
+                    $data[$field] = $merged[$field];
+                }
+                $data['address'] = $this->composeAddress($merged);
             }
 
             $clientData = collect($data)->except([
-                'first_name', 'last_name', 'street_address', 'barangay',
-                'city', 'province', 'postal_code', 'brands'
+                'first_name', 'last_name', 'brands',
             ])->toArray();
 
             $client->update($clientData);
@@ -170,6 +173,22 @@ class ClientService
 
             return $client->fresh('brands');
         });
+    }
+
+    /**
+     * Compose the derived single-line `address` from granular parts, skipping
+     * empty parts so we never produce ", , ," noise. Kept for backward
+     * compatibility with readers of the legacy single `address` column.
+     */
+    private function composeAddress(array $parts): string
+    {
+        return collect([
+            $parts['street_address'] ?? null,
+            $parts['barangay'] ?? null,
+            $parts['city'] ?? null,
+            $parts['province'] ?? null,
+            $parts['postal_code'] ?? null,
+        ])->filter(fn ($p) => filled($p))->implode(', ');
     }
 
     /**

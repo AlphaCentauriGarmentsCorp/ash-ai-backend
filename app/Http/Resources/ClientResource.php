@@ -15,7 +15,14 @@ class ClientResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'contact_number' => $this->contact_number,
+            // Derived single-line address (legacy / convenience).
             'address' => $this->address,
+            // Change 6 (option B): granular address parts.
+            'street_address' => $this->street_address,
+            'barangay' => $this->barangay,
+            'city' => $this->city,
+            'province' => $this->province,
+            'postal_code' => $this->postal_code,
             'method' => $this->method,
             'courier' => $this->courier,
             'notes' => $this->notes,
