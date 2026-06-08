@@ -9,6 +9,8 @@ use App\Services\OrderService;
 use App\Http\Resources\OrderResource;
 use App\Http\Requests\Order\StoreOrderRequest;
 use App\Http\Requests\Order\OrderUpdateRequest;
+use App\Models\OrderPayment;
+use App\Exceptions\BusinessRuleException;
 
 class OrdersController extends Controller
 {
@@ -40,7 +42,13 @@ class OrdersController extends Controller
 
     public function index()
     {
-        $orders = Order::get();
+        // verified_payments_count powers OrderResource::is_editable without an
+        // N+1 across the list (an order with a verified payment is in production
+        // and no longer editable).
+        $orders = Order::withCount([
+            'payments as verified_payments_count' => fn ($q) =>
+                $q->where('status', OrderPayment::STATUS_VERIFIED),
+        ])->get();
 
         return OrderResource::collection($orders);
     }
@@ -105,7 +113,68 @@ class OrdersController extends Controller
 
     public function store(StoreOrderRequest $request)
     {
-        $order = $this->service->store($request->validated());
+        $actor = $request->user();
+        $wantsOverride = $request->boolean('override_incomplete');
+
+        // Change 11 — only a superadmin may save an order that is missing
+        // soft-required fields. Gating on the ROLE (not a permission) so it
+        // works regardless of the superadmin permission set, and matches the
+        // spec exactly. Non-superadmins get a specific business error rather
+        // than a silent strip of the flag.
+        if ($wantsOverride && ! ($actor && $actor->hasRole('superadmin'))) {
+            throw new BusinessRuleException(
+                'Only a superadmin can save an order with missing details.',
+                'ORDER_OVERRIDE_FORBIDDEN',
+                403,
+            );
+        }
+
+        $order = $this->service->store($request->validated(), [
+            'override'          => $wantsOverride,
+            'incomplete_fields' => (array) $request->input('incomplete_fields', []),
+            'actor'             => $actor,
+        ]);
+
+        return new OrderResource($order);
+    }
+
+    /**
+     * Edit an existing order (Issue 1). Same superadmin-only override gate as
+     * store(); additionally refuses once the order has entered production (a
+     * verified payment exists) so PO-item SKUs / printed labels can't churn.
+     */
+    public function update(OrderUpdateRequest $request, $id)
+    {
+        $order = Order::findOrFail($id);
+        $actor = $request->user();
+        $wantsOverride = $request->boolean('override_incomplete');
+
+        if ($wantsOverride && ! ($actor && $actor->hasRole('superadmin'))) {
+            throw new BusinessRuleException(
+                'Only a superadmin can save an order with missing details.',
+                'ORDER_OVERRIDE_FORBIDDEN',
+                403,
+            );
+        }
+
+        // Editability boundary: once a payment is verified the order has been
+        // approved into production and can no longer be edited.
+        $inProduction = $order->payments()
+            ->where('status', OrderPayment::STATUS_VERIFIED)
+            ->exists();
+        if ($inProduction) {
+            throw new BusinessRuleException(
+                'This order has already entered production and can no longer be edited.',
+                'ORDER_LOCKED_FOR_EDIT',
+                422,
+            );
+        }
+
+        $order = $this->service->update($order, $request->validated(), [
+            'override'          => $wantsOverride,
+            'incomplete_fields' => (array) $request->input('incomplete_fields', []),
+            'actor'             => $actor,
+        ]);
 
         return new OrderResource($order);
     }

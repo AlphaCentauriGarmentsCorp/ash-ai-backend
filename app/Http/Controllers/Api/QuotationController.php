@@ -9,6 +9,7 @@ use App\Http\Requests\Quotation\Update;
 use App\Http\Requests\Quotation\StatusUpdate;
 use App\Http\Resources\QuotationResource;
 use App\Models\Quotation;
+use App\Support\QuotationPdfAssets;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Response;
@@ -201,17 +202,20 @@ public function store(Store $request)
         $fileName = $quotation->quotation_id . '.pdf';
         $filePath = "quotations/{$fileName}";
 
-        // Issue 12 — regenerate on demand if the file is missing (e.g. storage
-        // was cleared, or the row predates PDF generation). The PDF is normally
-        // written on save, so this is a fallback, not the common path.
-        if (!Storage::disk('public')->exists($filePath)) {
-            try {
-                $pdf = Pdf::loadView('pdf', ['quotation' => $quotation]);
-                Storage::disk('public')->put($filePath, $pdf->output());
-                if ($quotation->pdf_path !== $filePath) {
-                    $quotation->update(['pdf_path' => $filePath]);
-                }
-            } catch (\Throwable $e) {
+        // Always regenerate on download. The PDF now carries content that
+        // can change AFTER the initial save — design mockups uploaded later
+        // and verified payment proofs from the converted order (Change 5) — so
+        // a cached file would be stale. Regenerating per download is cheap at
+        // this scale and refreshes the stored copy used by the share link.
+        try {
+            $pdf = Pdf::loadView('pdf', QuotationPdfAssets::for($quotation));
+            Storage::disk('public')->put($filePath, $pdf->output());
+            if ($quotation->pdf_path !== $filePath) {
+                $quotation->update(['pdf_path' => $filePath]);
+            }
+        } catch (\Throwable $e) {
+            // Fall back to a previously generated copy if one exists.
+            if (!Storage::disk('public')->exists($filePath)) {
                 return response()->json(['message' => 'PDF could not be generated.'], 500);
             }
         }

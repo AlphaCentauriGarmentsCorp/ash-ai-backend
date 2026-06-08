@@ -13,7 +13,14 @@ class Client extends Model
         'name',
         'email',
         'contact_number',
+        // ── Change 6 (option B): real granular address columns.
+        // `address` is kept as a derived single-line convenience value.
         'address',
+        'street_address',
+        'barangay',
+        'city',
+        'province',
+        'postal_code',
         'method',
         'courier',
         'notes',

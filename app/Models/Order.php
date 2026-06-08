@@ -73,6 +73,8 @@ class Order extends Model
         // Status + Phase 1 workflow tracking
         'status',
         'workflow_status',
+        'is_incomplete',
+        'incomplete_fields',
         'delayed_at',
         'current_stage_id',
 
@@ -80,6 +82,7 @@ class Order extends Model
         'messenger_link',
         'gc_link',
         'priority',
+        'brand',
         'rush_order',
         'sales_channel',
         'assigned_csr_user_id',
@@ -127,6 +130,10 @@ class Order extends Model
         'breakdown_json'   => 'array',
         'print_parts_json' => 'array',
         'delayed_at'       => 'datetime',
+
+        // Change 11 — superadmin override flag
+        'is_incomplete'    => 'boolean',
+        'incomplete_fields'=> 'array',
 
         // ── Phase 6-A casts
         'rush_order'       => 'boolean',
