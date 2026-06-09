@@ -1560,6 +1560,124 @@ class QuotationService
      *
      * @throws ValidationException with code 409 when already converted
      */
+    /**
+     * Build the order prefill payload from a quotation WITHOUT side effects.
+     * Maps the quotation onto the order-form key names (resolved apparel /
+     * pattern / print names, client master address block, label specs, JSON
+     * blobs). Shared by confirmAndConvert (single-order review-prefill) and
+     * the OrderService per-colour auto-split (which feeds it to store()).
+     */
+    public function buildOrderPayload(Quotation $quotation): array
+    {
+        // ── Resolve apparel + pattern + print method names ────────────
+        $itemConfig = is_array($quotation->item_config_json)
+            ? $quotation->item_config_json
+            : (json_decode((string) $quotation->item_config_json, true) ?: []);
+
+        $apparelTypeId   = $itemConfig['apparel_type_id']  ?? null;
+        $patternTypeId   = $itemConfig['pattern_type_id']  ?? null;
+        $apparelPatternPriceId = $itemConfig['apparel_pattern_price_id'] ?? null;
+
+        $apparelTypeName = null;
+        $patternTypeName = null;
+
+        if ($apparelPatternPriceId) {
+            $patternPrice = ApparelPatternPrice::find($apparelPatternPriceId);
+            if ($patternPrice) {
+                $apparelTypeId   ??= $patternPrice->apparel_type_id;
+                $patternTypeId   ??= $patternPrice->pattern_type_id;
+                $apparelTypeName   = $patternPrice->apparel_type_name;
+                $patternTypeName   = $patternPrice->pattern_type_name;
+            }
+        }
+
+        if (! $apparelTypeName && $apparelTypeId) {
+            $apparelTypeName = ApparelType::find($apparelTypeId)?->name;
+        }
+        if (! $patternTypeName && $patternTypeId) {
+            $patternTypeName = PatternType::find($patternTypeId)?->name;
+        }
+
+        $printMethodId   = $itemConfig['print_method_id'] ?? null;
+        $printMethodName = null;
+        if ($printMethodId) {
+            $printMethodName = PrintMethod::find($printMethodId)?->name;
+        }
+
+        $client = $quotation->client_id ? Client::find($quotation->client_id) : null;
+
+        return [
+            // Linkage
+            'quotation_id' => $quotation->id,
+
+            // Client
+            'client_id'      => $quotation->client_id,
+            'client_brand'   => $quotation->client_brand,
+            'client_name'    => $quotation->client_name,
+
+            // Change 6 (option B): client master address → order shipping block.
+            'receiver_name'    => $quotation->client_name ?? $client?->name,
+            'contact_number'   => $client?->contact_number,
+            'street_address'   => $client?->street_address,
+            'barangay_address' => $client?->barangay,
+            'city_address'     => $client?->city,
+            'province_address' => $client?->province,
+            'postal_address'   => $client?->postal_code,
+
+            // Resolved apparel / pattern / print
+            'apparel_type_id'      => $apparelTypeId,
+            'apparel_type_name'    => $apparelTypeName,
+            'pattern_type_id'      => $patternTypeId,
+            'pattern_type_name'    => $patternTypeName,
+            'print_method_id'      => $printMethodId,
+            'print_method_name'    => $printMethodName,
+            'apparel_neckline_id'  => $quotation->apparel_neckline_id,
+
+            // Misc descriptive
+            'shirt_color'   => $quotation->shirt_color,
+            'special_print' => $quotation->special_print ?? ($itemConfig['special_print'] ?? null),
+            'print_area'    => $quotation->print_area ?? ($itemConfig['print_area'] ?? null),
+            'free_items'    => $quotation->free_items,
+            'notes'         => $quotation->notes,
+
+            // Financials
+            'subtotal'        => $quotation->subtotal,
+            'grand_total'     => $quotation->grand_total,
+            'discount_type'   => $quotation->discount_type,
+            'discount_price'  => $quotation->discount_price,
+            'discount_amount' => $quotation->discount_amount,
+
+            // JSON blobs (already cast to arrays by the model)
+            'item_config_json'  => $quotation->item_config_json,
+            'items_json'        => $quotation->items_json,
+            'addons_json'       => $quotation->addons_json,
+            'breakdown_json'    => $quotation->breakdown_json,
+            'print_parts_json'  => $quotation->print_parts_json,
+
+            // Issue 7 labels
+            'brand_label'       => $quotation->brand_label_json,
+            'care_label'        => $quotation->care_label_json,
+            'label_design_path' => $quotation->label_design_path,
+        ];
+    }
+
+    /**
+     * Mark a quotation Converted and log the transition. Public so OrderService
+     * can finalise the per-colour auto-split conversion.
+     */
+    public function markConverted(Quotation $quotation, ?string $note = 'Converted to order.', ?int $userId = null): void
+    {
+        $from = $quotation->normalizedStatus();
+        $quotation->update(['status' => Quotation::STATUS_CONVERTED]);
+        $this->logStatusChange(
+            $quotation->id,
+            $from,
+            Quotation::STATUS_CONVERTED,
+            $note,
+            $userId ?? Auth::id(),
+        );
+    }
+
     public function confirmAndConvert(int $id): array
     {
         return DB::transaction(function () use ($id) {
@@ -1571,126 +1689,9 @@ class QuotationService
                 abort(409, 'This quotation has already been converted to an order.');
             }
 
-            // ── Resolve apparel + pattern + print method names ────────────
-            $itemConfig = is_array($quotation->item_config_json)
-                ? $quotation->item_config_json
-                : (json_decode((string) $quotation->item_config_json, true) ?: []);
+            $payload = $this->buildOrderPayload($quotation);
 
-            $apparelTypeId   = $itemConfig['apparel_type_id']  ?? null;
-            $patternTypeId   = $itemConfig['pattern_type_id']  ?? null;
-            $apparelPatternPriceId = $itemConfig['apparel_pattern_price_id'] ?? null;
-
-            $apparelTypeName = null;
-            $patternTypeName = null;
-
-            // Fastest path: the apparel_pattern_prices row stores both names
-            if ($apparelPatternPriceId) {
-                $patternPrice = ApparelPatternPrice::find($apparelPatternPriceId);
-                if ($patternPrice) {
-                    $apparelTypeId   ??= $patternPrice->apparel_type_id;
-                    $patternTypeId   ??= $patternPrice->pattern_type_id;
-                    $apparelTypeName   = $patternPrice->apparel_type_name;
-                    $patternTypeName   = $patternPrice->pattern_type_name;
-                }
-            }
-
-            // Fallback: look up directly by id
-            if (! $apparelTypeName && $apparelTypeId) {
-                $apparelTypeName = ApparelType::find($apparelTypeId)?->name;
-            }
-            if (! $patternTypeName && $patternTypeId) {
-                $patternTypeName = PatternType::find($patternTypeId)?->name;
-            }
-
-            // print_method_id is NOT a column on quotations – it's only sent
-            // at create/update time. We try to recover it from item_config
-            // first, then from any helper row, then leave blank.
-            $printMethodId   = $itemConfig['print_method_id'] ?? null;
-            $printMethodName = null;
-            if ($printMethodId) {
-                $printMethodName = PrintMethod::find($printMethodId)?->name;
-            }
-
-            // ── Build the order_payload ──────────────────────────────────
-            // Change 6 (option B): pull the client master's granular address
-            // so the converted order's shipping block is pre-filled. Mapped
-            // onto the ORDER form's key names (client `barangay` → order
-            // `barangay_address`, etc.) so useQuotationPrefill can pass them
-            // straight through. Missing client / parts simply yield nulls.
-            $client = $quotation->client_id ? Client::find($quotation->client_id) : null;
-
-            $payload = [
-                // Linkage
-                'quotation_id' => $quotation->id,
-
-                // Client
-                'client_id'      => $quotation->client_id,
-                'client_brand'   => $quotation->client_brand,
-                'client_name'    => $quotation->client_name,
-
-                // Change 6 (option B): client master address → order shipping
-                // block (order-form key names).
-                'receiver_name'    => $quotation->client_name ?? $client?->name,
-                'contact_number'   => $client?->contact_number,
-                'street_address'   => $client?->street_address,
-                'barangay_address' => $client?->barangay,
-                'city_address'     => $client?->city,
-                'province_address' => $client?->province,
-                'postal_address'   => $client?->postal_code,
-
-                // Resolved apparel / pattern / print
-                'apparel_type_id'      => $apparelTypeId,
-                'apparel_type_name'    => $apparelTypeName,
-                'pattern_type_id'      => $patternTypeId,
-                'pattern_type_name'    => $patternTypeName,
-                'print_method_id'      => $printMethodId,
-                'print_method_name'    => $printMethodName,
-                'apparel_neckline_id'  => $quotation->apparel_neckline_id,
-
-                // Misc descriptive
-                'shirt_color'   => $quotation->shirt_color,
-                // special_print / print_area live on the quotation columns
-                // (item_config_json may not carry them), so read the column
-                // first and fall back to item_config. Without this the
-                // converted order loses the special-print surcharge.
-                'special_print' => $quotation->special_print ?? ($itemConfig['special_print'] ?? null),
-                'print_area'    => $quotation->print_area ?? ($itemConfig['print_area'] ?? null),
-                'free_items'    => $quotation->free_items,
-                'notes'         => $quotation->notes,
-
-                // Financials
-                'subtotal'        => $quotation->subtotal,
-                'grand_total'     => $quotation->grand_total,
-                'discount_type'   => $quotation->discount_type,
-                'discount_price'  => $quotation->discount_price,
-                'discount_amount' => $quotation->discount_amount,
-
-                // JSON blobs (already cast to arrays by the model)
-                'item_config_json'  => $quotation->item_config_json,
-                'items_json'        => $quotation->items_json,
-                'addons_json'       => $quotation->addons_json,
-                'breakdown_json'    => $quotation->breakdown_json,
-                'print_parts_json'  => $quotation->print_parts_json,
-
-                // ── Issue 7 labels: flow the spec into the order prefill ──────
-                'brand_label'       => $quotation->brand_label_json,
-                'care_label'        => $quotation->care_label_json,
-                'label_design_path' => $quotation->label_design_path,
-            ];
-
-            $fromStatus = $quotation->normalizedStatus();
-
-            // Mark the quotation as converted
-            $quotation->update(['status' => Quotation::STATUS_CONVERTED]);
-
-            // Issue 12 — record the transition in the audit log.
-            $this->logStatusChange(
-                $quotation->id,
-                $fromStatus,
-                Quotation::STATUS_CONVERTED,
-                'Converted to order.',
-                Auth::id()
-            );
+            $this->markConverted($quotation, 'Converted to order.', Auth::id());
 
             return [
                 'message'       => 'Quotation marked as converted.',

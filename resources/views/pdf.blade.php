@@ -641,7 +641,14 @@
         @endif
 
         <!-- Cost Breakdown Section -->
-        @if (!empty($breakdown['items']))
+        {{-- Reads items_json (the engine's authoritative per-piece output), not
+             the partial breakdown_json.items the old markup read with mismatched
+             keys (which is why every column rendered ₱0.00). Mirrors the View
+             page's Detailed Cost Breakdown so the two agree. --}}
+        @php
+            $costItems = is_array($quotation->items_json) ? $quotation->items_json : [];
+        @endphp
+        @if (!empty($costItems))
             <div class="breakdown-section">
                 <div class="breakdown-title">Cost Breakdown</div>
                 <div style="overflow-x: auto;">
@@ -650,29 +657,36 @@
                             <tr>
                                 <th>Size</th>
                                 <th class="text-center">Qty</th>
-                                <th class="text-right">Tshirt</th>
-                                <th class="text-right">Size+</th>
+                                <th class="text-right">Apparel/Pattern</th>
                                 <th class="text-right">Neckline</th>
-                                <th class="text-right">Print</th>
-                                <th class="text-right">Color</th>
-                                <th class="text-right">Pattern</th>
+                                <th class="text-right">Color/Print</th>
+                                <th class="text-right">Unit Price</th>
+                                <th class="text-right">Price/Pc</th>
                                 <th class="text-right">Total</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach ($breakdown['items'] as $item)
+                            @foreach ($costItems as $item)
+                                @php
+                                    // Neckline (+ any per-piece options) is folded into the
+                                    // per-piece price; surface it as the residual so the row
+                                    // reconciles: base + neckline + print = price/pc.
+                                    $base = (float) ($item['base_price'] ?? 0);
+                                    $printTotal = (float) ($item['print_parts_total'] ?? 0);
+                                    $ppp = (float) ($item['price_per_piece'] ?? 0);
+                                    $qty = (int) ($item['quantity'] ?? 0);
+                                    $neckline = max(0, $ppp - $base - $printTotal);
+                                    $rowTotal = (float) ($item['total_amount'] ?? $item['total'] ?? ($ppp * $qty));
+                                @endphp
                                 <tr>
                                     <td>{{ $item['size'] ?? 'N/A' }}</td>
-                                    <td class="text-center">{{ $item['quantity'] ?? 0 }}</td>
-                                    <td class="text-right">₱{{ number_format($item['tshirt_price'] ?? 0, 2) }}</td>
-                                    <td class="text-right">₱{{ number_format($item['size_price'] ?? 0, 2) }}</td>
-                                    <td class="text-right">₱{{ number_format($item['neckline_price'] ?? 0, 2) }}</td>
-                                    <td class="text-right">₱{{ number_format($item['print_type_price'] ?? 0, 2) }}</td>
-                                    <td class="text-right">₱{{ number_format($item['print_color_price'] ?? 0, 2) }}
-                                    </td>
-                                    <td class="text-right">₱{{ number_format($item['print_pattern_price'] ?? 0, 2) }}
-                                    </td>
-                                    <td class="text-right">₱{{ number_format($item['total'] ?? 0, 2) }}</td>
+                                    <td class="text-center">{{ $qty }}</td>
+                                    <td class="text-right">₱{{ number_format($base, 2) }}</td>
+                                    <td class="text-right">₱{{ number_format($neckline, 2) }}</td>
+                                    <td class="text-right">₱{{ number_format($printTotal, 2) }}</td>
+                                    <td class="text-right">₱{{ number_format($item['unit_price'] ?? 0, 2) }}</td>
+                                    <td class="text-right">₱{{ number_format($ppp, 2) }}</td>
+                                    <td class="text-right">₱{{ number_format($rowTotal, 2) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>

@@ -8,6 +8,7 @@ use App\Http\Requests\Quotation\Store;
 use App\Http\Requests\Quotation\Update;
 use App\Http\Requests\Quotation\StatusUpdate;
 use App\Http\Resources\QuotationResource;
+use App\Http\Resources\OrderResource;
 use App\Models\Quotation;
 use App\Support\QuotationPdfAssets;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -246,8 +247,36 @@ public function store(Store $request)
      *
      * Returns 409 if the quotation is already Converted.
      */
-    public function confirm($id)
+    public function confirm($id, \App\Services\OrderService $orders, \Illuminate\Http\Request $request)
     {
+        $quotation = Quotation::findOrFail((int) $id);
+
+        // Count colour groups that actually carry quantities.
+        $breakdown = is_array($quotation->breakdown_json) ? $quotation->breakdown_json : [];
+        $groups = is_array($breakdown['color_breakdowns'] ?? null) ? $breakdown['color_breakdowns'] : [];
+        $coloredGroups = array_filter($groups, function ($g) {
+            foreach ((is_array($g['sizes'] ?? null) ? $g['sizes'] : []) as $sz) {
+                if ((int) ($sz['quantity'] ?? 0) > 0) {
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        // Multi-colour (>=2) -> direct per-colour split: mint one single-colour
+        // order per colour, no per-form review (iba ang kulay = bagong P.O.).
+        if (count($coloredGroups) >= 2) {
+            $created = $orders->convertQuotationSplit($quotation, ['actor' => $request->user()]);
+
+            return response()->json([
+                'message'   => 'Quotation converted to ' . count($created) . ' single-colour orders.',
+                'split'     => true,
+                'orders'    => OrderResource::collection($created),
+                'quotation' => $quotation->fresh(),
+            ]);
+        }
+
+        // Single-colour -> unchanged review-prefill flow (returns order_payload).
         $result = $this->service->confirmAndConvert((int) $id);
 
         return response()->json($result);
