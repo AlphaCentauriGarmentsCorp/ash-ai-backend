@@ -560,8 +560,19 @@ class QuotationService
             'price_per_piece' => $sampleTotal,
         ];
 
+        // Per-Color Quantity Breakdown (display/allocation only — see
+        // normalizeColorBreakdowns). Falls back to the existing record's groups
+        // when the caller omits the key entirely (e.g. a partial update), so an
+        // edit that doesn't touch colours never wipes them.
+        $colorBreakdowns = array_key_exists('color_breakdowns', $breakdown)
+            ? $this->normalizeColorBreakdowns($breakdown['color_breakdowns'])
+            : $this->normalizeColorBreakdowns(
+                is_array($existing?->breakdown_json) ? ($existing->breakdown_json['color_breakdowns'] ?? []) : []
+            );
+
         $normalizedBreakdown = [
             'items' => is_array($breakdown['items'] ?? null) ? $breakdown['items'] : [],
+            'color_breakdowns' => $colorBreakdowns,
             'sample_breakdown' => $normalizedSampleBreakdown,
         ];
 
@@ -610,7 +621,12 @@ class QuotationService
             'client_email' => $data['client_email'] ?? $existing?->client_email,
             'client_facebook' => $data['client_facebook'] ?? $existing?->client_facebook,
             'client_brand' => $data['client_brand'] ?? $existing?->client_brand,
-            'shirt_color' => $data['shirt_color'] ?? $existing?->shirt_color,
+            // Per-Color: the colour groups are the source of truth; derive the
+            // scalar shirt_color from them (comma-joined names) for backward
+            // compat (list views, Edit hydration, PDF "Shirt Color:" line),
+            // falling back to the explicit/existing value when none are named.
+            'shirt_color' => $this->deriveShirtColor($colorBreakdowns)
+                ?? $data['shirt_color'] ?? $existing?->shirt_color,
             'apparel_neckline_id' => $apparelNecklineId,
             // Top-level apparel/pattern/print-method IDs. These live in
             // item_config_json but must ALSO be promoted to their dedicated
@@ -666,6 +682,104 @@ class QuotationService
             ]),
             'print_parts_json' => $resolvedPrintParts,
         ];
+    }
+
+    /**
+     * Per-Color Quantity Breakdown — sanitize the incoming color groups.
+     *
+     * Each shirt colour carries its OWN independent size/quantity list so the
+     * shop knows how many of each colour to cut/produce (motivated by a real
+     * production incident). This is DISPLAY/ALLOCATION data only — pricing is
+     * unaffected: the engine still prices on the SUMMED items_json across all
+     * colours (pooled silkscreen model; garment colour does not move the
+     * print price). Stored under breakdown_json['color_breakdowns'] and read
+     * by the PDF; the summed items_json continues to drive price and order
+     * conversion, so colour-less legacy quotations are unaffected.
+     *
+     * Incoming shape (nested, decision #2):
+     *   [ { color: "Black", sizes: [ { size: "S", quantity: 10 }, ... ] }, ... ]
+     *
+     * Output adds a derived subtotal_qty per group and drops empty rows. A
+     * group is kept when it has a colour name OR at least one positive-qty
+     * size row, so a half-filled form never silently loses data.
+     *
+     * @param  mixed  $raw
+     * @return array<int, array<string, mixed>>
+     */
+    protected function normalizeColorBreakdowns($raw): array
+    {
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $out = [];
+
+        foreach ($raw as $group) {
+            if (! is_array($group)) {
+                continue;
+            }
+
+            $color = trim((string) ($group['color'] ?? ''));
+
+            $sizes = [];
+            $subtotal = 0;
+            $rawSizes = is_array($group['sizes'] ?? null) ? $group['sizes'] : [];
+
+            foreach ($rawSizes as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+
+                $size = trim((string) ($row['size'] ?? $row['size_label'] ?? ''));
+                $qty = (int) round((float) ($row['quantity'] ?? 0));
+
+                if ($size === '' && $qty <= 0) {
+                    continue;
+                }
+
+                $qty = max(0, $qty);
+                $sizes[] = ['size' => $size, 'quantity' => $qty];
+                $subtotal += $qty;
+            }
+
+            // Skip a group only when it carries neither a colour nor any rows.
+            if ($color === '' && empty($sizes)) {
+                continue;
+            }
+
+            $out[] = [
+                'color' => $color,
+                'sizes' => $sizes,
+                'subtotal_qty' => $subtotal,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Derive the legacy single shirt_color string from the colour groups.
+     *
+     * The granular per-colour list is the new source of truth, but the
+     * scalar shirt_color column is kept (backward-compat for list views, the
+     * Edit hydration, and the PDF "Shirt Color:" line). Returns a comma-joined
+     * list of the distinct, non-empty colour names in entry order, or null
+     * when none are named (caller then falls back to the provided/existing
+     * value).
+     *
+     * @param  array<int, array<string, mixed>>  $colorBreakdowns
+     */
+    protected function deriveShirtColor(array $colorBreakdowns): ?string
+    {
+        $names = [];
+        foreach ($colorBreakdowns as $group) {
+            $name = trim((string) ($group['color'] ?? ''));
+            if ($name !== '' && ! in_array($name, $names, true)) {
+                $names[] = $name;
+            }
+        }
+
+        return empty($names) ? null : implode(', ', $names);
     }
 
     /**
