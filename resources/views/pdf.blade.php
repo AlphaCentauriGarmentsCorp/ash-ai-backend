@@ -593,6 +593,53 @@
             </tbody>
         </table>
 
+        {{-- Per-Color Quantity Breakdown. Each shirt colour carries its own
+             independent size/quantity list so production knows how many of
+             each colour to cut/produce. Display/allocation only — pricing is
+             on the summed Items Table above. Omitted cleanly for colour-less
+             (legacy) quotations, where this key is absent/empty. --}}
+        @php
+            $colorBreakdowns = (is_array($quotation->breakdown_json)
+                ? ($quotation->breakdown_json['color_breakdowns'] ?? [])
+                : []);
+            $colorBreakdowns = is_array($colorBreakdowns) ? $colorBreakdowns : [];
+        @endphp
+        @if (!empty($colorBreakdowns))
+            <div class="breakdown-section">
+                <div class="breakdown-title">Per-Color Quantity Breakdown</div>
+                @foreach ($colorBreakdowns as $group)
+                    <div style="margin-bottom: 6px;">
+                        <div style="font-size: 7px; font-weight: bold; color: #001c34; margin-bottom: 2px;">
+                            {{ $group['color'] ?? 'Unspecified Color' }}
+                            <span style="font-weight: normal; color: #666;">
+                                — {{ $group['subtotal_qty'] ?? array_sum(array_map(fn ($s) => (int) ($s['quantity'] ?? 0), is_array($group['sizes'] ?? null) ? $group['sizes'] : [])) }} pcs
+                            </span>
+                        </div>
+                        <table class="breakdown-table">
+                            <thead>
+                                <tr>
+                                    <th>Size</th>
+                                    <th class="text-center">Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ((is_array($group['sizes'] ?? null) ? $group['sizes'] : []) as $row)
+                                    <tr>
+                                        <td>{{ $row['size'] ?? 'N/A' }}</td>
+                                        <td class="text-center">{{ $row['quantity'] ?? 0 }}</td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="2" class="text-center">No sizes</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
         <!-- Cost Breakdown Section -->
         @if (!empty($breakdown['items']))
             <div class="breakdown-section">
