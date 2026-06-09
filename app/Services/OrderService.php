@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\Quotation;
 use App\Models\OrderSamples;
 use App\Models\PoItem;
 use Illuminate\Support\Facades\DB;
@@ -96,6 +97,210 @@ class OrderService
         }
 
         return $order;
+    }
+
+    /**
+     * Per-Color auto-split conversion. For a MULTI-colour quotation, mint one
+     * single-colour order per colour group directly (no per-form review),
+     * reusing store() so pricing / line items / workflow / po_code are
+     * identical to a normal create.
+     *
+     * Why this reconciles to the quote: the silkscreen charge is a PER-PIECE
+     * amount (same rate for every garment colour — colour doesn't move the
+     * print price), so re-pricing each colour's quantities and summing returns
+     * the quoted total. Allocation rules (confirmed): sample -> first PO only;
+     * fixed discount -> first PO only; percentage discount -> every PO.
+     * Atomic: all-or-nothing in one transaction.
+     *
+     * @return Order[]
+     */
+    public function convertQuotationSplit(Quotation $quote, array $meta = []): array
+    {
+        if (strcasecmp((string) $quote->status, Quotation::STATUS_CONVERTED) === 0) {
+            throw new BusinessRuleException(
+                'This quotation has already been converted to an order.',
+                'QUOTATION_ALREADY_CONVERTED',
+                409,
+            );
+        }
+
+        // Base payload (apparel/pattern/print names, client address, labels,
+        // blobs) built once from the quotation.
+        $base = $this->quotation->buildOrderPayload($quote);
+
+        // Colour groups that actually carry quantities.
+        $breakdown = is_array($quote->breakdown_json) ? $quote->breakdown_json : [];
+        $groups = is_array($breakdown['color_breakdowns'] ?? null) ? $breakdown['color_breakdowns'] : [];
+        $groups = array_values(array_filter($groups, function ($g) {
+            foreach ((is_array($g['sizes'] ?? null) ? $g['sizes'] : []) as $sz) {
+                if ((int) ($sz['quantity'] ?? 0) > 0) {
+                    return true;
+                }
+            }
+            return false;
+        }));
+
+        if (count($groups) < 2) {
+            throw new BusinessRuleException(
+                'Auto-split needs a multi-colour quotation (2+ colours with quantities).',
+                'QUOTATION_NOT_MULTICOLOR',
+                422,
+            );
+        }
+
+        $isPercentDiscount = strcasecmp((string) ($quote->discount_type ?? ''), 'percentage') === 0;
+        $quoteItems = is_array($quote->items_json) ? $quote->items_json : [];
+
+        $orders = DB::transaction(function () use ($quote, $base, $groups, $isPercentDiscount, $quoteItems, $meta) {
+            $created = [];
+
+            foreach ($groups as $idx => $group) {
+                $isFirst = $idx === 0;
+                $color = trim((string) ($group['color'] ?? '')) ?: ($quote->shirt_color ?: 'Unspecified');
+
+                // Per-colour line items: clone the matching quote rows (keeps the
+                // priced row shape) with this colour's quantities. store() re-prices
+                // anyway; the engine sees only this colour's quantities.
+                $perColorItems = $this->sliceItemsForColor($quoteItems, $group['sizes'] ?? []);
+
+                // Per-colour subtotal from per-piece price x this colour's qty.
+                // store() overrides this via the engine when priceable (always,
+                // for a real quote); this is a guard so an unpriced quote can
+                // never carry the whole-job total onto each split P.O.
+                $perColorSubtotal = 0.0;
+                foreach ($perColorItems as $r) {
+                    $perColorSubtotal += (float) ($r['price_per_piece'] ?? $r['unit_price'] ?? 0)
+                        * (int) ($r['quantity'] ?? 0);
+                }
+                $perColorSubtotal = round($perColorSubtotal, 2);
+
+                // breakdown_json: a single-colour order has no per-colour split;
+                // strip color_breakdowns, and keep the sample only on the first PO.
+                $bd = is_array($base['breakdown_json'] ?? null) ? $base['breakdown_json'] : [];
+                unset($bd['color_breakdowns']);
+                if (! $isFirst) {
+                    unset($bd['sample_breakdown']);
+                }
+
+                $payload = array_merge($base, [
+                    'shirt_color'    => $color,
+                    'fabric_color'   => $color,
+                    'items_json'     => $perColorItems,
+                    'subtotal'       => $perColorSubtotal,
+                    'grand_total'    => $perColorSubtotal,
+                    'sizes'          => array_map(fn ($r) => [
+                        'name'     => $r['size'] ?? $r['name'] ?? '',
+                        'size'     => $r['size'] ?? $r['name'] ?? '',
+                        'quantity' => (int) ($r['quantity'] ?? 0),
+                    ], $perColorItems),
+                    'breakdown_json' => $bd,
+                    // Sample → FIRST P.O. only, as an OrderSamples record (a
+                    // separate table, so it survives store()'s engine re-price,
+                    // unlike breakdown_json.sample_breakdown). The production
+                    // grand_total stays sample-free, exactly as a normal
+                    // converted order; the sample rides its own sample-payment
+                    // stage on this one P.O. so it's never charged per colour.
+                    'samples'        => $isFirst ? $this->sampleRowsFromQuote($base) : [],
+                ]);
+
+                // Fixed discount applies once (first PO); percentage applies to all.
+                if (! $isPercentDiscount && ! $isFirst) {
+                    $payload['discount_type']   = null;
+                    $payload['discount_price']  = 0;
+                    $payload['discount_amount'] = 0;
+                }
+
+                $created[] = $this->store($payload, $meta);
+            }
+
+            // Finalise the quotation (status + audit) inside the same transaction.
+            $actorId = isset($meta['actor']) ? $meta['actor']?->getKey() : null;
+            $this->quotation->markConverted(
+                $quote,
+                'Converted to ' . count($created) . ' single-colour orders (per-colour split).',
+                $actorId,
+            );
+
+            return $created;
+        });
+
+        return $orders;
+    }
+
+    /**
+     * Build a single colour's items_json by cloning the quotation's priced rows
+     * (matched by size name) and overriding the quantity with that colour's.
+     * Sizes present in the colour but missing from the quote items fall back to
+     * a minimal {size, quantity} row.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function sliceItemsForColor(array $quoteItems, $colorSizes): array
+    {
+        $colorSizes = is_array($colorSizes) ? $colorSizes : [];
+
+        $byName = [];
+        foreach ($colorSizes as $sz) {
+            if (! is_array($sz)) {
+                continue;
+            }
+            $name = strtoupper(trim((string) ($sz['size'] ?? $sz['name'] ?? '')));
+            $qty  = (int) ($sz['quantity'] ?? 0);
+            if ($name !== '' && $qty > 0) {
+                $byName[$name] = $qty;
+            }
+        }
+
+        $rows = [];
+        foreach ($quoteItems as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $name = strtoupper(trim((string) ($row['size'] ?? $row['name'] ?? '')));
+            if ($name !== '' && array_key_exists($name, $byName)) {
+                $clone = $row;
+                $clone['quantity'] = $byName[$name];
+                $rows[] = $clone;
+                unset($byName[$name]);
+            }
+        }
+
+        // Any colour sizes not present in the quote items (edge case).
+        foreach ($byName as $name => $qty) {
+            $rows[] = ['size' => $name, 'quantity' => $qty];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Map the quotation's single sample_breakdown ({sample_apparel, unit_price,
+     * quantity, price_per_piece}) into the `samples` payload shape that
+     * createOrderSamples() consumes ({size, quantity, unit_price, total_price}).
+     * Returns [] when the quote carries no sample, so createOrderSamples no-ops.
+     *
+     * @param array<string, mixed> $base  the buildOrderPayload() result
+     * @return array<int, array<string, mixed>>
+     */
+    protected function sampleRowsFromQuote(array $base): array
+    {
+        $bd = is_array($base['breakdown_json'] ?? null) ? $base['breakdown_json'] : [];
+        $sb = is_array($bd['sample_breakdown'] ?? null) ? $bd['sample_breakdown'] : [];
+
+        $qty   = (float) ($sb['quantity'] ?? 0);
+        $unit  = (float) ($sb['unit_price'] ?? 0);
+        $total = (float) ($sb['price_per_piece'] ?? ($unit * $qty));
+
+        if ($qty <= 0 && $total <= 0) {
+            return [];
+        }
+
+        return [[
+            'size'        => $sb['sample_apparel'] ?? null,
+            'quantity'    => $qty > 0 ? $qty : 1,
+            'unit_price'  => $unit,
+            'total_price' => $total,
+        ]];
     }
 
     /**
