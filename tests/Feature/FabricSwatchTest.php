@@ -84,6 +84,7 @@ beforeEach(function () {
         $t->string('color_family', 32)->nullable();
         $t->string('photo_path', 255)->nullable();
         $t->text('notes')->nullable();
+        $t->unsignedInteger('pick_count')->default(0);
         $t->timestamps();
     });
 
@@ -232,4 +233,37 @@ test('HTTP: GET /csr/fabric-swatches returns 200', function () {
 
     $response->assertStatus(200);
     $response->assertJsonStructure(['data' => [['id', 'name', 'stock_status']]]);
+});
+
+test('recordPick increments pick_count and present() surfaces it', function () {
+    $swatch = FabricSwatch::create(['name' => 'Jet Black', 'fabric_type' => 'CVC', 'gsm' => 240]);
+    expect((int) $swatch->pick_count)->toBe(0);
+
+    $svc = app(FabricSwatchService::class);
+
+    $afterOne = $svc->recordPick($swatch->id);
+    expect((int) $afterOne->pick_count)->toBe(1);
+
+    $afterTwo = $svc->recordPick($swatch->id);
+    expect((int) $afterTwo->pick_count)->toBe(2);
+
+    // present() exposes the counter that powers the "Most used" group
+    expect($svc->present($afterTwo)['pick_count'])->toBe(2);
+});
+
+test('HTTP: POST /csr/fabric-swatches/{id}/pick increments and returns the new count', function () {
+    $user = fabMakeUser();
+    $this->actingAs($user, 'sanctum');
+
+    $swatch = FabricSwatch::create(['name' => 'Coke Red', 'fabric_type' => 'CVC', 'gsm' => 240]);
+
+    $first = $this->postJson("/api/v2/csr/fabric-swatches/{$swatch->id}/pick");
+    $first->assertStatus(200);
+    $first->assertJsonPath('data.id', $swatch->id);
+    $first->assertJsonPath('data.pick_count', 1);
+
+    $second = $this->postJson("/api/v2/csr/fabric-swatches/{$swatch->id}/pick");
+    $second->assertJsonPath('data.pick_count', 2);
+
+    expect((int) FabricSwatch::find($swatch->id)->pick_count)->toBe(2);
 });

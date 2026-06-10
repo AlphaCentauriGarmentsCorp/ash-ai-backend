@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
         $this->call(ClientSeeder::class);
         $this->call(ApparelTypeSeeder::class);
         $this->call(ApparelPartSeeder::class);
+        $this->call(ApparelNecklineSeeder::class);
         $this->call(LabelTypeSeeder::class);
         $this->call(PatternTypeSeeder::class);
         $this->call(PrintMethodSeeder::class);

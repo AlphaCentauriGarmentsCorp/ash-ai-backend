@@ -660,7 +660,6 @@
                                 <th class="text-right">Apparel/Pattern</th>
                                 <th class="text-right">Neckline</th>
                                 <th class="text-right">Color/Print</th>
-                                <th class="text-right">Unit Price</th>
                                 <th class="text-right">Price/Pc</th>
                                 <th class="text-right">Total</th>
                             </tr>
@@ -684,7 +683,6 @@
                                     <td class="text-right">₱{{ number_format($base, 2) }}</td>
                                     <td class="text-right">₱{{ number_format($neckline, 2) }}</td>
                                     <td class="text-right">₱{{ number_format($printTotal, 2) }}</td>
-                                    <td class="text-right">₱{{ number_format($item['unit_price'] ?? 0, 2) }}</td>
                                     <td class="text-right">₱{{ number_format($ppp, 2) }}</td>
                                     <td class="text-right">₱{{ number_format($rowTotal, 2) }}</td>
                                 </tr>
@@ -692,6 +690,38 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        @endif
+
+        <!-- Sample Breakdown Section -->
+        @php
+            $sbdj = is_array($quotation->breakdown_json) ? $quotation->breakdown_json : [];
+            $sbd = is_array($sbdj['sample_breakdown'] ?? null) ? $sbdj['sample_breakdown'] : [];
+            $sbdUnit = (float) ($sbd['unit_price'] ?? 0);
+            $sbdQty = (float) ($sbd['quantity'] ?? 0);
+            $sbdTotal = (float) ($sbd['price_per_piece'] ?? ($sbdUnit * $sbdQty));
+        @endphp
+        @if (!empty($sbd['sample_apparel']) || $sbdTotal > 0)
+            <div class="breakdown-section">
+                <div class="breakdown-title">Sample Breakdown</div>
+                <table class="breakdown-table">
+                    <thead>
+                        <tr>
+                            <th>Sample Apparel</th>
+                            <th class="text-right">Unit Price</th>
+                            <th class="text-right">Quantity</th>
+                            <th class="text-right">Price/Pc</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>{{ $sbd['sample_apparel'] ?? 'Sample' }}</td>
+                            <td class="text-right">₱{{ number_format($sbdUnit, 2) }}</td>
+                            <td class="text-right">{{ (int) $sbdQty }}</td>
+                            <td class="text-right">₱{{ number_format($sbdTotal, 2) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         @endif
 
@@ -731,7 +761,46 @@
             <table class="pay-table">
                 <tr>
                     <td class="pay-col pay-col-left">
+                        @php
+                            $bd = is_array($quotation->breakdown_json) ? $quotation->breakdown_json : [];
+                            $itemRows = is_array($quotation->items_json) ? $quotation->items_json : [];
+                            $addonRows = is_array($quotation->addons_json) ? $quotation->addons_json : [];
+                            $itemsTotal = array_sum(array_map(fn ($i) => (float) ($i['total_amount'] ?? 0), $itemRows));
+                            $addonsTotal = array_sum(array_map(fn ($a) => (float) ($a['line_total'] ?? 0), $addonRows));
+                            $smpl = is_array($bd['sample_breakdown'] ?? null) ? $bd['sample_breakdown'] : [];
+                            $smplTotal = (float) ($smpl['price_per_piece'] ?? ((float) ($smpl['unit_price'] ?? 0) * (float) ($smpl['quantity'] ?? 0)));
+                            $cpFee = (float) ($bd['custom_pattern_fee'] ?? 0);
+                            $dtfTotal = (float) ($bd['dtf_order_total'] ?? 0);
+                        @endphp
                         <div class="summary-box">
+                            <div class="summary-row">
+                                <span class="summary-label">Items Total:</span>
+                                <span class="summary-value">₱{{ number_format($itemsTotal, 2) }}</span>
+                            </div>
+                            @if ($addonsTotal > 0)
+                                <div class="summary-row">
+                                    <span class="summary-label">Add-ons Total:</span>
+                                    <span class="summary-value">₱{{ number_format($addonsTotal, 2) }}</span>
+                                </div>
+                            @endif
+                            @if ($smplTotal > 0)
+                                <div class="summary-row">
+                                    <span class="summary-label">Sample Fee:</span>
+                                    <span class="summary-value">₱{{ number_format($smplTotal, 2) }}</span>
+                                </div>
+                            @endif
+                            @if ($cpFee > 0)
+                                <div class="summary-row">
+                                    <span class="summary-label">Custom Pattern Fee:</span>
+                                    <span class="summary-value">₱{{ number_format($cpFee, 2) }}</span>
+                                </div>
+                            @endif
+                            @if ($dtfTotal > 0)
+                                <div class="summary-row">
+                                    <span class="summary-label">DTF Order Charge:</span>
+                                    <span class="summary-value">₱{{ number_format($dtfTotal, 2) }}</span>
+                                </div>
+                            @endif
                             <div class="summary-row">
                                 <span class="summary-label">Subtotal:</span>
                                 <span class="summary-value">₱{{ number_format($quotation->subtotal, 2) }}</span>
