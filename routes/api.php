@@ -788,6 +788,7 @@ Route::prefix('v2')->group(function () {
                     Route::post('/',               'store');
                     Route::put('/{id}',            'update')->whereNumber('id');
                     Route::delete('/{id}',         'destroy')->whereNumber('id');
+                    Route::post('/{id}/pick',      'pick')->whereNumber('id');
                 });
             });
 

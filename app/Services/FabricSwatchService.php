@@ -60,6 +60,20 @@ class FabricSwatchService
         return $q->orderBy('color_family')->orderBy('name')->get();
     }
 
+    /**
+     * Record a pick — atomically increment pick_count (powers the
+     * frequency-based "Most used" group in the swatch picker). Atomic so
+     * concurrent CSR picks can't clobber each other. Returns the refreshed
+     * swatch (with relations) ready for present().
+     */
+    public function recordPick(int $id): FabricSwatch
+    {
+        $swatch = FabricSwatch::findOrFail($id);
+        $swatch->increment('pick_count');
+
+        return $swatch->fresh(['pantone', 'supplier', 'material']);
+    }
+
     public function find(int $id): ?FabricSwatch
     {
         return FabricSwatch::with(['pantone', 'supplier', 'material'])->find($id);
@@ -156,6 +170,7 @@ class FabricSwatchService
                 ? Storage::disk('public')->url($swatch->photo_path)
                 : null,
             'notes'        => $swatch->notes,
+            'pick_count'   => (int) ($swatch->pick_count ?? 0),
             'created_at'   => $swatch->created_at?->toIso8601String(),
             'updated_at'   => $swatch->updated_at?->toIso8601String(),
         ];

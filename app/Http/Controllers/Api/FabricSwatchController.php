@@ -47,6 +47,15 @@ class FabricSwatchController extends Controller
         ]);
     }
 
+    public function pick(int $id): JsonResponse
+    {
+        $swatch = $this->swatches->recordPick($id);
+
+        return response()->json([
+            'data' => $this->swatches->present($swatch),
+        ]);
+    }
+
     public function destroy(int $id): JsonResponse
     {
         $this->swatches->delete($id);
