@@ -771,12 +771,24 @@
                             $smplTotal = (float) ($smpl['price_per_piece'] ?? ((float) ($smpl['unit_price'] ?? 0) * (float) ($smpl['quantity'] ?? 0)));
                             $cpFee = (float) ($bd['custom_pattern_fee'] ?? 0);
                             $dtfTotal = (float) ($bd['dtf_order_total'] ?? 0);
+                            // Cosmetic: hide "Items Total" when it's the only line and
+                            // simply repeats "Subtotal" (no extras, values equal within
+                            // half a centavo). Kept visible whenever extras exist OR the
+                            // values differ — a legacy/unreconciled quote should still
+                            // show both so the discrepancy stays visible.
+                            $showItemsTotal = $addonsTotal > 0
+                                || $smplTotal > 0
+                                || $cpFee > 0
+                                || $dtfTotal > 0
+                                || abs($itemsTotal - (float) $quotation->subtotal) >= 0.005;
                         @endphp
                         <div class="summary-box">
-                            <div class="summary-row">
-                                <span class="summary-label">Items Total:</span>
-                                <span class="summary-value">₱{{ number_format($itemsTotal, 2) }}</span>
-                            </div>
+                            @if ($showItemsTotal)
+                                <div class="summary-row">
+                                    <span class="summary-label">Items Total:</span>
+                                    <span class="summary-value">₱{{ number_format($itemsTotal, 2) }}</span>
+                                </div>
+                            @endif
                             @if ($addonsTotal > 0)
                                 <div class="summary-row">
                                     <span class="summary-label">Add-ons Total:</span>
