@@ -32,6 +32,15 @@ class Store extends FormRequest
             'province'          => 'nullable|string|max:255',
             'postal_code'       => 'nullable|string|max:255',
             'notes'             => 'nullable|string|max:255',
+
+            // Issue 20 — order channels. Nested rules apply only to present
+            // rows, so they don't fire when order_channels is absent/empty.
+            'order_channels'              => 'nullable|array',
+            'order_channels.*.type'       => 'required|string|in:viber,messenger,facebook,shopee,lazada,tiktok,website,phone,other',
+            'order_channels.*.label'      => 'nullable|string|max:120',
+            'order_channels.*.url'        => 'required|string|max:1000',
+            'order_channels.*.is_primary' => 'nullable|boolean',
+            'is_incomplete'               => 'nullable|boolean',
         ];
     }
 }

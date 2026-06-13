@@ -693,6 +693,10 @@ Route::prefix('v2')->group(function () {
                 Route::get('/context/{prId}',      'showContext')->whereNumber('prId');
                 Route::patch('/{prId}/supplier',   'assignSupplier')->whereNumber('prId');
 
+                // Issue 20 — quick-add a supplier inline from the PR picker
+                // (saved to Material Suppliers, flagged incomplete).
+                Route::post('/suppliers',          'quickAddSupplier');
+
                 // Change 18 — order material requirements at the Material Prep stage.
                 Route::get('/orders',                       'ordersAtStage');
                 Route::get('/order/{orderId}/requirements', 'orderRequirements')->whereNumber('orderId');
