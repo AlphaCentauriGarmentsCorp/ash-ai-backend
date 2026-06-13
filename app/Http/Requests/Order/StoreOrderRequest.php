@@ -87,6 +87,9 @@ class StoreOrderRequest extends FormRequest
             // OrdersController; here we only shape the inputs. `incomplete_fields`
             // is the list of SOFT-required fields the superadmin chose to skip.
             'override_incomplete' => 'nullable|boolean',
+            // Issue 2 — opt-in client-master write-back flag. Only honored by
+            // OrderService::update(); ignored on create.
+            'sync_client' => 'nullable|boolean',
             'incomplete_fields'   => 'nullable|array',
             'incomplete_fields.*' => 'string|max:64',
 

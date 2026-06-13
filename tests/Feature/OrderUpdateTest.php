@@ -182,3 +182,73 @@ it('diffs PO items: keeps unchanged size SKUs, adds new, removes gone', function
     expect(PoItem::where('order_id', $order->id)->where('size', 'M')->exists())->toBeFalse();
     expect(PoItem::where('order_id', $order->id)->where('size', 'L')->exists())->toBeTrue();
 });
+
+// ---------------------------------------------------------------------------
+// Issue 2 — opt-in client-master write-back (decisions: opt-in confirm at
+// order save; address + contact ONLY; overwrite-on-confirm; one immutable
+// csr_activity_logs row per changed field).
+// ---------------------------------------------------------------------------
+
+it('writes back to the client master when sync_client is confirmed', function () {
+    $super  = updMakeSuperadmin();
+    $client = updMakeClient(); // contact 09170000000, no address parts
+    $this->actingAs($super, 'sanctum');
+
+    $this->postJson('/api/v2/orders', updPayload($client))->assertSuccessful();
+    $order = Order::latest('id')->first();
+
+    $this->putJson("/api/v2/orders/{$order->id}", updPayload($client, [
+        'contact_number'   => '09998887777',
+        'street_address'   => '123 Mabini St',
+        'barangay_address' => 'Poblacion',
+        'city_address'     => 'Quezon City',
+        'sync_client'      => true,
+    ]))->assertSuccessful();
+
+    $client->refresh();
+    expect($client->contact_number)->toBe('09998887777');
+    expect($client->street_address)->toBe('123 Mabini St');
+    expect($client->barangay)->toBe('Poblacion');
+    expect($client->city)->toBe('Quezon City');
+    // ClientService recomposes the derived single-line `address`.
+    expect($client->address)->toBe('123 Mabini St, Poblacion, Quezon City');
+
+    // One immutable audit row PER changed field, each carrying old → new.
+    $logs = CsrActivityLog::where('action', 'client.synced_from_order')
+        ->where('client_id', $client->id)
+        ->get();
+    expect($logs)->toHaveCount(4); // contact, street, barangay, city — province/postal unchanged
+
+    $contactLog = $logs->first(fn ($l) => ($l->data['field'] ?? null) === 'contact_number');
+    expect($contactLog)->not->toBeNull();
+    expect($contactLog->data['old'])->toBe('09170000000');
+    expect($contactLog->data['new'])->toBe('09998887777');
+    expect($contactLog->order_id)->toBe($order->id);
+    expect($contactLog->user_id)->toBe($super->id);
+});
+
+it('leaves the client master untouched without the sync_client flag', function () {
+    $super  = updMakeSuperadmin();
+    $client = updMakeClient();
+    $this->actingAs($super, 'sanctum');
+
+    $this->postJson('/api/v2/orders', updPayload($client))->assertSuccessful();
+    $order = Order::latest('id')->first();
+
+    // Same field changes — but NOT confirmed. The order itself updates; the
+    // master must not (one-off shipping overrides are legitimate).
+    $this->putJson("/api/v2/orders/{$order->id}", updPayload($client, [
+        'contact_number' => '09111112222',
+        'street_address' => 'Event Venue, SMX Hall 2',
+    ]))->assertSuccessful();
+
+    $order->refresh();
+    expect($order->contact_number)->toBe('09111112222');
+
+    $client->refresh();
+    expect($client->contact_number)->toBe('09170000000');
+    expect($client->street_address)->toBeNull();
+    expect(
+        CsrActivityLog::where('action', 'client.synced_from_order')->count()
+    )->toBe(0);
+});

@@ -571,7 +571,14 @@ class QuotationService
             );
 
         $normalizedBreakdown = [
-            'items' => is_array($breakdown['items'] ?? null) ? $breakdown['items'] : [],
+            // Engine-computed rows — the SAME array stored as items_json (the
+            // authoritative pricing output). Previously this was a passthrough
+            // of whatever the client sent, which could go stale against the
+            // engine (e.g. old per-piece prices); consumers (conversion
+            // prefill's size rows, the order form's engine-preview size table)
+            // now always see engine-true values. Legacy stored records keep
+            // their old array until re-saved.
+            'items' => $computedItems,
             'color_breakdowns' => $colorBreakdowns,
             'sample_breakdown' => $normalizedSampleBreakdown,
         ];
