@@ -14,7 +14,7 @@ class SupplierResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $addressParts = array_map('trim', explode('|', $this->address));
+        $addressParts = array_map('trim', explode('|', (string) $this->address));
 
         return [
             'id'                => $this->id,
@@ -28,6 +28,10 @@ class SupplierResource extends JsonResource
             'province'          => $addressParts[3] ?? '',
             'postal_code'       => $addressParts[4] ?? '',
             'notes'             => $this->notes,
+            // Issue 20 — order channels (array of {type,label,url,is_primary};
+            // exactly one is_primary when non-empty) + the quick-add flag.
+            'order_channels'    => $this->order_channels ?? [],
+            'is_incomplete'     => (bool) $this->is_incomplete,
             'materials'         => $this->whenLoaded('materials'),
             'created_at'        => $this->created_at?->toDateTimeString(),
             'updated_at'        => $this->updated_at?->toDateTimeString(),

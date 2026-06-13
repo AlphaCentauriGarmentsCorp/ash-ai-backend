@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\MaterialPrep\AssignSupplier;
+use App\Http\Requests\MaterialPrep\QuickAddSupplier;
 use App\Http\Requests\MaterialPrep\SaveMaterialRequirement;
+use App\Http\Resources\SupplierResource;
 use App\Models\Order;
 use App\Services\MaterialPrepPortalService;
 use App\Services\MaterialPrepRequirementService;
+use App\Services\SupplierService;
 use Illuminate\Http\Request;
 
 /**
@@ -60,11 +63,27 @@ class MaterialPrepPortalController extends Controller
                 'status'       => $pr->status,
                 'supplier_id'  => $pr->supplier_id,
                 'supplier'     => $pr->supplier ? [
-                    'id'   => $pr->supplier->id,
-                    'name' => $pr->supplier->name,
+                    'id'             => $pr->supplier->id,
+                    'name'           => $pr->supplier->name,
+                    'order_channels' => $pr->supplier->order_channels ?? [],
+                    'is_incomplete'  => (bool) $pr->supplier->is_incomplete,
                 ] : null,
             ],
         ]);
+    }
+
+    /**
+     * Issue 20 — inline quick-add a supplier from the PR picker.
+     * Saved to the shared Material Suppliers table, flagged incomplete.
+     * Returns the full SupplierResource so the picker can select it at once.
+     */
+    public function quickAddSupplier(QuickAddSupplier $request, SupplierService $suppliers)
+    {
+        $supplier = $suppliers->quickCreate($request->validated());
+
+        return (new SupplierResource($supplier))
+            ->response()
+            ->setStatusCode(201);
     }
 
     // ── Change 18: order material requirements at the Material Prep stage ──

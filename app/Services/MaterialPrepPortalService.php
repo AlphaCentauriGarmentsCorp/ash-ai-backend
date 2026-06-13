@@ -183,6 +183,9 @@ class MaterialPrepPortalService
             'email'          => $supplier->email,
             'address'        => $supplier->address,
             'notes'          => $supplier->notes,
+            // Issue 20 — order-channel quick-buttons + the quick-add flag.
+            'order_channels' => $supplier->order_channels ?? [],
+            'is_incomplete'  => (bool) $supplier->is_incomplete,
         ];
     }
 
@@ -256,7 +259,7 @@ class MaterialPrepPortalService
 
         return Supplier::whereIn('id', $qualifyingSupplierIds)
             ->orderBy('name')
-            ->get(['id', 'name', 'contact_person', 'contact_number', 'email', 'address', 'notes'])
+            ->get(['id', 'name', 'contact_person', 'contact_number', 'email', 'address', 'notes', 'order_channels', 'is_incomplete'])
             ->map(fn ($s) => [
                 'id'             => $s->id,
                 'name'           => $s->name,
@@ -265,6 +268,8 @@ class MaterialPrepPortalService
                 'email'          => $s->email,
                 'address'        => $s->address,
                 'notes'          => $s->notes,
+                'order_channels' => $s->order_channels ?? [],
+                'is_incomplete'  => (bool) $s->is_incomplete,
             ])
             ->all();
     }
