@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Client;
 use App\Models\Order;
 use App\Models\Quotation;
 use App\Models\OrderSamples;
@@ -35,13 +36,15 @@ class OrderService
     protected NotificationService $notifications;
     protected QuotationService $quotation;
     protected CsrActivityLogger $activityLogger;
+    protected ClientService $clientService;
 
-    public function __construct(OrderStagesService $stagesService, NotificationService $notifications, QuotationService $quotation, CsrActivityLogger $activityLogger)
+    public function __construct(OrderStagesService $stagesService, NotificationService $notifications, QuotationService $quotation, CsrActivityLogger $activityLogger, ClientService $clientService)
     {
         $this->stagesService = $stagesService;
         $this->notifications = $notifications;
         $this->quotation = $quotation;
         $this->activityLogger = $activityLogger;
+        $this->clientService = $clientService;
     }
 
     public function store(array $data, array $meta = []): Order
@@ -318,7 +321,7 @@ class OrderService
         $f = $this->resolveOrderFields($data, $meta);
         $wasIncomplete = (bool) $order->is_incomplete;
 
-        DB::transaction(function () use ($order, $f, $data) {
+        DB::transaction(function () use ($order, $f, $data, $meta) {
             // po_code / qr_path / barcode_path / status / workflow are NOT in
             // buildOrderAttributes(), so they stay as-is.
             $order->update($this->buildOrderAttributes($f, $data));
@@ -328,6 +331,12 @@ class OrderService
 
             // New files are additive (existing uploads are preserved).
             $this->storeFiles($data, $order);
+
+            // Issue 2 — opt-in client-master write-back. Only when the CSR
+            // explicitly confirmed it on the edit form (multipart sends "1").
+            if (filter_var($data['sync_client'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                $this->syncClientFromOrder($order, $meta['actor'] ?? null);
+            }
         });
 
         $order->refresh()->load('items', 'samples', 'orderStages');
@@ -896,5 +905,73 @@ class OrderService
 
         $nextNumber = ((int) $lastNumber) + 1;
         return sprintf('%s-%d-%06d', $prefix, $year, $nextNumber);
+    }
+
+    /**
+     * Issue 2 — opt-in client-master write-back (decisions: opt-in confirm at
+     * order save; address block + contact number ONLY; overwrite-on-confirm).
+     *
+     * Compares the order's shipping/contact snapshot against the client
+     * master, overwrites the differing master fields via ClientService
+     * (which merges partial address parts and recomposes the derived
+     * single-line `address`), and writes ONE immutable csr_activity_logs row
+     * PER CHANGED FIELD with {field, old, new} so the change is recoverable.
+     *
+     * Deliberately NOT synced: client_name (would rename the master for every
+     * other order), client_brand (a ClientBrand selection, not free text),
+     * email/links (the order does not carry them — edit on the Clients page).
+     */
+    private const CLIENT_SYNC_FIELD_MAP = [
+        // order column        => client column
+        'contact_number'   => 'contact_number',
+        'street_address'   => 'street_address',
+        'barangay_address' => 'barangay',
+        'city_address'     => 'city',
+        'province_address' => 'province',
+        'postal_address'   => 'postal_code',
+    ];
+
+    private function syncClientFromOrder(Order $order, $actor = null): void
+    {
+        if (!$order->client_id) {
+            return;
+        }
+
+        $client = Client::find($order->client_id);
+        if (!$client) {
+            return;
+        }
+
+        // Diff against the master so the audit trail only records REAL
+        // changes (null and '' are treated as equal to avoid noise rows).
+        $changes = [];
+        foreach (self::CLIENT_SYNC_FIELD_MAP as $orderField => $clientField) {
+            $new = $order->{$orderField};
+            $old = $client->{$clientField};
+            if ((string) ($new ?? '') !== (string) ($old ?? '')) {
+                $changes[$clientField] = ['old' => $old, 'new' => $new];
+            }
+        }
+
+        if ($changes === []) {
+            return;
+        }
+
+        $this->clientService->update(
+            $client->id,
+            collect($changes)->map(fn ($c) => $c['new'])->all()
+        );
+
+        foreach ($changes as $field => $c) {
+            $this->activityLogger->log(
+                action:   'client.synced_from_order',
+                summary:  "{$order->po_code}: client {$field} updated via order edit",
+                subject:  $client,
+                orderId:  $order->id,
+                clientId: $client->id,
+                data:     ['field' => $field, 'old' => $c['old'], 'new' => $c['new'], 'source' => 'order_update'],
+                userId:   $actor?->getKey(),
+            );
+        }
     }
 }

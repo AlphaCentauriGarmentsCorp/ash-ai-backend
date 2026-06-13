@@ -76,7 +76,14 @@ it('includes roles and permissions in the auth payload', function () {
     expect($response->json('user.roles.0.permissions'))->toContain('access.rbac');
     expect($response->json('user.permissions'))->toContain('access.rbac');
     expect($response->json('user.all_permissions'))->toContain('access.rbac');
-    expect($response->json('user.permission_names.access.rbac'))->toBeTrue();
+    // NOTE: ->json() uses dot notation, which cannot address a key that
+    // CONTAINS a dot ('access.rbac' is one literal key, not nested) — the
+    // old assertion returned null by construction. Fetch the map and check
+    // the literal key instead (Pest's toHaveKey has the same dot trap).
+    $permissionNames = $response->json('user.permission_names');
+    expect($permissionNames)->toBeArray();
+    expect(array_key_exists('access.rbac', $permissionNames))->toBeTrue();
+    expect($permissionNames['access.rbac'])->toBeTrue();
 });
 
 it('returns permissions and role metadata from me', function () {
@@ -131,4 +138,51 @@ it('allows access to permission-protected routes with the permission', function 
         ->assertJsonStructure([
             'data',
         ]);
+});
+// ---------------------------------------------------------------------------
+// Issue 16 (portal side) — AccountService must keep Spatie roles in lockstep
+// with domain_role, so permission-gated portals follow ALL assigned roles.
+// Before the fix, only AuthService::register synced Spatie; Add/Edit User
+// wrote domain_role JSON and silently left Spatie stale.
+// ---------------------------------------------------------------------------
+
+it('syncs Spatie roles for ALL assigned roles when an account is updated', function () {
+    $user = makeAshUser(['cutter']);
+
+    app(\App\Services\AccountService::class)->update($user->id, [
+        'roles' => ['cutter', 'printer'],
+    ]);
+
+    $user->refresh();
+
+    // domain_role keeps the ordered array (index 0 = primary by convention).
+    expect($user->domain_role)->toBe(['cutter', 'printer']);
+
+    // Spatie now carries BOTH roles — the secondary's portal permissions
+    // (via RbacSeeder role→permission mapping) follow automatically.
+    expect($user->hasRole('cutter'))->toBeTrue();
+    expect($user->hasRole('printer'))->toBeTrue();
+});
+
+it('assigns Spatie roles to accounts created via the Add User flow', function () {
+    $user = app(\App\Services\AccountService::class)->create([
+        'first_name'     => 'Multi',
+        'last_name'      => 'Role',
+        'contact_number' => '09170000000',
+        'gender'         => 'other',
+        'civil_status'   => 'single',
+        'birthdate'      => '1990-01-01',
+        'position'       => 'Operator',
+        'department'     => 'Production',
+        'username'       => 'multi_' . uniqid(),
+        'email'          => uniqid('multi_') . '@test.local',
+        'password'       => 'password',
+        'roles'          => ['sewer', 'qa'],
+    ]);
+
+    // Before the fix, users created here had domain_role but ZERO Spatie
+    // roles, so every permission-gated route 403'd for them.
+    expect($user->hasRole('sewer'))->toBeTrue();
+    expect($user->hasRole('qa'))->toBeTrue();
+    expect($user->domain_role)->toBe(['sewer', 'qa']);
 });

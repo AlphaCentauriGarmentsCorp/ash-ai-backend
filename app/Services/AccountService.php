@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Spatie\Permission\Models\Role;
 
 
 class AccountService
@@ -61,11 +62,13 @@ class AccountService
                 // Hash::make() too would double-hash and break login.
                 $userUpdates['password'] = $data['password'];
             }
+            $roleNames = null;
             if (array_key_exists('roles', $data)) {
                 // Multipart can deliver a single role as a string; normalize to array.
-                $userUpdates['domain_role'] = is_array($data['roles'])
+                $roleNames = is_array($data['roles'])
                     ? array_values($data['roles'])
                     : [$data['roles']];
+                $userUpdates['domain_role'] = $roleNames;
             }
 
             // Replace avatar if a new image was uploaded.
@@ -97,6 +100,21 @@ class AccountService
 
             if (!empty($userUpdates)) {
                 $user->update($userUpdates);
+            }
+
+            // Issue 16 (portal side) — keep Spatie roles in lockstep with
+            // domain_role so permission-gated routes and portals follow ALL
+            // assigned roles (primary + secondaries). Previously only
+            // AuthService::register synced Spatie; edits here updated the
+            // domain_role badges but left Spatie permissions stale, so
+            // secondary-role portal access never actually applied.
+            // domain_role[0] stays the primary by convention (Spatie is an
+            // unordered set; ordering lives in domain_role only).
+            if ($roleNames !== null) {
+                foreach ($roleNames as $roleName) {
+                    Role::firstOrCreate(['name' => $roleName]);
+                }
+                $user->syncRoles($roleNames);
             }
 
             // --- employee_details table ---
@@ -248,6 +266,17 @@ class AccountService
                 'domain_role' => $data['roles'],
                 'domain_access' => ['ash'],
             ]);
+
+            // Issue 16 (portal side) — mirror AuthService::register. Without
+            // this, users created via Add User carried domain_role but had NO
+            // Spatie roles, so every permission-gated route 403'd for them.
+            $roleNames = is_array($data['roles'])
+                ? array_values($data['roles'])
+                : [$data['roles']];
+            foreach ($roleNames as $roleName) {
+                Role::firstOrCreate(['name' => $roleName]);
+            }
+            $user->syncRoles($roleNames);
 
             $files = [];
 
