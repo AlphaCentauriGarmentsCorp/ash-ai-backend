@@ -38,9 +38,6 @@ final class WorkflowStages
 {
     public const STAGES = [
         // ---------- Pre-Production ----------
-        ['key' => 'inquiry',                      'label' => 'Inquiry',                         'group' => 'Pre-Production', 'role' => 'csr',               'seq' => 1,  'sample' => false, 'mass' => false, 'gate' => false, 'parallel' => false],
-        ['key' => 'quotation',                    'label' => 'Quotation',                       'group' => 'Pre-Production', 'role' => 'csr',               'seq' => 2,  'sample' => false, 'mass' => false, 'gate' => false, 'parallel' => false],
-        ['key' => 'quotation_approval',           'label' => 'Quotation Approval',              'group' => 'Pre-Production', 'role' => 'csr',               'seq' => 3,  'sample' => false, 'mass' => false, 'gate' => false, 'parallel' => false],
         // 🔒 Gate 1 — ₱1,000 sample fee. Finance/Superadmin/Admin only (Change 17).
         ['key' => 'payment_verification_sample',  'label' => 'Payment Verification (Sample)',   'group' => 'Pre-Production', 'role' => 'finance',           'seq' => 4,  'sample' => false, 'mass' => false, 'gate' => true,  'parallel' => false],
 
@@ -299,7 +296,6 @@ final class WorkflowStages
     {
         return match ($portalRole) {
             'csr' => [
-                'inquiry', 'quotation', 'quotation_approval',
                 'sample_approval', 'order_completed', 'client_notification',
             ],
             'finance' => [

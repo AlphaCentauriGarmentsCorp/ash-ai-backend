@@ -4,10 +4,13 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderPayment;
+use App\Models\OrderStage;
+use App\Support\WorkflowStages;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -37,6 +40,130 @@ class OrderPaymentService
     public function __construct(
         protected CsrActivityLogger $logger,
     ) {}
+
+    /**
+     * Auto-create the pending payment for an order's currently-active payment
+     * gate so it appears on the Dashboard "Pending Approvals" queue the moment
+     * the order reaches the gate — no CSR proof upload required (Finance
+     * confirms the expected amount directly).
+     *
+     * Expected amount is read from the order's stored breakdown_json:
+     *   - sample gate  → sample_breakdown total (unit_price x quantity)
+     *   - mass gate    → downpayment (Addendum 5.4 — 60%)
+     *   - balance gate → balance (40%)
+     *
+     * Idempotent: at most ONE payment per gate type. If a payment of that type
+     * already exists in ANY state (incl. rejected) it is returned untouched, so
+     * re-initialization / re-advancing never duplicates or resurrects one.
+     *
+     * Returns the existing-or-new payment, or null when there is no active
+     * payment gate. No-op when the order_payments table is unavailable (narrow
+     * test harnesses that hand-build only a partial schema).
+     */
+    public function ensureGatePayment(Order $order): ?OrderPayment
+    {
+        if (! Schema::hasTable('order_payments')) {
+            return null;
+        }
+
+        $gate = $this->activeGateStage($order->id);
+        if (! $gate) {
+            return null;
+        }
+
+        $type = self::paymentTypeForGate($gate->stage);
+        if ($type === null) {
+            return null;
+        }
+
+        $existing = OrderPayment::where('order_id', $order->id)
+            ->where('payment_type', $type)
+            ->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $payment = OrderPayment::create([
+            'order_id'            => $order->id,
+            'payment_type'        => $type,
+            'amount'              => $this->expectedGateAmount($order, $gate->stage),
+            'status'              => OrderPayment::STATUS_FOR_VERIFICATION,
+            'uploaded_at'         => now(),   // anchors the dashboard wait timer
+            'uploaded_by_user_id' => null,    // system-created at the gate
+            'notes'               => 'Auto-created when the order reached this payment gate. Finance confirms the expected amount.',
+        ]);
+
+        $this->logger->log(
+            action: 'payment_gate.auto_created',
+            summary: "{$payment->payment_type} \u{20B1}" . number_format((float) $payment->amount, 2) . ' (for_verification)',
+            subject: $payment,
+            orderId: $order->id,
+            clientId: $order->client_id,
+            data: [
+                'payment_type' => $payment->payment_type,
+                'amount'       => (float) $payment->amount,
+                'gate_stage'   => $gate->stage,
+            ],
+        );
+
+        return $payment->fresh();
+    }
+
+    /**
+     * The order's currently-active payment-verification gate (in_progress /
+     * for_approval / delayed), lowest-tier first, or null.
+     */
+    private function activeGateStage(int $orderId): ?OrderStage
+    {
+        return OrderStage::where('order_id', $orderId)
+            ->whereIn('status', [
+                OrderStage::STATUS_IN_PROGRESS,
+                OrderStage::STATUS_FOR_APPROVAL,
+                OrderStage::STATUS_DELAYED,
+            ])
+            ->orderBy('sequence')
+            ->get()
+            ->first(fn (OrderStage $s) => WorkflowStages::isPaymentGate($s->stage));
+    }
+
+    /** Map a payment-gate stage slug to its OrderPayment type. */
+    private static function paymentTypeForGate(string $stage): ?string
+    {
+        return match ($stage) {
+            'payment_verification_sample'  => OrderPayment::TYPE_SAMPLE,
+            'payment_verification_mass'    => OrderPayment::TYPE_DOWN_PAYMENT,
+            'payment_verification_balance' => OrderPayment::TYPE_BALANCE,
+            default                        => null,
+        };
+    }
+
+    /**
+     * Expected amount for a gate, from the order's stored breakdown_json.
+     * NOTE: the sample-fee source is the one piece worth confirming against the
+     * authoritative pricing rules — adjust sampleGateAmount() if it should be a
+     * fixed sample fee rather than the computed sample_breakdown total.
+     */
+    private function expectedGateAmount(Order $order, string $stage): float
+    {
+        $b = is_array($order->breakdown_json) ? $order->breakdown_json : [];
+
+        return match ($stage) {
+            'payment_verification_mass'    => round((float) ($b['downpayment'] ?? 0), 2),
+            'payment_verification_balance' => round((float) ($b['balance'] ?? 0), 2),
+            'payment_verification_sample'  => $this->sampleGateAmount($b),
+            default                        => 0.0,
+        };
+    }
+
+    /** Sample-fee amount = sample_breakdown unit_price x quantity (0 if no sample). */
+    private function sampleGateAmount(array $breakdown): float
+    {
+        $s = is_array($breakdown['sample_breakdown'] ?? null) ? $breakdown['sample_breakdown'] : [];
+        $unit = (float) ($s['unit_price'] ?? 0);
+        $qty  = (float) ($s['quantity'] ?? 0);
+
+        return round($unit * $qty, 2);
+    }
 
     /**
      * List payments with optional filters.
