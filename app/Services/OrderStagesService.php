@@ -32,10 +32,26 @@ use Illuminate\Validation\ValidationException;
 class OrderStagesService
 {
     protected NotificationService $notifications;
+    protected ?OrderPaymentService $payments;
 
-    public function __construct(NotificationService $notifications)
-    {
+    public function __construct(
+        NotificationService $notifications,
+        ?OrderPaymentService $payments = null,
+    ) {
         $this->notifications = $notifications;
+        $this->payments = $payments;
+    }
+
+    /**
+     * The payment service, lazily resolved from the container if it was not
+     * injected. Constructor auto-wiring does not reliably populate an optional
+     * (nullable, defaulted) dependency, so we fall back to the container — this
+     * guarantees gate-payment creation fires on init/advance while still
+     * allowing a test to inject a stub via the constructor.
+     */
+    private function resolvePayments(): OrderPaymentService
+    {
+        return $this->payments ??= app(OrderPaymentService::class);
     }
 
     /**
@@ -227,6 +243,10 @@ class OrderStagesService
 
             // 7. Refresh the order's cached current_stage_id + workflow_status
             $this->refreshOrderCache($order);
+
+            // 8. If the (now) active stage is a payment gate, surface its
+            //    pending payment on the Dashboard approvals queue immediately.
+            $this->resolvePayments()->ensureGatePayment($order);
         });
     }
 
@@ -383,6 +403,9 @@ class OrderStagesService
             // Refresh cached current_stage_id + workflow_status on the order
             if ($order) {
                 $this->refreshOrderCache($order);
+                // If advancing landed on a payment gate, surface its pending
+                // payment on the Dashboard approvals queue immediately.
+                $this->resolvePayments()->ensureGatePayment($order);
             }
 
             return [

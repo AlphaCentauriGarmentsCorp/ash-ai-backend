@@ -300,7 +300,7 @@ it('builds full context for an active sample_cutting stage', function () {
 });
 
 it('rejects context for a stage outside cutter scope', function () {
-    $made = phase5b_makeOrderWithStage('quotation');
+    $made = phase5b_makeOrderWithStage('graphic_artwork');
 
     $svc = new CutterPortalService();
 

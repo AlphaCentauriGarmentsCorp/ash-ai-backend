@@ -450,12 +450,12 @@ it('rejects stages outside QA/Packer scope', function () {
     $orderId = DB::table('orders')->insertGetId([
         'po_code' => 'ASH-X-' . uniqid(),
         'items_json' => json_encode([['size' => 'M', 'quantity' => 10]]),
-        'workflow_status' => 'quotation',
+        'workflow_status' => 'graphic_artwork',
         'created_at' => now(), 'updated_at' => now(),
     ]);
     $stageId = DB::table('order_stages')->insertGetId([
         'order_id' => $orderId,
-        'stage' => 'quotation',
+        'stage' => 'graphic_artwork',
         'sequence' => 2,
         'status' => 'in_progress',
         'created_at' => now(), 'updated_at' => now(),

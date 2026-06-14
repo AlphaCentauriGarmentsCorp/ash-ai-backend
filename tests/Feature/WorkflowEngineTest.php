@@ -259,10 +259,10 @@ function makeOrder(): Order
 // Tests
 // ---------------------------------------------------------------------
 
-it('exposes the canonical workflow definition with 23 stages', function () {
+it('exposes the canonical workflow definition with 20 stages', function () {
     $stages = WorkflowStages::all();
-    expect($stages)->toHaveCount(23);
-    expect(WorkflowStages::keys()[0])->toBe('inquiry');
+    expect($stages)->toHaveCount(20);
+    expect(WorkflowStages::keys()[0])->toBe('payment_verification_sample');
     expect(WorkflowStages::lastKey())->toBe('client_notification');
     expect(WorkflowStages::maxTier())->toBe(22);
 
@@ -313,11 +313,10 @@ it('models the sample-phase fork-join via nextActivations', function () {
     }
 
     // From scratch, only the first stage activates.
-    expect(WorkflowStages::nextActivations($status))->toBe(['inquiry']);
+    expect(WorkflowStages::nextActivations($status))->toBe(['payment_verification_sample']);
 
     // Complete everything up to and including graphic_artwork.
-    foreach (['inquiry', 'quotation', 'quotation_approval',
-              'payment_verification_sample', 'graphic_artwork'] as $done) {
+    foreach (['payment_verification_sample', 'graphic_artwork'] as $done) {
         $status[$done] = OrderStage::STATUS_COMPLETED;
     }
 
@@ -368,7 +367,7 @@ it('prunes legacy non-canonical stages on init', function () {
     // migration RENAMES sample_creation → sample_cutting to preserve history;
     // raw initializeForOrder, with no rename, prunes unknown slugs.)
     $stages = $order->orderStages()->get();
-    expect($stages)->toHaveCount(23);
+    expect($stages)->toHaveCount(20);
 
     $keys = $stages->pluck('stage')->all();
     expect($keys)->not->toContain('graphic_editing');
@@ -380,31 +379,31 @@ it('prunes legacy non-canonical stages on init', function () {
     }
 });
 
-it('initializes all 23 workflow stages on order creation', function () {
+it('initializes all 20 workflow stages on order creation', function () {
     $order = makeOrder();
 
     /** @var OrderStagesService $svc */
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    expect($order->orderStages()->count())->toBe(23);
+    expect($order->orderStages()->count())->toBe(20);
 
     // First stage must be in_progress
     $first = $order->orderStages()->orderBy('sequence')->first();
-    expect($first->stage)->toBe('inquiry')
+    expect($first->stage)->toBe('payment_verification_sample')
         ->and($first->status)->toBe(OrderStage::STATUS_IN_PROGRESS)
-        ->and($first->sequence)->toBe(1)
+        ->and($first->sequence)->toBe(4)
         ->and($first->started_at)->not->toBeNull();
 
     // All other stages must be pending
-    $others = $order->orderStages()->where('sequence', '>', 1)->get();
+    $others = $order->orderStages()->where('sequence', '>', 4)->get();
     foreach ($others as $s) {
         expect($s->status)->toBe(OrderStage::STATUS_PENDING);
         expect($s->started_at)->toBeNull();
     }
 
     // Order workflow_status must mirror the active stage
-    expect($order->fresh()->workflow_status)->toBe('inquiry');
+    expect($order->fresh()->workflow_status)->toBe('payment_verification_sample');
 });
 
 it('is idempotent on re-initialization', function () {
@@ -415,7 +414,7 @@ it('is idempotent on re-initialization', function () {
     $svc->initializeForOrder($order);
     $svc->initializeForOrder($order); // safe to call twice
 
-    expect($order->orderStages()->count())->toBe(23);
+    expect($order->orderStages()->count())->toBe(20);
 });
 
 it('advances stage and auto-promotes next', function () {
@@ -435,11 +434,11 @@ it('advances stage and auto-promotes next', function () {
     // Returned next is in_progress
     expect($next)->not->toBeNull();
     expect($next->status)->toBe(OrderStage::STATUS_IN_PROGRESS);
-    expect($next->sequence)->toBe(2);
-    expect($next->stage)->toBe('quotation');
+    expect($next->sequence)->toBe(5);
+    expect($next->stage)->toBe('graphic_artwork');
 
     // Order cache updated
-    expect($order->fresh()->workflow_status)->toBe('quotation');
+    expect($order->fresh()->workflow_status)->toBe('graphic_artwork');
 });
 
 it('blocks completing a stage out of sequence', function () {
@@ -528,7 +527,7 @@ it('moves stage to for_approval and back to completed', function () {
     expect($first->fresh()->status)->toBe(OrderStage::STATUS_COMPLETED);
 });
 
-it('can complete the entire 23-stage workflow (incl. the parallel fork)', function () {
+it('can complete the entire 20-stage workflow (incl. the parallel fork)', function () {
     $order = makeOrder();
     /** @var OrderStagesService $svc */
     $svc = app(OrderStagesService::class);
@@ -565,9 +564,6 @@ it('advances through the mass-production sequence after the sample fork', functi
     };
 
     // Pre-production + graphic artwork.
-    $complete('inquiry');
-    $complete('quotation');
-    $complete('quotation_approval');
     $complete('payment_verification_sample');
     $complete('graphic_artwork');
 
@@ -604,9 +600,6 @@ it('backfills stages inserted BEHIND an in-progress stage as completed', functio
     $order = makeOrder();
 
     $present = [
-        'inquiry'                     => [1,  OrderStage::STATUS_COMPLETED],
-        'quotation'                   => [2,  OrderStage::STATUS_COMPLETED],
-        'quotation_approval'          => [3,  OrderStage::STATUS_COMPLETED],
         'payment_verification_sample' => [4,  OrderStage::STATUS_COMPLETED],
         'graphic_artwork'             => [5,  OrderStage::STATUS_COMPLETED],
         'screen_making'               => [6,  OrderStage::STATUS_COMPLETED],
@@ -629,8 +622,8 @@ it('backfills stages inserted BEHIND an in-progress stage as completed', functio
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    // The full 23-stage set now exists.
-    expect($order->orderStages()->count())->toBe(23);
+    // The full 20-stage set now exists.
+    expect($order->orderStages()->count())->toBe(20);
 
     // Stages that sit BEHIND mass_cutting (tier 14) but were missing must be
     // backfilled COMPLETED — otherwise the integrity guard would stall the
@@ -671,7 +664,6 @@ it('resumes at the mass gate when an order finished sample_approval with nothing
     $order = makeOrder();
 
     $done = [
-        'inquiry' => 1, 'quotation' => 2, 'quotation_approval' => 3,
         'payment_verification_sample' => 4, 'graphic_artwork' => 5,
         'screen_making' => 6, 'sample_approval' => 11,
     ];
@@ -690,7 +682,7 @@ it('resumes at the mass gate when an order finished sample_approval with nothing
     $svc = app(OrderStagesService::class);
     $svc->initializeForOrder($order);
 
-    expect($order->orderStages()->count())->toBe(23);
+    expect($order->orderStages()->count())->toBe(20);
 
     // High-water mark is 11 (sample_approval). The mass gate at tier 12 is the
     // first stage ahead of it, so init promotes it to in_progress.
