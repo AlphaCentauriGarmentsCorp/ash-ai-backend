@@ -494,6 +494,36 @@ class OrderService
             }
         }
 
+        // Print parts carry their artwork + per-colour price on the linked
+        // quotation; the Add Order form sends them read-only and strips those
+        // fields on submit. Re-hydrate from the quotation so the order's
+        // print_parts_json holds image + price + colour count for display
+        // (Print Parts table, orders-list thumbnail). Display data only —
+        // pricing is already final above.
+        $printPartsJson = $this->enrichPrintPartsFromQuotation($printPartsJson, $quotationId);
+
+        // Sample fold (decision: sample is part of the order Grand Total).
+        // The conversion otherwise prices the order sample-free; fold the
+        // sample into subtotal / grand_total / 60-40 split so the order
+        // matches the quotation. Payment amounts are entered manually, so
+        // this is a reference/display total — the sample becomes part of the
+        // downpayment + balance, NOT an additional charge on top.
+        $sampleFold = $this->foldSampleIntoTotals(
+            (float) $subtotal,
+            is_array($data['samples'] ?? null) ? $data['samples'] : [],
+            $discountType,
+            (float) $discountPrice,
+        );
+        if ($sampleFold !== null) {
+            $subtotal       = $sampleFold['subtotal'];
+            $discountAmount = $sampleFold['discount_amount'];
+            $grandTotal     = $sampleFold['grand_total'];
+            $breakdownJson  = is_array($breakdownJson) ? $breakdownJson : [];
+            $breakdownJson['sample_breakdown'] = $sampleFold['sample_breakdown'];
+            $breakdownJson['downpayment']      = $sampleFold['downpayment'];
+            $breakdownJson['balance']          = $sampleFold['balance'];
+        }
+
         return [
             'client_id'           => $clientId,
             'client_brand'        => $clientBrand,
@@ -532,6 +562,138 @@ class OrderService
      * @param array<string, mixed> $f
      * @return array<string, mixed>
      */
+    /**
+     * Re-hydrate an order's print_parts_json rows with the artwork and
+     * per-colour price stored on the linked quotation.
+     *
+     * The Add Order form carries print parts read-only from the quotation and
+     * submits a stripped payload (placement + colour count only — no image,
+     * no price). The quotation's own print_parts_json is the authoritative
+     * source: it holds image / image_path / price_per_color / color_count.
+     * Merging those in lets the order's Print Parts table and the orders-list
+     * thumbnail display correctly. DISPLAY data only — pricing is already
+     * computed into items / subtotal / grand_total.
+     *
+     * Rows are matched to the quotation by part name (case-insensitive), with a
+     * positional fallback. The order row wins on overlapping keys (colour
+     * count, print type, geometry); quotation-only keys (image, price) fill in.
+     *
+     * @param  array<int, mixed>|null  $orderParts
+     * @param  int|string|null  $quotationId
+     * @return array<int, mixed>|null
+     */
+    public function enrichPrintPartsFromQuotation(?array $orderParts, $quotationId): ?array
+    {
+        if (empty($orderParts) || empty($quotationId)) {
+            return $orderParts;
+        }
+
+        $quotation = Quotation::find($quotationId);
+        $quoteParts = is_array($quotation?->print_parts_json) ? $quotation->print_parts_json : [];
+        if (empty($quoteParts)) {
+            return $orderParts;
+        }
+
+        // Index the quotation rows by normalised part name for matching.
+        $byName = [];
+        foreach ($quoteParts as $qp) {
+            if (! is_array($qp)) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($qp['part'] ?? $qp['name'] ?? '')));
+            if ($name !== '') {
+                $byName[$name] = $qp;
+            }
+        }
+
+        $result = [];
+        foreach (array_values($orderParts) as $i => $orderRow) {
+            if (! is_array($orderRow)) {
+                $result[] = $orderRow;
+                continue;
+            }
+
+            $name = strtolower(trim((string) ($orderRow['part'] ?? $orderRow['name'] ?? '')));
+            $quoteRow = $byName[$name] ?? ($quoteParts[$i] ?? null);
+
+            if (! is_array($quoteRow)) {
+                $result[] = $orderRow;
+                continue;
+            }
+
+            // Quotation supplies image + price + colour count; the order row
+            // (engine output) overrides on overlapping keys.
+            $result[] = array_merge($quoteRow, $orderRow);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Fold a sample charge into an order's production totals so the order's
+     * Grand Total reflects the full value (production + sample), matching the
+     * quotation. The 60/40 split is recomputed on the sample-inclusive grand
+     * total, and a discount (if any) is applied to the sample-inclusive
+     * subtotal — exactly as the quotation engine does.
+     *
+     * DISPLAY/REFERENCE total only: payment amounts are entered manually, so
+     * this does not auto-charge anything. The sample becomes part of the
+     * downpayment + balance rather than a separate charge.
+     *
+     * @param  float  $sampleFreeSubtotal  items + addons + fees, BEFORE the sample
+     * @param  array<int, mixed>  $samples  OrderSamples-shaped rows (size, quantity, unit_price, total_price)
+     * @param  string|null  $discountType
+     * @param  float  $discountPrice
+     * @return array{subtotal: float, discount_amount: float, grand_total: float, downpayment: float, balance: float, sample_breakdown: array<string, mixed>}|null
+     *   null when there is no sample to fold.
+     */
+    public function foldSampleIntoTotals(float $sampleFreeSubtotal, array $samples, ?string $discountType, float $discountPrice): ?array
+    {
+        $sampleTotal = 0.0;
+        $first = null;
+        foreach ($samples as $s) {
+            if (! is_array($s)) {
+                continue;
+            }
+            $sampleTotal += (float) ($s['total_price'] ?? 0);
+            if ($first === null) {
+                $first = $s;
+            }
+        }
+        $sampleTotal = round($sampleTotal, 2);
+        if ($sampleTotal <= 0 || $first === null) {
+            return null;
+        }
+
+        $subtotal = round($sampleFreeSubtotal + $sampleTotal, 2);
+
+        $discountAmount = 0.0;
+        if ($discountType === 'percentage') {
+            $discountAmount = round($subtotal * ($discountPrice / 100), 2);
+        } elseif ($discountType === 'fixed') {
+            $discountAmount = min($discountPrice, $subtotal);
+        }
+        $discountAmount = max(0, $discountAmount);
+
+        $grandTotal = round($subtotal - $discountAmount, 2);
+        $downpayment = round($grandTotal * 0.60, 2);
+        $balance = round($grandTotal - $downpayment, 2);
+
+        return [
+            'subtotal' => $subtotal,
+            'discount_amount' => $discountAmount,
+            'grand_total' => $grandTotal,
+            'downpayment' => $downpayment,
+            'balance' => $balance,
+            'sample_breakdown' => [
+                'sample_apparel' => $first['size'] ?? $first['sample_apparel'] ?? null,
+                'unit_price' => (float) ($first['unit_price'] ?? 0),
+                'quantity' => (float) ($first['quantity'] ?? 0),
+                'price_per_piece' => $sampleTotal,
+            ],
+        ];
+    }
+
     protected function buildOrderAttributes(array $f, array $data): array
     {
         $attrs = [

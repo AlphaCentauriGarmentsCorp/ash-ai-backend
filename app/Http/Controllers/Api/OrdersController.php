@@ -45,10 +45,14 @@ class OrdersController extends Controller
         // verified_payments_count powers OrderResource::is_editable without an
         // N+1 across the list (an order with a verified payment is in production
         // and no longer editable).
-        $orders = Order::withCount([
-            'payments as verified_payments_count' => fn ($q) =>
-                $q->where('status', OrderPayment::STATUS_VERIFIED),
-        ])->get();
+        // Eager-load apparel/pattern/print relations so the list resource
+        // exposes apparel_type, pattern_type and print_method (whenLoaded).
+        // Without this they were absent and the list rendered "—".
+        $orders = Order::with(['apparelType', 'patternType', 'printMethod'])
+            ->withCount([
+                'payments as verified_payments_count' => fn ($q) =>
+                    $q->where('status', OrderPayment::STATUS_VERIFIED),
+            ])->get();
 
         return OrderResource::collection($orders);
     }
