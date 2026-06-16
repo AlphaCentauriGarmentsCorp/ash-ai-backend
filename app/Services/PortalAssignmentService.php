@@ -168,7 +168,7 @@ class PortalAssignmentService
             ->whereIn('stage', $stageSlugs)
             ->get();
 
-        return $this->buildTaskList($stages);
+        return $this->buildTaskList($this->frontierStages($stages));
     }
 
     /**
@@ -182,10 +182,79 @@ class PortalAssignmentService
             return 0;
         }
 
-        return OrderStage::query()
+        $stages = OrderStage::query()
             ->whereIn('status', self::ACTIVE_WORKLOAD_STATUSES)
             ->whereIn('stage', $stageSlugs)
-            ->count();
+            ->get();
+
+        // Same frontier filter as activeTasks() so the oversight badge and the
+        // portal list stay one source of truth (Bundle 1.1).
+        return $this->frontierStages($stages)->count();
+    }
+
+    /**
+     * Frontier filter (Bundle 1.1) — given candidate stage rows already limited
+     * to a portal role's stages and the active-workload statuses, keep only the
+     * ones actionable at the station *right now*:
+     *
+     *   - any NON-pending active row (in_progress / delayed / for_approval) —
+     *     work already underway at the station; and
+     *   - a PENDING row only if the fork-join engine would start it now for its
+     *     order, i.e. its slug is in WorkflowStages::nextActivations() for the
+     *     order's full stage map.
+     *
+     * Why this exists: OrderStagesService::initializeForOrder() pre-creates ALL
+     * canonical stages for an order, the future ones as 'pending'. Without this
+     * filter every order surfaces a pending row at every station it will EVER
+     * pass through — so a Cutter saw both the sample_cutting AND the mass_cutting
+     * of every order, plus orders nowhere near cutting yet. Reusing
+     * nextActivations() keeps the one parallel tier correct: while tier 6 is
+     * live both screen_making and material_prep_sample qualify; the join
+     * (sample_cutting, tier 7) waits until both complete.
+     *
+     * Applied identically by activeTasks() (the list) and activeCountForRole()
+     * (the oversight badge), so the two can never disagree. NOTE: the legacy
+     * single-task resolver myActive() is intentionally NOT filtered — the
+     * portals no longer use it (Bundle 1) and PortalAssignmentTest pins its
+     * current behaviour; it can be removed in a later cleanup.
+     *
+     * @param  Collection<int,OrderStage>  $candidates
+     * @return Collection<int,OrderStage>
+     */
+    protected function frontierStages(Collection $candidates): Collection
+    {
+        $pending = $candidates->filter(
+            static fn (OrderStage $s) => $s->status === OrderStage::STATUS_PENDING
+        );
+
+        // No pending rows to second-guess → every candidate is current work.
+        if ($pending->isEmpty()) {
+            return $candidates->values();
+        }
+
+        // Pending rows need their order's FULL canonical stage map, because
+        // nextActivations() reasons over every stage of the order.
+        $orderIds = $pending->pluck('order_id')->unique()->all();
+
+        $eligibleByOrder = OrderStage::query()
+            ->whereIn('order_id', $orderIds)
+            ->get(['order_id', 'stage', 'status'])
+            ->groupBy('order_id')
+            ->map(static fn ($rows) => WorkflowStages::nextActivations(
+                $rows->pluck('status', 'stage')->all()
+            ))
+            ->all();
+
+        return $candidates->filter(static function (OrderStage $s) use ($eligibleByOrder) {
+            if ($s->status !== OrderStage::STATUS_PENDING) {
+                return true; // in_progress / delayed / for_approval — current work
+            }
+            return in_array(
+                $s->stage,
+                $eligibleByOrder[$s->order_id] ?? [],
+                true
+            );
+        })->values();
     }
 
     /**
