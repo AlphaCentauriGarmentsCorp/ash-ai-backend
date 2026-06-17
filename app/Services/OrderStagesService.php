@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderStage;
+use App\Models\PurchaseRequest;
 use App\Models\StageAuditLog;
 use App\Support\WorkCalendar;
 use App\Support\WorkflowStages;
@@ -429,6 +430,78 @@ class OrderStagesService
         }
 
         return $result['next'];
+    }
+
+    /**
+     * Bundle 2 — the order's currently-active Material Prep stage, if any.
+     *
+     * Material Prep owns two stages: material_prep_sample (the sample-phase
+     * sourcing fork, tier 6) and material_prep_mass (mass-phase sourcing,
+     * tier 13). Only one is ever active at a time. Returns the active one
+     * (in_progress / delayed / for_approval), lowest tier first for safety,
+     * or null when Material Prep is not the order's current work.
+     */
+    public function activeMaterialPrepStage(int $orderId): ?OrderStage
+    {
+        return OrderStage::where('order_id', $orderId)
+            ->whereIn('stage', WorkflowStages::stagesForPortalRole('material_prep'))
+            ->whereIn('status', [
+                OrderStage::STATUS_IN_PROGRESS,
+                OrderStage::STATUS_DELAYED,
+                OrderStage::STATUS_FOR_APPROVAL,
+            ])
+            ->orderBy('sequence')
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * Bundle 2 — auto-complete the active Material Prep stage once every
+     * purchase request for the order has been received.
+     *
+     * Called after a PR is marked received. "All received" means no PR for the
+     * order is still outstanding — i.e. none left in pending / approved /
+     * ordered (cancelled PRs don't block). When that holds AND a Material Prep
+     * stage is active, the stage is completed and the workflow advances exactly
+     * as a portal "Done" would (so the parallel sample fork joins correctly).
+     * No active prep stage, or any still-outstanding PR, makes this a no-op
+     * (returns null).
+     *
+     * The zero-PR case (nothing to buy) never reaches here — this only runs on
+     * a PR-received event, so there is always at least one received PR. Orders
+     * with no PRs at all advance via the portal's manual "Prep Done" fallback.
+     *
+     * Defensive: a ValidationException from markComplete (only reachable on a
+     * pre-existing data inconsistency, since "active stage with completed
+     * predecessors" is the precondition) is swallowed so it can never break the
+     * PR-received response — the stage simply isn't auto-advanced.
+     */
+    public function completeMaterialPrepIfReady(int $orderId): ?OrderStage
+    {
+        $stage = $this->activeMaterialPrepStage($orderId);
+        if (! $stage) {
+            return null;
+        }
+
+        $hasOutstanding = PurchaseRequest::where('order_id', $orderId)
+            ->whereNotIn('status', [
+                PurchaseRequest::STATUS_RECEIVED,
+                PurchaseRequest::STATUS_CANCELLED,
+            ])
+            ->exists();
+
+        if ($hasOutstanding) {
+            return null;
+        }
+
+        try {
+            return $this->markComplete(
+                $stage->id,
+                'Auto-completed: all purchase requests received.',
+            );
+        } catch (ValidationException $e) {
+            return null;
+        }
     }
 
     /**

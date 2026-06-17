@@ -577,6 +577,18 @@ Route::prefix('v2')->group(function () {
         Route::get('/portal/{role}/my-active-tasks', [PortalController::class, 'myActiveTasks'])
             ->where('role', '[a-z_-]+');
 
+        // Bundle 2 — Portal "Done": the worker completes their current
+        // production stage and the workflow auto-advances
+        // (OrderStagesService::markComplete). {role} is a wildcard, so the
+        // controller enforces BOTH the portal permission and shared-queue
+        // ownership. Only the five plain-Done production portals qualify
+        // (graphic-artist, screen-maker, cutter, printer, sewer); QA/Packer
+        // keeps its richer submit and Material Prep / Logistics complete via
+        // their own event-driven paths.
+        Route::post('/portal/{role}/stages/{orderStage}/done', [PortalController::class, 'done'])
+            ->where('role', '[a-z_-]+')
+            ->whereNumber('orderStage');
+
         // ── Cutter Portal (Phase 5-B) ─────────────────────────────────
         // Per-portal endpoints for fabric tracking, sample uploads, and
         // the aggregated portal-context fetch. All gated by portal.cutter.
@@ -701,6 +713,12 @@ Route::prefix('v2')->group(function () {
                 Route::get('/orders',                       'ordersAtStage');
                 Route::get('/order/{orderId}/requirements', 'orderRequirements')->whereNumber('orderId');
                 Route::post('/order/{orderId}/requirements','saveOrderRequirements')->whereNumber('orderId');
+
+                // Bundle 2 — manual "Prep Done" fallback for an order whose
+                // Material Prep stage has no PRs to receive (the auto-complete
+                // on PR receive covers the normal case). Same ownership rule
+                // as the production Done; route already gates portal.material-prep.
+                Route::post('/order/{orderId}/prep-done', 'markPrepDone')->whereNumber('orderId');
             });
 
         // ── Graphic Artist Portal (Phase 5-H) ─────────────────────────
