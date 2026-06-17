@@ -93,6 +93,40 @@ class PortalAssignmentService
     }
 
     /**
+     * Bundle 2 — shared-queue ownership gate for a portal write action
+     * (e.g. the production "Done" that completes a stage).
+     *
+     * Returns true only when the stage genuinely belongs in this user's queue
+     * for the given portal role:
+     *   1. the stage's slug is one this portal role works on
+     *      (WorkflowStages::stagesForPortalRole), AND
+     *   2. the stage is unassigned (shared pool) OR assigned to this user.
+     *      A stage assigned to someone ELSE is not theirs to act on — this is
+     *      the same mix-mode scoping myActive()/activeTasks() use.
+     *
+     * It deliberately does NOT check status or sequence: "already completed",
+     * "not yet active", and "earlier stages unfinished" are all enforced by
+     * OrderStagesService::markComplete(). This answers only the orthogonal
+     * question "is this task in your queue to act on?".
+     *
+     * IMPORTANT: the caller must ALSO confirm the user holds this portal's
+     * permission (portal.{role}). Because the Done route's {role} is a
+     * wildcard, ownership alone would let a worker complete another role's
+     * unassigned shared work by editing the URL. PortalController::done()
+     * checks both.
+     */
+    public function userMayActOnStage(User $user, string $portalRole, OrderStage $stage): bool
+    {
+        $stageSlugs = WorkflowStages::stagesForPortalRole($portalRole);
+        if (! in_array($stage->stage, $stageSlugs, true)) {
+            return false;
+        }
+
+        return $stage->assigned_to === null
+            || (int) $stage->assigned_to === (int) $user->id;
+    }
+
+    /**
      * Compact representation of an OrderStage for the picker.
      * Includes enough context for the user to choose between assignments
      * without paying for a full Order resource hydration.

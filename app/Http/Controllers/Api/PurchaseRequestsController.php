@@ -9,6 +9,7 @@ use App\Models\Materials;
 use App\Models\PurchaseRequest;
 use App\Models\PurchaseRequestItem;
 use App\Services\NotificationService;
+use App\Services\OrderStagesService;
 use App\Services\PurchaseRequestService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -179,12 +180,19 @@ class PurchaseRequestsController extends Controller
     /**
      * POST /api/v2/purchase-requests/{id}/mark-received
      */
-    public function markReceived(int $id, Request $request)
+    public function markReceived(int $id, Request $request, OrderStagesService $stages)
     {
         $pr = PurchaseRequest::findOrFail($id);
         $pr = $this->service->markReceived($pr, $request->user());
 
         $this->service->announceReceived($pr);
+
+        // Bundle 2 — when this clears the order's last outstanding PR, the
+        // active Material Prep stage auto-completes and the workflow advances.
+        // No-op when a PR is still outstanding or no prep stage is active.
+        if ($pr->order_id) {
+            $stages->completeMaterialPrepIfReady($pr->order_id);
+        }
 
         return new PurchaseRequestResource($pr->load([
             'order', 'supplier', 'approvedBy', 'items.material', 'materialRequest',
