@@ -26,6 +26,8 @@ class StageAuditLog extends Model
     public const ACTION_RESUMED      = 'resumed';
     public const ACTION_FOR_APPROVAL = 'for_approval';
     public const ACTION_CANCELLED    = 'cancelled';
+    // Sample-approval REJECT loops a completed sample stage back to pending.
+    public const ACTION_RESET        = 'reset';
 
     protected $fillable = [
         'order_id',

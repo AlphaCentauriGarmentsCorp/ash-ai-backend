@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Csr\UploadPayment;
 use App\Http\Requests\Csr\VerifyPayment;
 use App\Services\OrderPaymentService;
+use App\Services\PendingApprovalsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,6 +14,7 @@ class OrderPaymentController extends Controller
 {
     public function __construct(
         protected OrderPaymentService $payments,
+        protected PendingApprovalsService $approvals,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -24,6 +26,19 @@ class OrderPaymentController extends Controller
 
         return response()->json([
             'data' => $list->map(fn ($p) => $this->payments->present($p))->all(),
+        ]);
+    }
+
+    /**
+     * GET /csr/payments/awaiting — the CSR awaiting-payment list: orders at a
+     * payment gate that still need the client payment recorded (waiting /
+     * rejected). Gated by portal.csr at the group level.
+     */
+    public function awaiting(): JsonResponse
+    {
+        return response()->json([
+            'data'  => $this->approvals->awaitingQueue(),
+            'count' => $this->approvals->awaitingCount(),
         ]);
     }
 

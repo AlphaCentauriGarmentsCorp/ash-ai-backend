@@ -57,6 +57,35 @@ class PendingApprovalsService
     }
 
     /**
+     * The CSR "awaiting payment" list — orders sitting at a payment gate whose
+     * payment hasn't been recorded yet (status `waiting`) or was rejected and
+     * needs re-recording. Same row shape as queue(); the only differences are
+     * the status filter and the action (record vs verify), so the two lists
+     * never overlap: waiting/rejected here, for_verification on the Dashboard.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function awaitingQueue(): array
+    {
+        $rows = OrderPayment::query()
+            ->whereIn('status', [OrderPayment::STATUS_WAITING, OrderPayment::STATUS_REJECTED])
+            ->with(['order.items', 'order.currentStage', 'paymentMethod', 'uploadedBy'])
+            ->orderBy('uploaded_at')
+            ->get();
+
+        return $rows->map(fn (OrderPayment $p) => $this->present($p))->all();
+    }
+
+    /** Badge count for the awaiting-payment list. */
+    public function awaitingCount(): int
+    {
+        return OrderPayment::whereIn('status', [
+            OrderPayment::STATUS_WAITING,
+            OrderPayment::STATUS_REJECTED,
+        ])->count();
+    }
+
+    /**
      * Approve a pending payment: verify it (Finance/Superadmin/Admin only —
      * enforced inside OrderPaymentService::verify) and advance the order's
      * active payment-verification gate so the next phase unlocks.
@@ -196,6 +225,13 @@ class PendingApprovalsService
             'gate_stage'       => $gate?->stage,
             'payment_type'     => $p->payment_type,
             'amount'           => (float) $p->amount,
+            // §2.3 — the verifier must see who paid, through which channel, and
+            // WHEN the money was sent (distinct from uploaded_at = when the proof
+            // was recorded). Method is the PaymentMethods lookup name (GCash /
+            // BPI / etc); paymentMethod is eager-loaded in queue()/awaitingQueue().
+            'payer'            => $p->payer_name,
+            'method'           => $p->paymentMethod?->name,
+            'paid_at'          => $p->paid_at?->toIso8601String(),
             'reference_number' => $p->reference_number,
             'proof_url'        => $p->proof_path ? Storage::disk('public')->url($p->proof_path) : null,
             'uploaded_by'      => $p->uploadedBy?->name,

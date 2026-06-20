@@ -26,6 +26,8 @@ class UploadPayment extends FormRequest
             'amount'             => ['required', 'numeric', 'min:0', 'max:99999999.99'],
             'payment_method_id'  => ['nullable', 'integer', 'exists:payment_methods,id'],
             'reference_number'   => ['nullable', 'string', 'max:128'],
+            'payer_name'         => ['nullable', 'string', 'max:128'],
+            'paid_at'            => ['nullable', 'date'],
             'notes'              => ['nullable', 'string'],
             'proof'              => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'],
         ];

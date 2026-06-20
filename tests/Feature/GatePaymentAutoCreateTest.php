@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\Schema;
 /**
  * GatePaymentAutoCreateTest — when an order reaches a Payment Verification gate
  * (sample / mass / balance), a pending OrderPayment is auto-created in
- * `for_verification` so it surfaces on the Dashboard "Pending Approvals" queue
- * immediately. No CSR proof upload required; Finance confirms the expected
- * amount, which is read from the order's stored breakdown_json.
+ * `waiting` so it surfaces on the CSR awaiting-payment list. It becomes
+ * `for_verification` (Finance's Dashboard queue) only once CSR records the
+ * actual payment with proof. The expected amount is read from breakdown_json.
  *
  * Hand-built minimal schema (no RefreshDatabase), mirroring WorkflowEngineTest,
  * plus order_payments + csr_activity_logs and the orders.breakdown_json column.
@@ -177,7 +177,7 @@ function gpaPayments(): OrderPaymentService
 // Tests
 // ---------------------------------------------------------------------
 
-it('auto-creates a for_verification sample payment when an order initializes at the sample gate', function () {
+it('auto-creates a waiting sample payment when an order initializes at the sample gate', function () {
     $order = gpaOrder();
     app(OrderStagesService::class)->initializeForOrder($order);
 
@@ -190,7 +190,7 @@ it('auto-creates a for_verification sample payment when an order initializes at 
 
     $p = $payments->first();
     expect($p->payment_type)->toBe(OrderPayment::TYPE_SAMPLE)
-        ->and($p->status)->toBe(OrderPayment::STATUS_FOR_VERIFICATION)
+        ->and($p->status)->toBe(OrderPayment::STATUS_WAITING)
         ->and((float) $p->amount)->toBe(1000.00)
         ->and($p->uploaded_by_user_id)->toBeNull()
         ->and($p->proof_path)->toBeNull();
@@ -214,7 +214,7 @@ it('creates a down_payment from breakdown.downpayment at the mass gate', functio
     expect($p)->not->toBeNull()
         ->and($p->payment_type)->toBe(OrderPayment::TYPE_DOWN_PAYMENT)
         ->and((float) $p->amount)->toBe(4842.00)
-        ->and($p->status)->toBe(OrderPayment::STATUS_FOR_VERIFICATION);
+        ->and($p->status)->toBe(OrderPayment::STATUS_WAITING);
 });
 
 it('creates a balance payment from breakdown.balance at the balance gate', function () {

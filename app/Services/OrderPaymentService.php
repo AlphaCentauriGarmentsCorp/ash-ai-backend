@@ -87,15 +87,15 @@ class OrderPaymentService
             'order_id'            => $order->id,
             'payment_type'        => $type,
             'amount'              => $this->expectedGateAmount($order, $gate->stage),
-            'status'              => OrderPayment::STATUS_FOR_VERIFICATION,
-            'uploaded_at'         => now(),   // anchors the dashboard wait timer
+            'status'              => OrderPayment::STATUS_WAITING,
+            'uploaded_at'         => now(),   // anchors the awaiting-payment wait timer
             'uploaded_by_user_id' => null,    // system-created at the gate
-            'notes'               => 'Auto-created when the order reached this payment gate. Finance confirms the expected amount.',
+            'notes'               => 'Auto-created when the order reached this payment gate. Awaiting CSR to record the client payment.',
         ]);
 
         $this->logger->log(
             action: 'payment_gate.auto_created',
-            summary: "{$payment->payment_type} \u{20B1}" . number_format((float) $payment->amount, 2) . ' (for_verification)',
+            summary: "{$payment->payment_type} \u{20B1}" . number_format((float) $payment->amount, 2) . ' (waiting)',
             subject: $payment,
             orderId: $order->id,
             clientId: $order->client_id,
@@ -135,6 +135,18 @@ class OrderPaymentService
             'payment_verification_balance' => OrderPayment::TYPE_BALANCE,
             default                        => null,
         };
+    }
+
+    /**
+     * The payment type the order currently owes at its active gate (sample /
+     * down_payment / balance), or null if it isn't sitting at a payment gate.
+     * Lets the Enter-Payment form default the type instead of asking the user.
+     */
+    public function activeGatePaymentType(Order $order): ?string
+    {
+        $gate = $this->activeGateStage($order->id);
+
+        return $gate ? self::paymentTypeForGate($gate->stage) : null;
     }
 
     /**
@@ -212,18 +224,53 @@ class OrderPaymentService
                 $uploadedAt = now();
             }
 
-            $payment = OrderPayment::create([
-                'order_id'            => $order->id,
-                'payment_type'        => $data['payment_type'],
-                'amount'              => $data['amount'],
-                'payment_method_id'   => $data['payment_method_id'] ?? null,
-                'reference_number'    => $data['reference_number']  ?? null,
-                'proof_path'          => $proofPath,
-                'status'              => $status,
-                'uploaded_by_user_id' => $proof !== null ? Auth::id() : null,
-                'uploaded_at'         => $uploadedAt,
-                'notes'               => $data['notes'] ?? null,
-            ]);
+            // Reconcile with the gate's auto-created stub (ensureGatePayment) or
+            // an earlier waiting/rejected attempt for this same payment_type, so
+            // we update that single row instead of inserting a parallel one.
+            // Without this, the stub (no proof) and this upload (with proof) both
+            // sit in the Dashboard "Pending Approvals" queue as duplicates.
+            // A VERIFIED payment is terminal and is never touched here.
+            $payment = OrderPayment::where('order_id', $order->id)
+                ->where('payment_type', $data['payment_type'])
+                ->where('status', '!=', OrderPayment::STATUS_VERIFIED)
+                ->latest('id')
+                ->first();
+
+            if ($payment) {
+                $payment->amount            = $data['amount'];
+                $payment->payment_method_id = $data['payment_method_id'] ?? $payment->payment_method_id;
+                $payment->reference_number  = $data['reference_number']  ?? $payment->reference_number;
+                $payment->notes             = $data['notes'] ?? $payment->notes;
+                $payment->payer_name        = $data['payer_name'] ?? $payment->payer_name;
+                $payment->paid_at           = $data['paid_at']    ?? $payment->paid_at;
+
+                // Only (re)attach proof and advance to for_verification when an
+                // actual file arrived; a metadata-only call must not wipe an
+                // existing proof or downgrade the row's status.
+                if ($proof !== null) {
+                    $payment->proof_path          = $proofPath;
+                    $payment->status              = OrderPayment::STATUS_FOR_VERIFICATION;
+                    $payment->uploaded_at         = $uploadedAt;
+                    $payment->uploaded_by_user_id = Auth::id();
+                }
+
+                $payment->save();
+            } else {
+                $payment = OrderPayment::create([
+                    'order_id'            => $order->id,
+                    'payment_type'        => $data['payment_type'],
+                    'amount'              => $data['amount'],
+                    'payment_method_id'   => $data['payment_method_id'] ?? null,
+                    'reference_number'    => $data['reference_number']  ?? null,
+                    'payer_name'          => $data['payer_name'] ?? null,
+                    'paid_at'             => $data['paid_at']    ?? null,
+                    'proof_path'          => $proofPath,
+                    'status'              => $status,
+                    'uploaded_by_user_id' => $proof !== null ? Auth::id() : null,
+                    'uploaded_at'         => $uploadedAt,
+                    'notes'               => $data['notes'] ?? null,
+                ]);
+            }
 
             $this->logger->log(
                 action: 'payment_proof.uploaded',
