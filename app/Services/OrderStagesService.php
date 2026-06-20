@@ -433,6 +433,79 @@ class OrderStagesService
     }
 
     /**
+     * Sample-approval REJECT — loop the order back to graphic_artwork.
+     *
+     * Resets every sample-production stage the order has already run
+     * (WorkflowStages::sampleStageKeys(): graphic_artwork → sample_approval)
+     * back to `pending`, clearing its timestamps, then re-promotes the
+     * eligible tier so graphic_artwork starts again and the sample sub-flow
+     * re-runs forward. Because graphic_artwork is the lowest sample tier, the
+     * tier-6 screen_making ‖ material_prep_sample fork re-fires automatically
+     * when graphic_artwork completes — i.e. a reject re-makes screens and
+     * re-sources sample materials too, not just the cut/print/sew build.
+     *
+     * The sample PAYMENT gate (payment_verification_sample, seq 4) is NOT a
+     * sample-production stage (sample === false) so it is never reset — a
+     * reject therefore never demands a second sample fee. Mass-phase stages
+     * (seq 12+) are untouched; the order never reached them.
+     *
+     * History survives in the satellite tables: every reset writes a
+     * StageAuditLog 'reset' row, and the prior pass's sample uploads and
+     * ClientApproval rows are left intact.
+     *
+     * @return array<int, OrderStage> the stage(s) (re)started by the reset
+     */
+    public function resetSampleSubflow(Order $order, ?string $reason = null): array
+    {
+        $promoted = DB::transaction(function () use ($order, $reason) {
+            $sampleKeys = WorkflowStages::sampleStageKeys();
+
+            // Reset every sample-phase row that has already run (anything not
+            // still pending) back to pending with cleared timestamps.
+            $rows = OrderStage::where('order_id', $order->id)
+                ->whereIn('stage', $sampleKeys)
+                ->where('status', '!=', OrderStage::STATUS_PENDING)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($rows as $row) {
+                $fromStatus = $row->status;
+
+                $row->update([
+                    'status'       => OrderStage::STATUS_PENDING,
+                    'started_at'   => null,
+                    'completed_at' => null,
+                    'delayed_at'   => null,
+                ]);
+
+                $this->writeAudit(
+                    $row->fresh(),
+                    StageAuditLog::ACTION_RESET,
+                    $fromStatus,
+                    OrderStage::STATUS_PENDING,
+                    $reason,
+                );
+            }
+
+            // Re-promote: graphic_artwork (the lowest sample tier) restarts.
+            $promoted = $this->promoteEligible($order);
+
+            // Refresh cached current_stage_id + workflow_status on the order.
+            $this->refreshOrderCache($order);
+
+            return $promoted;
+        });
+
+        // Mirror markComplete: notify each newly-started stage's owner AFTER
+        // the commit. This is what alerts the Graphic Artist on a loop-back.
+        foreach ($promoted as $startedStage) {
+            $this->notifications->stageInProgress($startedStage);
+        }
+
+        return $promoted;
+    }
+
+    /**
      * Bundle 2 — the order's currently-active Material Prep stage, if any.
      *
      * Material Prep owns two stages: material_prep_sample (the sample-phase

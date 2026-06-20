@@ -180,6 +180,8 @@ beforeEach(function () {
         $t->decimal('amount', 10, 2);
         $t->unsignedBigInteger('payment_method_id')->nullable();
         $t->string('reference_number')->nullable();
+        $t->string('payer_name')->nullable();
+        $t->timestamp('paid_at')->nullable();
         $t->string('proof_path', 255)->nullable();
         $t->string('status', 24)->default('waiting');
         $t->unsignedBigInteger('uploaded_by_user_id')->nullable();
@@ -511,4 +513,51 @@ test('HTTP: GET /csr/dashboard returns 200 with JSON structure', function () {
             'my_orders',
         ],
     ]);
+});
+// ── Phase 2: CSR payment recording access (reverses Change-17 read-only) ──
+
+test('CSR with portal.csr can record a payment via POST /csr/payments', function () {
+    Storage::fake('public');
+    $user = csrMakeUser(['portal.csr']);
+    $this->actingAs($user, 'sanctum');
+
+    $order = csrMakeOrder();
+
+    $response = $this->post('/api/v2/csr/payments', [
+        'order_id'     => $order->id,
+        'payment_type' => 'down_payment',
+        'amount'       => 5000.00,
+        'payer_name'   => 'Juan Dela Cruz',
+        'paid_at'      => '2026-06-16 10:00:00',
+        'proof'        => UploadedFile::fake()->image('proof.jpg'),
+    ]);
+
+    $response->assertStatus(201);
+
+    $p = OrderPayment::where('order_id', $order->id)->first();
+    expect($p)->not->toBeNull()
+        ->and($p->payer_name)->toBe('Juan Dela Cruz')
+        ->and($p->status)->toBe('for_verification');
+});
+
+test('CSR with portal.csr can fetch the awaiting-payment list via GET /csr/payments/awaiting', function () {
+    $user = csrMakeUser(['portal.csr']);
+    $this->actingAs($user, 'sanctum');
+
+    $this->getJson('/api/v2/csr/payments/awaiting')
+        ->assertStatus(200)
+        ->assertJsonStructure(['data', 'count']);
+});
+
+test('payment recording is rejected for a user without portal.csr (403)', function () {
+    $user = csrMakeUser([]);   // no permissions
+    $this->actingAs($user, 'sanctum');
+
+    $order = csrMakeOrder();
+
+    $this->postJson('/api/v2/csr/payments', [
+        'order_id'     => $order->id,
+        'payment_type' => 'down_payment',
+        'amount'       => 5000.00,
+    ])->assertStatus(403);
 });

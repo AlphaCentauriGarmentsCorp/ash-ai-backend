@@ -71,6 +71,7 @@ use App\Http\Controllers\Api\DashboardApprovalsController;
 use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\OrderPaymentController;
 use App\Http\Controllers\Api\ClientApprovalController;
+use App\Http\Controllers\Api\SampleApprovalController;
 use App\Http\Controllers\Api\FabricSwatchController;
 use App\Http\Controllers\Api\QaPackerPortalController;
 
@@ -788,11 +789,15 @@ Route::prefix('v2')->group(function () {
                         ->name('csr.inquiries.convertToQuotation');
                 });
 
-                // Order Payments — CSR is READ-ONLY (list only). Upload + verify
-                // are Finance-only under /finance/payments (Change 17 follow-up:
-                // Finance uploads + verifies; CSR may only view payment status).
+                // Order Payments (Phase 2) — CSR now RECORDS payments here
+                // (Enter Payment on the order) and sees the awaiting-payment
+                // list. This reverses the Change-17 "Finance-only recording"
+                // rule per the CR. Verification stays Finance-only (Dashboard
+                // pending-approvals + /csr/payments/{id}/verify).
                 Route::prefix('/payments')->controller(OrderPaymentController::class)->group(function () {
                     Route::get('/',                'index');
+                    Route::get('/awaiting',        'awaiting');
+                    Route::post('/',               'store');
                 });
 
                 // Client Approvals
@@ -802,6 +807,16 @@ Route::prefix('v2')->group(function () {
                     Route::patch('/{id}/respond',  'respond')
                         ->whereNumber('id')
                         ->name('csr.approvals.respond');
+                });
+
+                // Sample Approval (Phase 3) — CSR records the client's verdict
+                // on a packed sample. Approve advances the order to the mass-
+                // payment gate; reject loops the whole sample sub-flow back to
+                // Graphic Artwork. Stage-driven (the worklist reads the live
+                // sample_approval stage, not the ClientApproval log).
+                Route::prefix('/sample-approvals')->controller(SampleApprovalController::class)->group(function () {
+                    Route::get('/',  'awaiting');
+                    Route::post('/', 'store');
                 });
 
                 // ── Phase 6-B: Fabric Swatch Catalog ────────────────

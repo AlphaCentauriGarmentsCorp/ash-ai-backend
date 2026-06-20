@@ -33,6 +33,8 @@ class OrderPayment extends Model
         'amount',
         'payment_method_id',
         'reference_number',
+        'payer_name',
+        'paid_at',
         'proof_path',
         'status',
         'uploaded_by_user_id',
@@ -45,6 +47,7 @@ class OrderPayment extends Model
 
     protected $casts = [
         'amount'      => 'decimal:2',
+        'paid_at'     => 'datetime',
         'uploaded_at' => 'datetime',
         'verified_at' => 'datetime',
     ];

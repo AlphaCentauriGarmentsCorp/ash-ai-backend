@@ -146,6 +146,27 @@ final class WorkflowStages
         ));
     }
 
+    /**
+     * Slugs of all sample-production stages (sample === true), in order:
+     * graphic_artwork → screen_making ‖ material_prep_sample → sample_cutting
+     * → sample_printing → sample_sewing → sample_packing → sample_approval.
+     *
+     * This is exactly the set a sample-approval REJECT loops back over (see
+     * OrderStagesService::resetSampleSubflow). The sample PAYMENT gate
+     * (payment_verification_sample) is a gate, NOT a sample-production stage
+     * (sample === false), so it is deliberately excluded — a reject never
+     * re-charges the sample fee.
+     *
+     * @return array<int,string>
+     */
+    public static function sampleStageKeys(): array
+    {
+        return array_values(array_map(
+            static fn ($s) => $s['key'],
+            array_filter(self::STAGES, static fn ($s) => ! empty($s['sample'])),
+        ));
+    }
+
     /** All stage slugs sharing the given tier. @return array<int,string> */
     public static function stagesAtTier(int $tier): array
     {
