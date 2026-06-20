@@ -270,7 +270,6 @@ class RbacSeeder extends Seeder
             // ============ GRAPHIC ARTIST ============
             'graphic_artist' => array_merge(
                 [
-                    'access.orders',
                     'access.graphic-design',
                     'access.pantone',
                     'access.quotation-review',
@@ -287,7 +286,6 @@ class RbacSeeder extends Seeder
             // ============ SCREEN MAKER ============
             'screen_maker' => array_merge(
                 [
-                    'access.orders',
                     'access.materials',
                     'access.screens',
                     'access.screen-making',
@@ -306,7 +304,6 @@ class RbacSeeder extends Seeder
             // ============ PURCHASING / MATERIAL PREP ============
             'purchasing' => array_merge(
                 [
-                    'access.orders',
                     'access.suppliers',
                     'access.materials',
                     'access.payment-methods',
@@ -321,7 +318,6 @@ class RbacSeeder extends Seeder
             // ============ WAREHOUSE MANAGER ============
             'warehouse_manager' => array_merge(
                 [
-                    'access.orders',
                     'access.suppliers',
                     'access.materials',
                     'access.equipment',
@@ -343,7 +339,6 @@ class RbacSeeder extends Seeder
             // ============ CUTTER (Sample + Mass) ============
             'cutter' => array_merge(
                 [
-                    'access.orders',
                     'access.materials',
                     'access.notifications',
                     'portal.cutter',
@@ -358,7 +353,6 @@ class RbacSeeder extends Seeder
             // ============ PRINTER (Sample + Mass) ============
             'printer' => array_merge(
                 [
-                    'access.orders',
                     'access.materials',
                     'access.screens',
                     'access.notifications',
@@ -374,7 +368,6 @@ class RbacSeeder extends Seeder
             // ============ SEWER (Sample + Mass) ============
             'sewer' => array_merge(
                 [
-                    'access.orders',
                     'access.materials',
                     'access.sewing-subcontractor',
                     'access.notifications',
@@ -391,7 +384,6 @@ class RbacSeeder extends Seeder
             // ============ QUALITY ASSURANCE ============
             'quality_assurance' => array_merge(
                 [
-                    'access.orders',
                     'access.notifications',
                     'portal.qa',
                     'portal.qa-packer',     // Phase 7-B: unified portal
@@ -404,7 +396,6 @@ class RbacSeeder extends Seeder
 
             // ============ PACKER ============
             'packer' => [
-                'access.orders',
                 'access.notifications',
                 'portal.packer',
                 'portal.qa-packer',         // Phase 7-B: unified portal
@@ -414,7 +405,6 @@ class RbacSeeder extends Seeder
 
             // ============ DRIVER (in-house delivery) ============
             'driver' => [
-                'access.orders',
                 'access.notifications',
                 'portal.driver',
                 'action.upload-photos',
@@ -423,7 +413,6 @@ class RbacSeeder extends Seeder
 
             // ============ LOGISTICS ============
             'logistics' => [
-                'access.orders',
                 'access.courier-list',
                 'access.shipping-methods',
                 'access.sewing-subcontractor',
@@ -437,7 +426,6 @@ class RbacSeeder extends Seeder
             // ============ SAMPLE MAKER ============
             'sample_maker' => array_merge(
                 [
-                    'access.orders',
                     'access.materials',
                     'access.notifications',
                     'portal.cutter',
@@ -453,7 +441,6 @@ class RbacSeeder extends Seeder
 
             // ============ EXTERNAL SUBCONTRACT PARTNER ============
             'subcontract' => [
-                'access.orders',
                 'access.notifications',
                 'portal.subcontract',
                 'action.upload-photos',
