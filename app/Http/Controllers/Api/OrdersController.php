@@ -10,6 +10,7 @@ use App\Http\Resources\OrderResource;
 use App\Http\Requests\Order\StoreOrderRequest;
 use App\Http\Requests\Order\OrderUpdateRequest;
 use App\Models\OrderPayment;
+use App\Models\OrderStage;
 use App\Exceptions\BusinessRuleException;
 
 class OrdersController extends Controller
@@ -48,10 +49,13 @@ class OrdersController extends Controller
         // Eager-load apparel/pattern/print relations so the list resource
         // exposes apparel_type, pattern_type and print_method (whenLoaded).
         // Without this they were absent and the list rendered "—".
-        $orders = Order::with(['apparelType', 'patternType', 'printMethod'])
+        $orders = Order::with(['apparelType', 'patternType', 'printMethod', 'currentStage', 'assignedCsr'])
             ->withCount([
                 'payments as verified_payments_count' => fn ($q) =>
                     $q->where('status', OrderPayment::STATUS_VERIFIED),
+                'orderStages as total_stages_count',
+                'orderStages as completed_stages_count' => fn ($q) =>
+                    $q->where('status', OrderStage::STATUS_COMPLETED),
             ])->get();
 
         return OrderResource::collection($orders);
