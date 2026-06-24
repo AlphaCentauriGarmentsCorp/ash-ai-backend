@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\OrderPayment;
+use App\Support\WorkflowStages;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -69,13 +70,20 @@ class OrderResource extends JsonResource
             'barcode_path' => $this->barcode_path,
 
             // Status + Phase 1 workflow
-            'status'           => $this->status,
+            'status'           => $this->displayStatus(),
             'workflow_status'  => $this->workflow_status,
             'is_incomplete'    => (bool) $this->is_incomplete,
             'incomplete_fields'=> $this->incomplete_fields ?? [],
             // Editable until the order enters production (no verified payment).
             'is_editable'      => $this->editableNow(),
             'current_stage_id' => $this->current_stage_id,
+            'current_stage'    => $this->whenLoaded('currentStage', fn () => $this->currentStage ? ucwords(str_replace('_', ' ', $this->currentStage->stage)) : null),
+            'assigned_to'      => $this->whenLoaded('assignedCsr', fn () => $this->assignedCsr?->name),
+            'progress_pct'     => isset($this->total_stages_count)
+                ? ((int) $this->total_stages_count > 0
+                    ? (int) round(($this->completed_stages_count / $this->total_stages_count) * 100)
+                    : 0)
+                : null,
             'delayed_at'       => $this->delayed_at?->toDateTimeString(),
 
             // Relations (only included if explicitly loaded)
@@ -167,5 +175,44 @@ class OrderResource extends JsonResource
         return ! $this->resource->payments()
             ->where('status', OrderPayment::STATUS_VERIFIED)
             ->exists();
+    }
+
+    /**
+     * Coarse display status derived from the live workflow.
+     *
+     * The stored `status` column is written once at creation and never
+     * advanced, so it sticks on "Pending Approval". `workflow_status` is the
+     * maintained source of truth (OrderStagesService recompute), so map its
+     * current stage to the badge the UI shows. Explicit terminal states
+     * (Cancelled / Rejected) that the stage pipeline does not model are
+     * preserved as-is.
+     */
+    private function displayStatus(): string
+    {
+        $stored = $this->status;
+        if (in_array($stored, ['Cancelled', 'Rejected'], true)) {
+            return $stored;
+        }
+
+        $wf = $this->workflow_status;
+        if ($wf === null || $wf === '') {
+            return $stored ?: 'Pending Approval';
+        }
+        if ($wf === 'order_completed') {
+            return 'Completed';
+        }
+
+        $seq = WorkflowStages::sequenceOf($wf);
+        if ($seq === null) {
+            return $stored ?: 'Pending Approval';
+        }
+        if ($seq >= 21) {            // order_completed / client_notification
+            return 'Completed';
+        }
+        if ($seq <= 4) {             // payment_verification_sample (initial gate)
+            return 'Pending Approval';
+        }
+
+        return 'In Production';      // seq 5-20: graphic artwork through delivery
     }
 }
