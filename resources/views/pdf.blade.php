@@ -493,9 +493,81 @@
                 <p>Brand: {{ $quotation->client_brand ?? 'N/A' }}</p>
             </div>
             <div class="order-info">
-                <h3>Order Details:</h3>
+                <h3>Apparel &amp; Production Details:</h3>
                 <p><strong>Shirt Color:</strong> {{ $quotation->shirt_color ?? 'N/A' }}</p>
                 <p><strong>Free Items:</strong> {{ $quotation->free_items ?? 'None' }}</p>
+                @php
+                    // Print Information — mirrors the View page and the Add form's
+                    // method-key logic (QuotationService::resolvePrintMethodKey).
+                    // print_method_name is stored in item_config_json on save;
+                    // special_print / print_area are top-level columns.
+                    $ic = is_array($quotation->item_config_json) ? $quotation->item_config_json : [];
+                    $printMethodName = $ic['print_method_name'] ?? null;
+                    $pmKey = strtolower((string) $printMethodName);
+                    $methodKey = (str_contains($pmKey, 'dtf') || str_contains($pmKey, 'direct-to-film')) ? 'dtf'
+                        : (str_contains($pmKey, 'embroid') ? 'embroidery'
+                        : (str_contains($pmKey, 'subli') ? 'sublimation'
+                        : ((str_contains($pmKey, 'silk') || str_contains($pmKey, 'screen')) ? 'silkscreen'
+                        : ($pmKey !== '' ? $pmKey : 'silkscreen'))));
+
+                    // Method-specific detail: a heading + label, plus an optional
+                    // manual price (rendered as ₱ in the HTML below).
+                    $methodHeading = null; $methodLabel = null; $methodPrice = null;
+                    if ($methodKey === 'embroidery') {
+                        $methodHeading = 'Embroidery';
+                        if (($ic['embroidery_size'] ?? 'small') === 'large') {
+                            $methodLabel = 'Large — manual';
+                            $methodPrice = $ic['embroidery_manual_price'] ?? 0;
+                        } else {
+                            $methodLabel = 'Small (pocket / left chest) — flat rate';
+                        }
+                    } elseif ($methodKey === 'sublimation') {
+                        $methodHeading = 'Sublimation';
+                        $subType = $ic['sublimation_type'] ?? 'partial';
+                        if ($subType === 'jersey_full') {
+                            $methodLabel = 'Full Jersey — flat rate';
+                        } elseif ($subType === 'mesh_shorts_full') {
+                            $methodLabel = 'Full Mesh Shorts — flat rate';
+                        } else {
+                            $methodLabel = 'Partial / Other — manual';
+                            $methodPrice = $ic['sublimation_manual_price'] ?? 0;
+                        }
+                    } elseif ($methodKey === 'dtf') {
+                        $methodHeading = 'DTF';
+                        $methodLabel = 'Priced per sq. inch';
+                    }
+
+                    // DTF per-placement dimensions live on each print part. Trailing
+                    // zeros trimmed only after the decimal point (never on integers).
+                    $fmtNum = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, '.', ''), '0'), '.');
+                    $dtfDims = [];
+                    if ($methodKey === 'dtf') {
+                        $parts = is_array($quotation->print_parts_json) ? $quotation->print_parts_json : [];
+                        foreach ($parts as $p) {
+                            $w = $p['width'] ?? null; $h = $p['height'] ?? null; $pc = $p['pieces'] ?? null;
+                            if ($w || $h) {
+                                $lbl = $p['part'] ?? (!empty($p['part_id']) ? ('Part #' . $p['part_id']) : 'Placement');
+                                $dtfDims[] = $lbl . ': ' . $fmtNum($w) . ' × ' . $fmtNum($h) . ' in'
+                                    . (!empty($pc) ? (', ' . (int) $pc . ' pc') : '');
+                            }
+                        }
+                    }
+                @endphp
+                @if($printMethodName)
+                    <p><strong>Print Method:</strong> {{ $printMethodName }}</p>
+                    @if($methodKey === 'silkscreen' && !empty($quotation->special_print))
+                        <p><strong>Special Print:</strong> {{ $quotation->special_print }}</p>
+                    @endif
+                    @if($methodKey === 'silkscreen' && !empty($quotation->print_area))
+                        <p><strong>Print Area:</strong> {{ $quotation->print_area }}</p>
+                    @endif
+                    @if($methodLabel)
+                        <p><strong>{{ $methodHeading }}:</strong> {{ $methodLabel }}@if($methodPrice !== null) ₱{{ number_format((float) $methodPrice, 2) }}@endif</p>
+                    @endif
+                    @foreach($dtfDims as $d)
+                        <p style="padding-left: 10px;"><span class="text-muted">{{ $d }}</span></p>
+                    @endforeach
+                @endif
                 @php
                     // Issue 7/12 — label specs are cast to arrays on the model.
                     $brandLabel = is_array($quotation->brand_label_json) ? $quotation->brand_label_json : [];
@@ -559,7 +631,13 @@
             </thead>
             <tbody>
                 @php
-                    $items = $quotation->items_json;
+                    // Declutter: only show sizes that carry a quantity. Zero-qty
+                    // rows are display-only noise; totals are computed separately
+                    // from the full items_json in the Payment Summary below.
+                    $items = array_values(array_filter(
+                        is_array($quotation->items_json) ? $quotation->items_json : [],
+                        fn ($i) => (int) ($i['quantity'] ?? 0) > 0,
+                    ));
                     $addons = $quotation->addons_json;
                     $breakdown = $quotation->breakdown_json;
                 @endphp
@@ -646,7 +724,10 @@
              keys (which is why every column rendered ₱0.00). Mirrors the View
              page's Detailed Cost Breakdown so the two agree. --}}
         @php
-            $costItems = is_array($quotation->items_json) ? $quotation->items_json : [];
+            $costItems = array_values(array_filter(
+                is_array($quotation->items_json) ? $quotation->items_json : [],
+                fn ($i) => (int) ($i['quantity'] ?? 0) > 0,
+            ));
         @endphp
         @if (!empty($costItems))
             <div class="breakdown-section">
