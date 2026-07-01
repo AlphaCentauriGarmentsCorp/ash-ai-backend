@@ -108,8 +108,20 @@ class StoreOrderRequest extends FormRequest
             'design_name'      => 'nullable|string',
             'service_type'     => 'nullable|string',
             'print_service'    => 'nullable|string',
-            'size_label'       => 'nullable|string',
-            'print_label_placement' => 'nullable|string',
+
+            // ── Labels (Brand + Care/Size spec + one shared design) ─────────
+            // Mirrors the quotation's Issue-7 label spec. Each label is a JSON
+            // blob (enabled/material/method/placement/measurement/notes); the
+            // shared artwork is EITHER a link/path string (label_design_path)
+            // OR an uploaded file (label_design_file, resolved to a path in
+            // OrdersController). Kept as `nullable` (not `string`) so both the
+            // form's JSON string and an already-decoded array validate; the
+            // service decodes defensively via decodeJson().
+            'brand_label_json'      => 'nullable',
+            'care_label_json'       => 'nullable',
+            'label_design_path'     => 'nullable|string|max:1000',
+            'label_design_file'     => 'nullable|file|image|mimes:jpg,jpeg,png,webp,svg|max:4096',
+
             'fabric_type'      => 'nullable|string',
             'fabric_supplier'  => 'nullable|string',
             'fabric_color'     => 'nullable|string',
@@ -126,7 +138,6 @@ class StoreOrderRequest extends FormRequest
             // Files (still accepted; service stores them on disk only)
             'design_files.*'     => 'file|mimes:pdf,jpg,jpeg,png',
             'design_mockup.*'    => 'file|mimes:pdf,jpg,jpeg,png',
-            'size_label_files.*' => 'file|mimes:pdf,jpg,jpeg,png',
             'freebies_files.*'   => 'file|mimes:pdf,jpg,jpeg,png',
             'payments.*'         => 'file|mimes:pdf,jpg,jpeg,png',
         ];

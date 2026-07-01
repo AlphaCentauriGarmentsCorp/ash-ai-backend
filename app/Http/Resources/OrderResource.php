@@ -130,8 +130,12 @@ class OrderResource extends JsonResource
             'service_type'           => $this->service_type,
             'print_method'           => $this->whenLoaded('printMethod', fn () => $this->printMethod?->name),
             'print_service'          => $this->print_service,
-            'size_label'             => $this->size_label,
-            'print_label_placement'  => $this->print_label_placement,
+            // Labels — mirror QuotationResource. brand_label / care_label are
+            // arrays (via the model's array cast); label_design_path is the raw
+            // stored path or external link.
+            'brand_label'            => $this->brand_label_json,
+            'care_label'             => $this->care_label_json,
+            'label_design_path'      => $this->label_design_path,
             'fabric_type'            => $this->fabric_type,
             'fabric_supplier'        => $this->fabric_supplier,
             'fabric_color'           => $this->fabric_color,
@@ -151,7 +155,6 @@ class OrderResource extends JsonResource
             'deposit_percentage'     => $this->deposit_percentage,
             'design_files'           => null,
             'design_mockup'          => null,
-            'size_label_files'       => null,
             'freebies_files'         => null,
         ];
     }

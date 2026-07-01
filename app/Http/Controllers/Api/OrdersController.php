@@ -137,7 +137,18 @@ class OrdersController extends Controller
             );
         }
 
-        $order = $this->service->store($request->validated(), [
+        // Resolve the shared label-design artwork: an uploaded file
+        // (label_design_file) stored to the public disk, OR a text link/path
+        // (label_design_path). One upload covers both Brand + Care/Size labels.
+        // Mirrors QuotationController::store. Only set when the request actually
+        // carried one, so nothing is clobbered when none is provided.
+        $validated = $request->validated();
+        $resolvedLabelDesign = $this->resolveLabelDesign($request);
+        if ($resolvedLabelDesign !== null) {
+            $validated['label_design_path'] = $resolvedLabelDesign;
+        }
+
+        $order = $this->service->store($validated, [
             'override'          => $wantsOverride,
             'incomplete_fields' => (array) $request->input('incomplete_fields', []),
             'actor'             => $actor,
@@ -178,13 +189,49 @@ class OrdersController extends Controller
             );
         }
 
-        $order = $this->service->update($order, $request->validated(), [
+        // Same shared label-design resolution as store() (see resolveLabelDesign).
+        // On edit, when no new file/link is sent, the frontend echoes the existing
+        // label_design_path so it is preserved; if it doesn't, buildOrderAttributes
+        // omits the column and the current value is kept.
+        $validated = $request->validated();
+        $resolvedLabelDesign = $this->resolveLabelDesign($request);
+        if ($resolvedLabelDesign !== null) {
+            $validated['label_design_path'] = $resolvedLabelDesign;
+        }
+
+        $order = $this->service->update($order, $validated, [
             'override'          => $wantsOverride,
             'incomplete_fields' => (array) $request->input('incomplete_fields', []),
             'actor'             => $actor,
         ]);
 
         return new OrderResource($order);
+    }
+
+    /**
+     * Resolve the shared label-design artwork from the request. Accepts either
+     * an uploaded file (`label_design_file`) which is stored to the public disk,
+     * or a text link/path (`label_design_path`). One upload is shared between the
+     * Brand Label and the Care/Size Label. Returns the resolved string, or null
+     * when the request carries neither (so callers can leave an existing value
+     * untouched on edit). Mirrors QuotationController::resolveLabelDesign, but
+     * stores under an order-scoped folder.
+     */
+    protected function resolveLabelDesign(\Illuminate\Http\Request $request): ?string
+    {
+        if ($request->hasFile('label_design_file')) {
+            $file = $request->file('label_design_file');
+            if ($file && $file->isValid()) {
+                return $file->store('order-label-designs', 'public');
+            }
+        }
+
+        $link = $request->input('label_design_path');
+        if (is_string($link) && trim($link) !== '') {
+            return trim($link);
+        }
+
+        return null;
     }
 
     /**
