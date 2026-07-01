@@ -756,8 +756,14 @@ class OrderService
             'design_name'           => $data['design_name'] ?? null,
             'service_type'          => $data['service_type'] ?? null,
             'print_service'         => $data['print_service'] ?? null,
-            'size_label'            => $data['size_label'] ?? null,
-            'print_label_placement' => $data['print_label_placement'] ?? null,
+
+            // Labels: Brand + Care/Size spec (JSON blobs), mirroring the
+            // quotation. decodeJson() accepts BOTH the form's JSON string and
+            // an already-decoded array; the model's array cast re-encodes on
+            // save. The shared label_design_path is handled below (so it can be
+            // preserved on edit when the request carries no new value).
+            'brand_label_json'      => $this->decodeJson($data['brand_label_json'] ?? null),
+            'care_label_json'       => $this->decodeJson($data['care_label_json'] ?? null),
             'fabric_type'           => $data['fabric_type'] ?? null,
             'fabric_supplier'       => $data['fabric_supplier'] ?? null,
             'fabric_color'          => $data['fabric_color'] ?? null,
@@ -781,6 +787,15 @@ class OrderService
         // back to the default and update keep the existing value.
         if ($attrs['priority'] === null) {
             unset($attrs['priority']);
+        }
+
+        // label_design_path: only touch it when the request actually carried a
+        // value (an upload resolved by OrdersController, a link, or the existing
+        // path echoed back on edit). Omitting the key on update preserves the
+        // current value, mirroring the quotation's label-design edit semantics;
+        // on create the column simply stays null.
+        if (array_key_exists('label_design_path', $data)) {
+            $attrs['label_design_path'] = $data['label_design_path'];
         }
 
         return $attrs;
@@ -1014,7 +1029,7 @@ class OrderService
      * Persist any uploaded design files into storage.
      *
      * NOTE: The new orders table does NOT have `design_files` /
-     * `design_mockup` / `size_label_files` / `freebies_files` columns.
+     * `design_mockup` / `freebies_files` columns.
      * We physically store the uploaded files under `orders/{po_code}/...`
      * so they're not lost, but we don't write any path back to the
      * orders row (it would crash on a missing column). Phase 5 will
@@ -1025,7 +1040,6 @@ class OrderService
         $map = [
             'design_files'     => 'design_files',
             'design_mockup'    => 'design_mockups',
-            'size_label_files' => 'size_labels',
             'freebies_files'   => 'freebies',
             'payments'         => 'payments',
         ];

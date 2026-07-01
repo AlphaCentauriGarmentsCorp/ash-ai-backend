@@ -104,8 +104,9 @@ class Order extends Model
         'design_name',
         'service_type',
         'print_service',
-        'size_label',
-        'print_label_placement',
+        'brand_label_json',
+        'care_label_json',
+        'label_design_path',
         'fabric_type',
         'fabric_supplier',
         'fabric_color',
@@ -129,6 +130,8 @@ class Order extends Model
         'addons_json'      => 'array',
         'breakdown_json'   => 'array',
         'print_parts_json' => 'array',
+        'brand_label_json' => 'array',
+        'care_label_json'  => 'array',
         'delayed_at'       => 'datetime',
 
         // Change 11 — superadmin override flag
