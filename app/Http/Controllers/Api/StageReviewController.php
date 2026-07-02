@@ -29,6 +29,7 @@ class StageReviewController extends Controller
         protected StageReviewService $service,
         protected \App\Services\StageArtifactService $artifacts,
         protected \App\Services\OrderPaymentService $payments,
+        protected \App\Services\GraphicArtistPortalService $gaPortal,
     ) {
     }
 
@@ -63,12 +64,26 @@ class StageReviewController extends Controller
         // of the (possibly already-verified) payment for each gate.
         $payments = $this->payments->forReviewHub($order);
 
+        // GA Portal CP3 — rich per-stage detail blocks, keyed by
+        // order_stage_id. Currently populated only for graphic_artwork
+        // (placements + Pantones + labels + notes + soft warnings);
+        // other stages can add their own block later without a payload
+        // shape change.
+        $stageDetails = [];
+        $gaStage = OrderStage::where('order_id', $orderId)
+            ->where('stage', 'graphic_artwork')
+            ->first(['id']);
+        if ($gaStage) {
+            $stageDetails[$gaStage->id] = $this->gaPortal->reviewSummary($order);
+        }
+
         return response()->json([
-            'order_id' => $orderId,
-            'history'  => $history,
-            'states'   => $states,
-            'uploads'  => $uploads,
-            'payments' => $payments,
+            'order_id'      => $orderId,
+            'history'       => $history,
+            'states'        => $states,
+            'uploads'       => $uploads,
+            'payments'      => $payments,
+            'stage_details' => $stageDetails,
         ]);
     }
 

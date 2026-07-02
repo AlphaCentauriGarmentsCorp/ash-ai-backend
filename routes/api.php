@@ -748,6 +748,16 @@ Route::prefix('v2')->group(function () {
                 Route::put('/label-assets',            'upsertLabelAsset');
                 Route::delete('/label-assets/{id}',    'destroyLabelAsset')->whereNumber('id');
 
+                // Shared Label Design — GA upload/replace (CP7). Writes the
+                // same orders.label_design_path Add Order uses.
+                Route::post('/label-design',            'storeLabelDesign');
+
+                // Placements — GA-writable print locations (CP1). Multipart
+                // upsert uses POST + _method=PUT spoofing (same convention
+                // as label-assets) so PHP parses the form body.
+                Route::put('/placements',              'upsertPlacement');
+                Route::delete('/placements/{id}',      'destroyPlacement')->whereNumber('id');
+
                 // Sample uploads — multipart; reuses shared SampleUploadService
                 Route::post('/sample-uploads',         'storeSampleUpload');
                 Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');

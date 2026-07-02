@@ -72,19 +72,78 @@ class GraphicArtistPortalService
             'design_files'        => $this->designFiles($order),
             'source_files'        => $this->sourceFiles($order),
             'placements'          => $this->placements($design),
+            'suggested_placements' => $this->suggestedPlacements($order, $design),
             'pantones_used'       => $this->pantonesUsed($design),
             'placement_options'   => $this->placementOptions(),
+            'pantone_options'     => $this->pantoneOptions(),
             'measurement_options' => $this->measurementOptions(),
             'label_assets'        => $this->labelAssets($order),
             'screen_details'      => $this->screenDetails($order),
             'sample_uploads'      => $this->sampleUploads($stage),
             'material_requests'   => $this->materialRequestsForStage($stage),
             'activity_log'        => $this->recentActivity($stage, 15),
+            'completion_warnings' => $this->completionWarnings($order, $design),
+        ];
+    }
+
+    /**
+     * GA Portal CP3 — Review Hub summary of the artist's saved output.
+     *
+     * Read-only composition of the same section builders the portal
+     * context uses, so the CSR Review Hub card shows EXACTLY what the
+     * artist saved — placements with artwork + Pantones, the aggregated
+     * Pantone palette, label assets, design notes, and the soft
+     * completion warnings (useful review context: what's still missing).
+     *
+     * Design FILES are intentionally NOT repeated here — they already
+     * reach the hub as flat attachments via StageArtifactService
+     * (latest version per kind), as do sample photos.
+     *
+     * @return array<string,mixed>
+     */
+    public function reviewSummary(Order $order): array
+    {
+        $design = OrderDesign::where('order_id', $order->id)
+            ->with('placements')
+            ->first();
+
+        // CP7 — the aligned labels block (order-level Brand / Care-Size
+        // specs + the shared Label Design) replaces the legacy per-kind
+        // label_assets map, and the GA stage's freeform notes ride along
+        // so the reviewer sees the artist's remarks without leaving the
+        // hub.
+        $gaStage = OrderStage::where('order_id', $order->id)
+            ->where('stage', 'graphic_artwork')
+            ->first(['id', 'notes']);
+
+        return [
+            'kind'                => 'graphic_artwork',
+            'design'              => $design ? $this->designContext($design) : null,
+            'placements'          => $this->placements($design),
+            'pantones_used'       => $this->pantonesUsed($design),
+            'labels'              => [
+                'brand_label'      => is_array($order->brand_label_json) ? $order->brand_label_json : null,
+                'care_label'       => is_array($order->care_label_json) ? $order->care_label_json : null,
+                'label_design_url' => $order->label_design_path
+                    ? $this->publicUrl($order->label_design_path)
+                    : null,
+            ],
+            'stage_notes'         => $gaStage?->notes,
+            'completion_warnings' => $this->completionWarnings($order, $design),
         ];
     }
 
     // ── Section builders ────────────────────────────────────────────
 
+    /**
+     * GA Portal CP5 — enriched with the order page's Product Details
+     * (Apparel Information + Production Details + Labels; PO Items &
+     * Size Breakdown deliberately excluded per owner decision). Colour
+     * fields carry a best-effort resolved hex (fabric_swatches name
+     * match, falling back to pantones) so the portal can render a
+     * visual chip beside the colour name; unmatched names get null and
+     * the chip is simply omitted.
+     */
     protected function orderDetails(Order $order): array
     {
         $items = $this->itemsAsArray($order);
@@ -99,11 +158,38 @@ class GraphicArtistPortalService
             'client_name'     => $order->client_name,
             'client_brand'    => $order->client_brand,
             'shirt_color'     => $order->shirt_color,
+            'shirt_color_hex' => $this->colorHex($order->shirt_color),
             'special_print'   => $order->special_print,
             'print_area'      => $order->print_area,
             'total_pcs'       => $totalPcs,
             'workflow_status' => $order->workflow_status,
             'notes'           => $order->notes,
+
+            // ── Apparel Information (Product Details mirror) ────────
+            'apparel_type'     => $order->apparelType?->name,
+            'pattern_type'     => $order->patternType?->name,
+            'apparel_neckline' => $order->apparelNeckline?->name,
+            'print_method'     => $order->printMethod?->name,
+
+            // ── Production Details ──────────────────────────────────
+            'design_name'       => $order->design_name,
+            'service_type'      => $order->service_type,
+            'print_service'     => $order->print_service,
+            'fabric_type'       => $order->fabric_type,
+            'fabric_supplier'   => $order->fabric_supplier,
+            'fabric_color'      => $order->fabric_color,
+            'fabric_color_hex'  => $this->colorHex($order->fabric_color),
+            'thread_color'      => $order->thread_color,
+            'thread_color_hex'  => $this->colorHex($order->thread_color),
+            'ribbing_color'     => $order->ribbing_color,
+            'ribbing_color_hex' => $this->colorHex($order->ribbing_color),
+
+            // ── Labels (structured specs shared with the quotation) ─
+            'brand_label'      => is_array($order->brand_label_json) ? $order->brand_label_json : null,
+            'care_label'       => is_array($order->care_label_json) ? $order->care_label_json : null,
+            'label_design_url' => $order->label_design_path
+                ? $this->publicUrl($order->label_design_path)
+                : null,
         ];
     }
 
@@ -222,6 +308,7 @@ class GraphicArtistPortalService
             return [
                 'id'           => $p->id,
                 'type'         => $p->type,
+                'color_count'  => $p->color_count !== null ? (int) $p->color_count : null,
                 'mockup_image' => $p->mockup_image,
                 'mockup_url'   => $p->mockup_image
                     ? $this->publicUrl($p->mockup_image)
@@ -288,6 +375,57 @@ class GraphicArtistPortalService
                 'description' => $r->description,
             ])
             ->all();
+    }
+
+    /**
+     * GA Portal CP5 — the full Pantone catalog for the portal's colour
+     * picker (replaces free-typed codes). Exposed here so the artist
+     * doesn't need the admin access.pantone permission.
+     */
+    protected function pantoneOptions(): array
+    {
+        return Pantone::orderBy('pantone_code')
+            ->get(['id', 'name', 'hexcolor', 'pantone_code'])
+            ->map(fn ($p) => [
+                'id'           => $p->id,
+                'name'         => $p->name,
+                'hexcolor'     => $p->hexcolor,
+                'pantone_code' => $p->pantone_code,
+            ])
+            ->all();
+    }
+
+    /**
+     * Best-effort colour-name → hex resolution for the visual chips.
+     * Order: fabric_swatches.name (hex_color) → pantones.name
+     * (hexcolor). Case-insensitive exact match; null when unmatched
+     * (the UI omits the chip). Table guards keep the throwaway Pest
+     * schemas (which don't build fabric_swatches) safe.
+     */
+    protected function colorHex(?string $name): ?string
+    {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return null;
+        }
+        $lower = mb_strtolower($name);
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('fabric_swatches')) {
+            $hex = \App\Models\FabricSwatch::whereRaw('LOWER(name) = ?', [$lower])
+                ->value('hex_color');
+            if (! empty($hex)) {
+                return $hex;
+            }
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('pantones')) {
+            $hex = Pantone::whereRaw('LOWER(name) = ?', [$lower])->value('hexcolor');
+            if (! empty($hex)) {
+                return $hex;
+            }
+        }
+
+        return null;
     }
 
     protected function measurementOptions(): array
@@ -437,6 +575,120 @@ class GraphicArtistPortalService
                 'created_at'  => $a->created_at?->toDateTimeString(),
             ])
             ->all();
+    }
+
+    /**
+     * GA Portal CP1 — quotation-seeded placement suggestions.
+     *
+     * When the artist has not yet saved any placement for this order,
+     * suggest one row per print part carried on the order's
+     * print_parts_json (falling back to the source quotation's parts).
+     * Each suggestion pre-fills the location name, the artwork
+     * reference, and the Color# slot count from the quotation — the
+     * artist confirms/edits and saves, which turns it into a real
+     * order_design_placements row. Once ANY placement exists, this
+     * returns [] (suggestions are a first-load aid, not a sync).
+     *
+     * @return array<int,array>
+     */
+    protected function suggestedPlacements(Order $order, ?OrderDesign $design): array
+    {
+        if ($design && $design->placements->isNotEmpty()) {
+            return [];
+        }
+
+        $parts = $this->asArray($order->print_parts_json);
+        if (empty($parts) && $order->quotation) {
+            $parts = $this->asArray($order->quotation->print_parts_json);
+        }
+
+        $suggestions = [];
+        foreach ($parts as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            $type = trim((string) ($p['part'] ?? $p['name'] ?? ''));
+            if ($type === '') {
+                continue;
+            }
+
+            $isLinkPart = ($p['image_input_type'] ?? null) === 'link';
+            $raw = $isLinkPart
+                ? ($p['image_link'] ?? null)
+                : ($p['image'] ?? $p['image_path'] ?? $p['image_link'] ?? null);
+            $isLink = is_string($raw) && str_starts_with($raw, 'http');
+
+            $colorCount = (int) ($p['color_count'] ?? 0);
+            if ($colorCount <= 0) {
+                $colorCount = (int) ($p['full_color_count'] ?? 0);
+            }
+
+            $suggestions[] = [
+                'type'        => $type,
+                'artwork_url' => $raw
+                    ? ($isLink ? $raw : $this->publicUrl($raw))
+                    : null,
+                'is_link'     => $isLink,
+                'color_count' => $colorCount > 0 ? $colorCount : null,
+                'print_type'  => $p['print_type'] ?? null,
+                'source'      => 'quotation',
+            ];
+        }
+
+        return $suggestions;
+    }
+
+    /**
+     * GA Portal CP1 — soft completeness check for the stage.
+     *
+     * Warn-only by decision: "Tapos na" is NEVER hard-blocked by these.
+     * The frontend shows a confirm dialog listing them when the artist
+     * marks the stage done. Structured rows so the UI can group/badge.
+     *
+     * Taglish copy — flagged for owner review.
+     *
+     * @return array<int,array{code:string,message:string}>
+     */
+    protected function completionWarnings(Order $order, ?OrderDesign $design): array
+    {
+        // CP5 — the no_design_files warning was removed together with the
+        // portal's Design Files section (per-placement artwork replaced it).
+        $warnings = [];
+
+        $placements = $design ? $design->placements : collect();
+        if ($placements->isEmpty()) {
+            $warnings[] = [
+                'code'    => 'no_placements',
+                'message' => 'Wala pang print location na naka-set.',
+            ];
+            return $warnings;
+        }
+
+        foreach ($placements as $p) {
+            $filled = is_array($p->pantones) ? count($p->pantones) : 0;
+            $slots  = $p->color_count !== null ? (int) $p->color_count : null;
+
+            if (empty($p->mockup_image)) {
+                $warnings[] = [
+                    'code'    => 'placement_no_artwork',
+                    'message' => "Walang artwork ang {$p->type}.",
+                ];
+            }
+
+            if ($slots !== null && $slots > 0 && $filled < $slots) {
+                $warnings[] = [
+                    'code'    => 'placement_pantones_incomplete',
+                    'message' => "Kulang ang Pantone sa {$p->type} ({$filled}/{$slots}).",
+                ];
+            } elseif (($slots === null || $slots === 0) && $filled === 0) {
+                $warnings[] = [
+                    'code'    => 'placement_no_pantones',
+                    'message' => "Walang Pantone ang {$p->type}.",
+                ];
+            }
+        }
+
+        return $warnings;
     }
 
     // ── Helpers ────────────────────────────────────────────────────
