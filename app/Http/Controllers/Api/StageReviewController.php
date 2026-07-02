@@ -143,4 +143,25 @@ class StageReviewController extends Controller
 
         return response()->json($this->service->stateFor($id, $request->user()));
     }
+
+    /**
+     * POST /api/v2/order-stages/{id}/review/note
+     *
+     * Staff note — the Review Hub is a notes-only surface. Any role with
+     * order access may append a note to a stage's record; the note never
+     * touches the decision state machine.
+     */
+    public function note(Request $request, int $id)
+    {
+        $data = $request->validate([
+            'comment' => 'required|string|max:2000',
+        ]);
+
+        $review = $this->service->note($id, $request->user(), $data['comment']);
+
+        return response()->json([
+            'message' => 'Note added.',
+            'review'  => $this->service->summarize($review),
+        ], 201);
+    }
 }

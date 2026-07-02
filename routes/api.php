@@ -525,6 +525,13 @@ Route::prefix('v2')->group(function () {
             ->whereNumber('id')
             ->middleware('permission:access.orders');
 
+        // Staff note — the Review Hub is a notes-only surface; any role with
+        // order access can append a note to a stage's record. Notes never
+        // touch the decision state machine.
+        Route::post('/order-stages/{id}/review/note', [StageReviewController::class, 'note'])
+            ->whereNumber('id')
+            ->middleware('permission:access.orders');
+
         // Reviewer actions (CSR / Super Admin / Admin) — approve or reject a
         // stage's output. New dedicated permission keeps the review hub
         // distinct from generic order access.
