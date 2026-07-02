@@ -1555,7 +1555,7 @@ class QuotationService
      *
      * The frontend's `useQuotationPrefill` hook expects the following keys
      * (we resolve names where IDs are stored in JSON):
-     *   - quotation_id, client_id, client_brand, client_name
+     *   - quotation_id, quotation_code, client_id, client_brand, client_name
      *   - apparel_type_id, apparel_type_name
      *   - pattern_type_id, pattern_type_name
      *   - print_method_id, print_method_name
@@ -1616,6 +1616,9 @@ class QuotationService
         return [
             // Linkage
             'quotation_id' => $quotation->id,
+            // Human-facing code (QUO-YYYY-XXXXXX) — display only; the numeric
+            // id above stays the orders.quotation_id FK value.
+            'quotation_code' => $quotation->quotation_id,
 
             // Client
             'client_id'      => $quotation->client_id,
