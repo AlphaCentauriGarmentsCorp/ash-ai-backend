@@ -524,6 +524,18 @@ class OrderService
             $breakdownJson['balance']          = $sampleFold['balance'];
         }
 
+        // Payment-plan split (runs LAST so it wins over the engine recompute
+        // and the sample fold, both of which hardcode the Addendum 5.4 60/40
+        // terms): a Full Payment order collects 100% upfront at the sample
+        // gate, so its stored split is downpayment = grand total, balance = 0.
+        // The workflow reads this plan to auto-pass the mass/balance gates.
+        if (($data['payment_plan'] ?? null) === 'full_payment') {
+            $breakdownJson = is_array($breakdownJson) ? $breakdownJson : [];
+            $breakdownJson['downpayment']  = round((float) $grandTotal, 2);
+            $breakdownJson['balance']      = 0.0;
+            $breakdownJson['payment_plan'] = 'full_payment';
+        }
+
         return [
             'client_id'           => $clientId,
             'client_brand'        => $clientBrand,

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\OrderPayment;
 use App\Models\OrderStage;
 use App\Models\PurchaseRequest;
 use App\Models\StageAuditLog;
@@ -10,6 +11,7 @@ use App\Support\WorkCalendar;
 use App\Support\WorkflowStages;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -303,6 +305,91 @@ class OrderStagesService
     }
 
     /**
+     * Full-Payment plan — auto-pass the mass/balance payment-verification
+     * gates.
+     *
+     * Fires only when BOTH hold:
+     *   1. the order's payment_plan is 'full_payment', AND
+     *   2. the sum of VERIFIED payments already covers the grand total
+     *      (i.e. Finance verified the full upfront payment at the sample
+     *      gate — a plan flag alone never skips a gate).
+     *
+     * Each auto-passed gate gets a ₱0 verified OrderPayment for the paper
+     * trail (settleGateAsAutoPassed) plus a completed StageAuditLog row, then
+     * the next tier is promoted. Loops in case promotion lands on another
+     * auto-passable gate. Legacy full-plan orders that only paid 60% keep the
+     * normal gate behavior because condition 2 fails — graceful degradation.
+     *
+     * MUST be called inside a DB transaction. No-op when order_payments is
+     * absent (narrow test harnesses).
+     *
+     * @return array<int, OrderStage> stages newly started by the auto-pass
+     */
+    protected function autoPassFullPaymentGates(Order $order): array
+    {
+        if (($order->payment_plan ?? null) !== 'full_payment') {
+            return [];
+        }
+        if (! Schema::hasTable('order_payments')) {
+            return [];
+        }
+
+        $verifiedTotal = (float) OrderPayment::where('order_id', $order->id)
+            ->where('status', OrderPayment::STATUS_VERIFIED)
+            ->sum('amount');
+        if ($verifiedTotal + 0.01 < (float) $order->grand_total) {
+            return [];
+        }
+
+        $note = 'Auto-passed — Full Payment plan; order was paid in full upfront.';
+        $autoPassable = ['payment_verification_mass', 'payment_verification_balance'];
+
+        $promoted = [];
+        $guard = 0;
+        while ($guard++ < 5) {
+            $gate = OrderStage::where('order_id', $order->id)
+                ->whereIn('stage', $autoPassable)
+                ->whereIn('status', [
+                    OrderStage::STATUS_IN_PROGRESS,
+                    OrderStage::STATUS_FOR_APPROVAL,
+                    OrderStage::STATUS_DELAYED,
+                ])
+                ->orderBy('sequence')
+                ->orderBy('id')
+                ->first();
+            if (! $gate) {
+                break;
+            }
+
+            // ₱0 verified payment — the auditable "this gate owed nothing".
+            $this->resolvePayments()->settleGateAsAutoPassed($order, $gate);
+
+            $fromStatus = $gate->status;
+            $gate->update([
+                'status'       => OrderStage::STATUS_COMPLETED,
+                'completed_at' => now(),
+                'notes'        => $note,
+            ]);
+
+            $this->writeAudit(
+                $gate->fresh(),
+                StageAuditLog::ACTION_COMPLETED,
+                $fromStatus,
+                OrderStage::STATUS_COMPLETED,
+                $note,
+            );
+
+            $promoted = array_merge($promoted, $this->promoteEligible($order));
+        }
+
+        if (! empty($promoted)) {
+            $this->refreshOrderCache($order);
+        }
+
+        return $promoted;
+    }
+
+    /**
      * Returns the currently active stage for an Order (the one in_progress
      * or for_approval). Falls back to the first non-completed stage.
      *
@@ -393,6 +480,23 @@ class OrderStagesService
             // branches have completed.
             $order = Order::find($stage->order_id);
             $promoted = $order ? $this->promoteEligible($order) : [];
+
+            // Full-Payment auto-pass: when the order's payment_plan is
+            // full_payment AND the verified payments already cover the grand
+            // total, the mass/balance verification gates are moot — the client
+            // paid everything upfront at the sample gate. Complete any such
+            // gate that just became active and keep advancing. Gates that get
+            // auto-passed are filtered out of $promoted below so no
+            // stage-started notification fires for a stage that never really
+            // ran.
+            if ($order) {
+                $promoted = array_merge($promoted, $this->autoPassFullPaymentGates($order));
+                $promoted = array_values(array_filter(
+                    $promoted,
+                    static fn (OrderStage $s) => $s->fresh()->status === OrderStage::STATUS_IN_PROGRESS,
+                ));
+                usort($promoted, static fn ($a, $b) => $a->sequence <=> $b->sequence);
+            }
 
             // "Last stage" = no remaining non-completed stage anywhere in the
             // workflow. An empty $promoted does NOT imply completion — a fork
