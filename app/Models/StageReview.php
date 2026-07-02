@@ -35,6 +35,13 @@ class StageReview extends Model
     public const DECISION_REJECT   = 'reject';
     public const DECISION_RESUBMIT = 'resubmit';
 
+    // A plain staff note on the stage's record (the Review Hub is a
+    // notes-only surface). Deliberately NOT part of allDecisions(): notes
+    // never participate in the derived review-state machine — latestReview()
+    // filters to allDecisions(), so a note can never close an open rejection
+    // or change review_state.
+    public const DECISION_NOTE = 'note';
+
     public static function allDecisions(): array
     {
         return [

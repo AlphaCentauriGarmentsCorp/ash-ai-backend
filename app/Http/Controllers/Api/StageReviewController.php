@@ -28,6 +28,7 @@ class StageReviewController extends Controller
     public function __construct(
         protected StageReviewService $service,
         protected \App\Services\StageArtifactService $artifacts,
+        protected \App\Services\OrderPaymentService $payments,
     ) {
     }
 
@@ -58,11 +59,16 @@ class StageReviewController extends Controller
         // Per-stage artifacts from every source, keyed by order_stage_id.
         $uploads = $this->artifacts->forOrder($orderId);
 
+        // Payment-gate details, keyed by order_stage_id — the permanent record
+        // of the (possibly already-verified) payment for each gate.
+        $payments = $this->payments->forReviewHub($order);
+
         return response()->json([
             'order_id' => $orderId,
             'history'  => $history,
             'states'   => $states,
             'uploads'  => $uploads,
+            'payments' => $payments,
         ]);
     }
 
@@ -136,5 +142,26 @@ class StageReviewController extends Controller
         OrderStage::findOrFail($id);
 
         return response()->json($this->service->stateFor($id, $request->user()));
+    }
+
+    /**
+     * POST /api/v2/order-stages/{id}/review/note
+     *
+     * Staff note — the Review Hub is a notes-only surface. Any role with
+     * order access may append a note to a stage's record; the note never
+     * touches the decision state machine.
+     */
+    public function note(Request $request, int $id)
+    {
+        $data = $request->validate([
+            'comment' => 'required|string|max:2000',
+        ]);
+
+        $review = $this->service->note($id, $request->user(), $data['comment']);
+
+        return response()->json([
+            'message' => 'Note added.',
+            'review'  => $this->service->summarize($review),
+        ], 201);
     }
 }

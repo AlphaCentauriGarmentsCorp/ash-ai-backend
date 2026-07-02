@@ -195,9 +195,48 @@ class StageReviewService
      */
     public function latestReview(int $stageId): ?StageReview
     {
+        // Notes are ledger-only: exclude them so the derived review state and
+        // the portals' open-rejection banners are driven purely by the
+        // approve / reject / resubmit decisions.
         return StageReview::where('order_stage_id', $stageId)
+            ->whereIn('decision', StageReview::allDecisions())
             ->orderByDesc('id')
             ->first();
+    }
+
+    /**
+     * Staff note — a plain, append-only ledger entry on a stage's record.
+     *
+     * The Review Hub is a notes-only surface (owner decision, this session):
+     * the Approve/Reject buttons were removed from the hub UI and staff leave
+     * freeform notes instead. A note NEVER touches the decision state machine
+     * — latestReview() filters to approve/reject/resubmit, so an open
+     * rejection stays open (portal banners unaffected) and review_state
+     * ignores notes entirely.
+     *
+     * Any authenticated staff who can read the order may post (route-gated on
+     * access.orders, matching the hub's read access). Comment required.
+     */
+    public function note(int $stageId, User $author, string $comment): StageReview
+    {
+        $comment = trim($comment);
+        if ($comment === '') {
+            throw ValidationException::withMessages([
+                'comment' => ['A note cannot be empty.'],
+            ]);
+        }
+
+        $stage = OrderStage::findOrFail($stageId);
+
+        $review = StageReview::create([
+            'order_id'       => $stage->order_id,
+            'order_stage_id' => $stage->id,
+            'actor_user_id'  => $author->id,
+            'decision'       => StageReview::DECISION_NOTE,
+            'comment'        => $comment,
+        ]);
+
+        return $review->load('actor:id,name');
     }
 
     /**

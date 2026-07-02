@@ -71,7 +71,7 @@ class OrderPaymentService
             return null;
         }
 
-        $type = self::paymentTypeForGate($gate->stage);
+        $type = self::paymentTypeForGate($gate->stage, $order->payment_plan ?? null);
         if ($type === null) {
             return null;
         }
@@ -126,11 +126,20 @@ class OrderPaymentService
             ->first(fn (OrderStage $s) => WorkflowStages::isPaymentGate($s->stage));
     }
 
-    /** Map a payment-gate stage slug to its OrderPayment type. */
-    private static function paymentTypeForGate(string $stage): ?string
+    /**
+     * Map a payment-gate stage slug to its OrderPayment type.
+     *
+     * Full-Payment plan: the sample gate (seq 4, the workflow's first stage)
+     * collects the ENTIRE grand total upfront, so its payment is typed `full`
+     * instead of `sample`. The mass/balance gates keep their types — for a
+     * full-plan order those rows are the ₱0 auto-passed paper-trail entries.
+     */
+    private static function paymentTypeForGate(string $stage, ?string $plan = null): ?string
     {
         return match ($stage) {
-            'payment_verification_sample'  => OrderPayment::TYPE_SAMPLE,
+            'payment_verification_sample'  => $plan === 'full_payment'
+                ? OrderPayment::TYPE_FULL
+                : OrderPayment::TYPE_SAMPLE,
             'payment_verification_mass'    => OrderPayment::TYPE_DOWN_PAYMENT,
             'payment_verification_balance' => OrderPayment::TYPE_BALANCE,
             default                        => null,
@@ -146,7 +155,79 @@ class OrderPaymentService
     {
         $gate = $this->activeGateStage($order->id);
 
-        return $gate ? self::paymentTypeForGate($gate->stage) : null;
+        return $gate ? self::paymentTypeForGate($gate->stage, $order->payment_plan ?? null) : null;
+    }
+
+    /**
+     * Full-Payment auto-pass paper trail — settle the given gate's payment as
+     * a ₱0 VERIFIED row so the ledger records that the gate was reached and
+     * owed nothing (the client paid the full grand total upfront).
+     *
+     * Reconciles with any existing non-verified row of the gate's type (e.g.
+     * a `waiting` stub from an earlier ensureGatePayment) instead of inserting
+     * a duplicate. An already-verified row is terminal and returned untouched.
+     * Idempotent; no-op when the order_payments table is unavailable.
+     */
+    public function settleGateAsAutoPassed(Order $order, OrderStage $gate): ?OrderPayment
+    {
+        if (! Schema::hasTable('order_payments')) {
+            return null;
+        }
+
+        $type = self::paymentTypeForGate($gate->stage, $order->payment_plan ?? null);
+        if ($type === null) {
+            return null;
+        }
+
+        $note = 'Auto-passed — Full Payment plan; the order was paid in full upfront, so this gate owed ₱0.';
+
+        $payment = OrderPayment::where('order_id', $order->id)
+            ->where('payment_type', $type)
+            ->latest('id')
+            ->first();
+
+        if ($payment && $payment->status === OrderPayment::STATUS_VERIFIED) {
+            return $payment;
+        }
+
+        if ($payment) {
+            $payment->update([
+                'amount'              => 0,
+                'status'              => OrderPayment::STATUS_VERIFIED,
+                'verified_by_user_id' => Auth::id(),
+                'verified_at'         => now(),
+                'rejection_reason'    => null,
+                'notes'               => $note,
+            ]);
+        } else {
+            $payment = OrderPayment::create([
+                'order_id'            => $order->id,
+                'payment_type'        => $type,
+                'amount'              => 0,
+                'status'              => OrderPayment::STATUS_VERIFIED,
+                'uploaded_at'         => now(),
+                'uploaded_by_user_id' => null,
+                'verified_by_user_id' => Auth::id(),
+                'verified_at'         => now(),
+                'notes'               => $note,
+            ]);
+        }
+
+        $this->logger->log(
+            action: 'payment_gate.auto_passed',
+            summary: "{$payment->payment_type} \u{20B1}0.00 (verified — Full Payment plan)",
+            subject: $payment,
+            orderId: $order->id,
+            clientId: $order->client_id,
+            data: [
+                'payment_type' => $payment->payment_type,
+                'amount'       => 0.0,
+                'gate_stage'   => $gate->stage,
+                'payment_plan' => 'full_payment',
+            ],
+        );
+
+        return $payment->fresh();
     }
 
     /**
@@ -158,6 +239,21 @@ class OrderPaymentService
     private function expectedGateAmount(Order $order, string $stage): float
     {
         $b = is_array($order->breakdown_json) ? $order->breakdown_json : [];
+
+        // Full-Payment plan: every gate expects whatever is still OWED —
+        // grand_total minus the verified payments so far. On a fresh order
+        // that is the entire grand total at the sample gate and ₱0 at the
+        // later gates (which auto-pass). On a legacy full-plan order that
+        // already paid only the sample fee, the mass gate correctly bills
+        // the remaining amount; once that is verified, the balance gate
+        // auto-passes.
+        if (($order->payment_plan ?? null) === 'full_payment') {
+            $verified = (float) OrderPayment::where('order_id', $order->id)
+                ->where('status', OrderPayment::STATUS_VERIFIED)
+                ->sum('amount');
+
+            return max(0.0, round((float) $order->grand_total - $verified, 2));
+        }
 
         return match ($stage) {
             'payment_verification_mass'    => round((float) ($b['downpayment'] ?? 0), 2),
@@ -363,6 +459,88 @@ class OrderPaymentService
 
             return $payment->fresh(['order', 'paymentMethod', 'uploadedBy', 'verifiedBy']);
         });
+    }
+
+    /**
+     * Review-Hub payment map — every payment-verification gate stage of the
+     * order (whatever its status) keyed by order_stage_id, each carrying the
+     * FULL payment record: amount, payer, method name, reference, proof URL,
+     * who recorded it, who verified it and when, plus status/notes.
+     *
+     * This is the permanent home of a verified payment's details: once
+     * Finance approves, the row leaves the Dashboard "Pending Approvals"
+     * queue, so the Review Hub card is where staff re-open it later.
+     *
+     * The sample gate accepts BOTH `full` (Full-Payment plan) and `sample`
+     * typed rows — a legacy full-plan order whose payment was recorded as
+     * `sample` before the Full-Payment rule shipped still resolves.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function forReviewHub(Order $order): array
+    {
+        if (! Schema::hasTable('order_payments')) {
+            return [];
+        }
+
+        $gates = OrderStage::where('order_id', $order->id)
+            ->orderBy('sequence')
+            ->get()
+            ->filter(fn (OrderStage $s) => WorkflowStages::isPaymentGate($s->stage));
+
+        if ($gates->isEmpty()) {
+            return [];
+        }
+
+        $payments = OrderPayment::with(['paymentMethod', 'uploadedBy:id,name', 'verifiedBy:id,name'])
+            ->where('order_id', $order->id)
+            ->orderByDesc('id')
+            ->get();
+
+        $map = [];
+        foreach ($gates as $gate) {
+            $primary = self::paymentTypeForGate($gate->stage, $order->payment_plan ?? null);
+            if ($primary === null) {
+                continue;
+            }
+
+            $candidates = $gate->stage === 'payment_verification_sample'
+                ? array_values(array_unique([$primary, OrderPayment::TYPE_FULL, OrderPayment::TYPE_SAMPLE]))
+                : [$primary];
+
+            $payment = null;
+            foreach ($candidates as $type) {
+                $payment = $payments->firstWhere('payment_type', $type);
+                if ($payment) {
+                    break;
+                }
+            }
+            if (! $payment) {
+                continue;
+            }
+
+            $map[$gate->id] = [
+                'id'               => $payment->id,
+                'payment_type'     => $payment->payment_type,
+                'amount'           => (float) $payment->amount,
+                'status'           => $payment->status,
+                'payer_name'       => $payment->payer_name,
+                'paid_at'          => optional($payment->paid_at)->toIso8601String(),
+                'method_name'      => $payment->paymentMethod?->name,
+                'reference_number' => $payment->reference_number,
+                'proof_url'        => $payment->proof_path
+                    ? Storage::disk('public')->url($payment->proof_path)
+                    : null,
+                'uploaded_by_name' => $payment->uploadedBy?->name,
+                'uploaded_at'      => optional($payment->uploaded_at)->toIso8601String(),
+                'verified_by_name' => $payment->verifiedBy?->name,
+                'verified_at'      => optional($payment->verified_at)->toIso8601String(),
+                'rejection_reason' => $payment->rejection_reason,
+                'notes'            => $payment->notes,
+            ];
+        }
+
+        return $map;
     }
 
     /**
