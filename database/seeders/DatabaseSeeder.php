@@ -26,6 +26,9 @@ class DatabaseSeeder extends Seeder
         $this->call(PrintMethodSeeder::class);
         $this->call(SpecialPrintSeeder::class);
         $this->call(ServiceTypeSeeder::class);
+        // Payment-methods lookup for the Enter Payment modal (mirrors the
+        // Add Order form's reference list). Idempotent.
+        $this->call(PaymentMethodSeeder::class);
         $this->call(PrintLabelPlacements::class);
         $this->call(PantoneSeeder::class);
         $this->call(FabricSwatchSeeder::class);

@@ -462,6 +462,88 @@ class OrderPaymentService
     }
 
     /**
+     * Review-Hub payment map — every payment-verification gate stage of the
+     * order (whatever its status) keyed by order_stage_id, each carrying the
+     * FULL payment record: amount, payer, method name, reference, proof URL,
+     * who recorded it, who verified it and when, plus status/notes.
+     *
+     * This is the permanent home of a verified payment's details: once
+     * Finance approves, the row leaves the Dashboard "Pending Approvals"
+     * queue, so the Review Hub card is where staff re-open it later.
+     *
+     * The sample gate accepts BOTH `full` (Full-Payment plan) and `sample`
+     * typed rows — a legacy full-plan order whose payment was recorded as
+     * `sample` before the Full-Payment rule shipped still resolves.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function forReviewHub(Order $order): array
+    {
+        if (! Schema::hasTable('order_payments')) {
+            return [];
+        }
+
+        $gates = OrderStage::where('order_id', $order->id)
+            ->orderBy('sequence')
+            ->get()
+            ->filter(fn (OrderStage $s) => WorkflowStages::isPaymentGate($s->stage));
+
+        if ($gates->isEmpty()) {
+            return [];
+        }
+
+        $payments = OrderPayment::with(['paymentMethod', 'uploadedBy:id,name', 'verifiedBy:id,name'])
+            ->where('order_id', $order->id)
+            ->orderByDesc('id')
+            ->get();
+
+        $map = [];
+        foreach ($gates as $gate) {
+            $primary = self::paymentTypeForGate($gate->stage, $order->payment_plan ?? null);
+            if ($primary === null) {
+                continue;
+            }
+
+            $candidates = $gate->stage === 'payment_verification_sample'
+                ? array_values(array_unique([$primary, OrderPayment::TYPE_FULL, OrderPayment::TYPE_SAMPLE]))
+                : [$primary];
+
+            $payment = null;
+            foreach ($candidates as $type) {
+                $payment = $payments->firstWhere('payment_type', $type);
+                if ($payment) {
+                    break;
+                }
+            }
+            if (! $payment) {
+                continue;
+            }
+
+            $map[$gate->id] = [
+                'id'               => $payment->id,
+                'payment_type'     => $payment->payment_type,
+                'amount'           => (float) $payment->amount,
+                'status'           => $payment->status,
+                'payer_name'       => $payment->payer_name,
+                'paid_at'          => optional($payment->paid_at)->toIso8601String(),
+                'method_name'      => $payment->paymentMethod?->name,
+                'reference_number' => $payment->reference_number,
+                'proof_url'        => $payment->proof_path
+                    ? Storage::disk('public')->url($payment->proof_path)
+                    : null,
+                'uploaded_by_name' => $payment->uploadedBy?->name,
+                'uploaded_at'      => optional($payment->uploaded_at)->toIso8601String(),
+                'verified_by_name' => $payment->verifiedBy?->name,
+                'verified_at'      => optional($payment->verified_at)->toIso8601String(),
+                'rejection_reason' => $payment->rejection_reason,
+                'notes'            => $payment->notes,
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
      * Build the presenter shape for a payment — includes the public
      * proof URL. Used by the controller's JSON responses.
      */

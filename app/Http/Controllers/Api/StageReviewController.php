@@ -28,6 +28,7 @@ class StageReviewController extends Controller
     public function __construct(
         protected StageReviewService $service,
         protected \App\Services\StageArtifactService $artifacts,
+        protected \App\Services\OrderPaymentService $payments,
     ) {
     }
 
@@ -58,11 +59,16 @@ class StageReviewController extends Controller
         // Per-stage artifacts from every source, keyed by order_stage_id.
         $uploads = $this->artifacts->forOrder($orderId);
 
+        // Payment-gate details, keyed by order_stage_id — the permanent record
+        // of the (possibly already-verified) payment for each gate.
+        $payments = $this->payments->forReviewHub($order);
+
         return response()->json([
             'order_id' => $orderId,
             'history'  => $history,
             'states'   => $states,
             'uploads'  => $uploads,
+            'payments' => $payments,
         ]);
     }
 
