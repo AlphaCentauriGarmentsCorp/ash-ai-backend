@@ -11,15 +11,17 @@ class OrderDesignPlacement extends Model
         'order_design_id',
         'type',
         'mockup_image',
+        'color_count',
         'pantones'
     ];
 
     protected $casts = [
+        'color_count' => 'integer',
         'pantones' => 'array'
     ];
 
     public function design()
     {
-        return $this->belongsTo(OrderDesign::class, 'order_design_placements');
+        return $this->belongsTo(OrderDesign::class, 'order_design_id');
     }
 }

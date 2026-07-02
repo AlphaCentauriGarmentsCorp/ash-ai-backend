@@ -4,11 +4,15 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\GraphicArtist\StoreDesignFile;
+use App\Http\Requests\GraphicArtist\StoreLabelDesign;
 use App\Http\Requests\GraphicArtist\StoreSampleUpload;
 use App\Http\Requests\GraphicArtist\UpsertLabelAsset;
+use App\Http\Requests\GraphicArtist\UpsertPlacement;
 use App\Services\GraphicArtistPortalService;
 use App\Services\OrderDesignFileService;
+use App\Services\OrderDesignPlacementService;
 use App\Services\OrderLabelAssetService;
+use App\Services\OrderLabelDesignService;
 use App\Services\SampleUploadService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -22,6 +26,9 @@ use Illuminate\Support\Facades\Storage;
  *   DELETE /api/v2/portal/graphic-artist/design-files/{id}
  *   PUT    /api/v2/portal/graphic-artist/label-assets     (multipart)
  *   DELETE /api/v2/portal/graphic-artist/label-assets/{id}
+ *   PUT    /api/v2/portal/graphic-artist/placements       (multipart, CP1)
+ *   DELETE /api/v2/portal/graphic-artist/placements/{id}  (CP1)
+ *   POST   /api/v2/portal/graphic-artist/label-design     (multipart, CP7)
  *   POST   /api/v2/portal/graphic-artist/sample-uploads   (multipart)
  *   PATCH  /api/v2/portal/graphic-artist/sample-uploads/{id}
  *   DELETE /api/v2/portal/graphic-artist/sample-uploads/{id}
@@ -33,7 +40,9 @@ class GraphicArtistPortalController extends Controller
     public function __construct(
         protected GraphicArtistPortalService $context,
         protected OrderDesignFileService $designFiles,
+        protected OrderDesignPlacementService $placements,
         protected OrderLabelAssetService $labelAssets,
+        protected OrderLabelDesignService $labelDesign,
         protected SampleUploadService $sampleUploads,
     ) {
     }
@@ -140,6 +149,69 @@ class GraphicArtistPortalController extends Controller
         );
 
         return response()->json(['message' => 'Label asset deleted'], 200);
+    }
+
+    // ── Shared Label Design (GA Portal CP7) ──────────────────────────
+    // One file covers Brand + Care/Size labels — same column + folder Add
+    // Order uses (orders.label_design_path, order-label-designs/).
+
+    public function storeLabelDesign(StoreLabelDesign $request)
+    {
+        $data = $request->validated();
+        $file = $request->file('file');
+
+        $relativePath = $file->store('order-label-designs', 'public');
+
+        $order = $this->labelDesign->upload([
+            'order_id'       => (int) $data['order_id'],
+            'order_stage_id' => (int) $data['order_stage_id'],
+            'file_path'      => $relativePath,
+            'original_name'  => $file->getClientOriginalName(),
+        ], $request->user());
+
+        return response()->json([
+            'data' => [
+                'order_id'          => $order->id,
+                'label_design_path' => $order->label_design_path,
+                'label_design_url'  => Storage::disk('public')->url($order->label_design_path),
+            ],
+        ], 201);
+    }
+
+    // ── Placements (GA Portal CP1) ───────────────────────────────────
+
+    public function upsertPlacement(UpsertPlacement $request)
+    {
+        $data = $request->validated();
+
+        if ($request->hasFile('artwork') && $request->file('artwork')->isValid()) {
+            $data['artwork_path'] = $request->file('artwork')->store(
+                "graphic-artist/placements/{$data['order_id']}",
+                'public',
+            );
+        }
+        unset($data['artwork']);
+
+        $placement = $this->placements->upsert($data, $request->user());
+
+        return response()->json([
+            'data' => $this->placements->present($placement),
+        ]);
+    }
+
+    public function destroyPlacement(int $id, Request $request)
+    {
+        $request->validate([
+            'order_stage_id' => 'required|integer|exists:order_stages,id',
+        ]);
+
+        $this->placements->delete(
+            $id,
+            (int) $request->input('order_stage_id'),
+            $request->user(),
+        );
+
+        return response()->json(['message' => 'Placement deleted'], 200);
     }
 
     // ── Sample uploads ───────────────────────────────────────────────
