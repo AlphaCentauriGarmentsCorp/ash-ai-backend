@@ -217,6 +217,11 @@ it('returns an order_payload and marks the quotation as Converted', function () 
     expect($payload)->toHaveKey('quotation_id');
     expect($payload['quotation_id'])->toBe($quotation->id);
 
+    // Human-facing code carried separately (display), numeric id stays the FK
+    expect($payload)->toHaveKey('quotation_code');
+    expect($payload['quotation_code'])->toBe($quotation->quotation_id);
+    expect($payload['quotation_code'])->toStartWith('QUO-');
+
     // Client fields carried over
     expect($payload['client_id'])->toBe(1);
     expect($payload['client_brand'])->toBe('TestBrand');
