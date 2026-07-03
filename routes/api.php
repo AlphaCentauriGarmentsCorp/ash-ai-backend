@@ -173,6 +173,17 @@ Route::prefix('v2')->group(function () {
             // Soft-delete an order (sets deleted_at; recoverable). Matches the
             // frontend orderApi.delete() call: DELETE /orders/{id}.
             Route::delete('/{id}', 'destroy')->whereNumber('id');
+
+            // ── Soft-delete recovery (powers the "Show deleted" toggle on
+            // All Orders). Same access.orders gate as the rest of the group.
+            //   GET    /orders/deleted        → list trashed orders
+            //   PATCH  /orders/{id}/restore   → un-delete (clears deleted_at)
+            //   DELETE /orders/{id}/force     → permanent delete (trashed only)
+            // '/deleted' is a literal and the {id} routes are whereNumber, so
+            // there is no collision with 'deleted'.
+            Route::get('/deleted', 'deletedIndex');
+            Route::patch('/{id}/restore', 'restore')->whereNumber('id');
+            Route::delete('/{id}/force', 'forceDestroy')->whereNumber('id');
         });
 
         Route::prefix('/tickets')->middleware('permission:access.tickets')->controller(TicketController::class)->group(function () {

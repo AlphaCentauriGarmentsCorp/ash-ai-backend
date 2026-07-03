@@ -98,6 +98,9 @@ class OrderResource extends JsonResource
             // Timestamps
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),
+            // Null for live orders; set once soft-deleted. Lets the "Show
+            // deleted" toggle render when each order was removed.
+            'deleted_at' => $this->deleted_at?->toDateTimeString(),
 
             // ── Legacy compatibility shims ─────────────────────────────────
             // Older frontend pages (Phase 5 candidates) read these keys.

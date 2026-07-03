@@ -263,4 +263,95 @@ class OrdersController extends Controller
             'id'      => (int) $id,
         ]);
     }
+
+    /**
+     * List soft-deleted (trashed) orders.
+     *
+     * Powers the "Show deleted" toggle on the All Orders page. Mirrors
+     * index() exactly — same eager-loads, same withCount aliases, same
+     * OrderResource — but scoped to onlyTrashed(), so the frontend can reuse
+     * the identical columns and row shape. Ordered newest-deleted first.
+     * deleted_at is surfaced by OrderResource so the UI can show when each
+     * order was removed.
+     */
+    public function deletedIndex()
+    {
+        $orders = Order::onlyTrashed()
+            ->with(['apparelType', 'patternType', 'printMethod', 'currentStage', 'assignedCsr'])
+            ->withCount([
+                'payments as verified_payments_count' => fn ($q) =>
+                    $q->where('status', OrderPayment::STATUS_VERIFIED),
+                'orderStages as total_stages_count',
+                'orderStages as completed_stages_count' => fn ($q) =>
+                    $q->where('status', OrderStage::STATUS_COMPLETED),
+            ])
+            ->orderByDesc('deleted_at')
+            ->get();
+
+        return OrderResource::collection($orders);
+    }
+
+    /**
+     * Restore a soft-deleted order (clears deleted_at).
+     *
+     * Mirrors the employee restore flow (AccountService::restore). Scoped to
+     * onlyTrashed() so restoring a live order is a clean 404 rather than a
+     * silent no-op, and a bad id 404s. The order re-appears in index() /
+     * withActiveStage() / show() immediately, back in its prior workflow
+     * state (nothing about the record changed except deleted_at).
+     */
+    public function restore($id)
+    {
+        $order = Order::onlyTrashed()->find($id);
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found in trash'], 404);
+        }
+
+        $order->restore();
+
+        return response()->json([
+            'message' => 'Order restored.',
+            'id'      => (int) $id,
+        ]);
+    }
+
+    /**
+     * PERMANENTLY delete a soft-deleted order (hard delete, irreversible).
+     *
+     * Guarded to onlyTrashed(): an order must ALREADY be in the trash before
+     * it can be force-deleted. You cannot hard-delete a live order in one
+     * step — this prevents accidental irreversible loss straight from the
+     * All Orders list (soft-delete first, then permanently delete from the
+     * "Show deleted" view).
+     *
+     * Cascade is handled by the database: every child table's order_id FK is
+     * cascadeOnDelete() (po_items, order_stages, order_designs, order_payments,
+     * client_approvals, all stage_* logs, order_packing_boxes, ...), so
+     * forceDelete() removes all related production history with no orphans.
+     * tickets.order_id and csr_activity_logs.order_id are nullOnDelete, so
+     * those records survive with the link cleared.
+     *
+     * CAVEAT (PO numbers): generatePoCode() uses Order::withTrashed() so a
+     * soft-deleted order keeps "occupying" its PO number and it is never
+     * reused. A permanently deleted order no longer occupies its number — so
+     * hard-deleting the CURRENT YEAR'S highest-numbered order lets the next
+     * new order reclaim that PO code. Deleting any non-latest order has no
+     * effect on the sequence.
+     */
+    public function forceDestroy($id)
+    {
+        $order = Order::onlyTrashed()->find($id);
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found in trash'], 404);
+        }
+
+        $order->forceDelete();
+
+        return response()->json([
+            'message' => 'Order permanently deleted.',
+            'id'      => (int) $id,
+        ]);
+    }
 }
