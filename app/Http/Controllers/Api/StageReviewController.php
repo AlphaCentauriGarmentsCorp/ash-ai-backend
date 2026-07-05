@@ -30,6 +30,7 @@ class StageReviewController extends Controller
         protected \App\Services\StageArtifactService $artifacts,
         protected \App\Services\OrderPaymentService $payments,
         protected \App\Services\GraphicArtistPortalService $gaPortal,
+        protected \App\Services\OrderRoleNoteService $roleNotes,
     ) {
     }
 
@@ -84,6 +85,9 @@ class StageReviewController extends Controller
             'uploads'       => $uploads,
             'payments'      => $payments,
             'stage_details' => $stageDetails,
+            // Role-directed instruction threads (ORDER-level), grouped by
+            // audience_role — e.g. role_notes.graphic_artist = [entries].
+            'role_notes'    => $this->roleNotes->forOrderGrouped($orderId),
         ]);
     }
 

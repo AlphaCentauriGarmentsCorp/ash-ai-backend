@@ -60,6 +60,7 @@ beforeEach(function () {
         'pantones',
         'stage_uploads',
         'quotations',
+        'order_role_notes',
         'order_stages',
         'orders',
         'users',
@@ -77,6 +78,18 @@ beforeEach(function () {
         $t->text('domain_access')->nullable();
         $t->timestamps();
         $t->softDeletes();
+    });
+
+    // CP1 — GraphicArtistPortalService::buildContext and the hub payload
+    // now ride the role-directed instruction threads (order_role_notes),
+    // so the hand-built schema needs the table.
+    Schema::create('order_role_notes', function (Blueprint $t) {
+        $t->id();
+        $t->unsignedBigInteger('order_id');
+        $t->string('audience_role', 64);
+        $t->unsignedBigInteger('author_user_id');
+        $t->text('body');
+        $t->timestamps();
     });
 
     Schema::create('orders', function (Blueprint $t) {
@@ -339,6 +352,7 @@ afterEach(function () {
         'pantones',
         'stage_uploads',
         'quotations',
+        'order_role_notes',
         'order_stages',
         'orders',
         'users',

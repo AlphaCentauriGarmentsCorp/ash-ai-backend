@@ -33,6 +33,7 @@ $RHGA_TABLES = [
     'roles',
     'permissions',
 
+    'order_role_notes',
     'stage_reviews',
     'order_payments',
     'payment_methods',
@@ -71,6 +72,18 @@ beforeEach(function () use ($RHGA_TABLES) {
         $t->text('domain_access')->nullable();
         $t->timestamps();
         $t->softDeletes();
+    });
+
+    // CP1 — GraphicArtistPortalService::buildContext and the hub payload
+    // now ride the role-directed instruction threads (order_role_notes),
+    // so the hand-built schema needs the table.
+    Schema::create('order_role_notes', function (Blueprint $t) {
+        $t->id();
+        $t->unsignedBigInteger('order_id');
+        $t->string('audience_role', 64);
+        $t->unsignedBigInteger('author_user_id');
+        $t->text('body');
+        $t->timestamps();
     });
 
     Schema::create('orders', function (Blueprint $t) {

@@ -452,6 +452,31 @@ class NotificationService
         ]);
     }
 
+    /**
+     * Role-directed order note — a Hub reviewer posted an instruction
+     * aimed at a production role (Hub → portal channel).
+     * → Notify every user holding the audience role. Deliberately NOT
+     *   the managers/CSR: like stageRejected, this is a "for you" alert
+     *   aimed at the producing role, and the author already knows they
+     *   wrote it.
+     */
+    public function roleNoteCreated(Order $order, \App\Models\OrderRoleNote $note): void
+    {
+        $recipients = $this->collectRecipients(
+            roles: [$note->audience_role],
+        );
+
+        $this->dispatch($recipients, [
+            'type'  => 'role_note.created',
+            'title' => "New instructions: {$order->po_code}",
+            'body'  => \Illuminate\Support\Str::limit($note->body, 140),
+            'data'  => array_merge($this->orderContext($order), [
+                'role_note_id'  => $note->id,
+                'audience_role' => $note->audience_role,
+            ]),
+        ]);
+    }
+
     // =====================================================================
     // Inbox API used by NotificationController
     // =====================================================================

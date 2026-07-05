@@ -83,6 +83,8 @@ class GraphicArtistPortalService
             'material_requests'   => $this->materialRequestsForStage($stage),
             'activity_log'        => $this->recentActivity($stage, 15),
             'completion_warnings' => $this->completionWarnings($order, $design),
+            // Hub → GA instruction thread (ORDER-level, role-directed).
+            'role_notes'          => app(OrderRoleNoteService::class)->forRole($order->id, 'graphic_artist'),
         ];
     }
 
