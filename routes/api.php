@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\ScreenController;
 use App\Http\Controllers\Api\OrderStagesController;
 use App\Http\Controllers\Api\StageReviewController;
 use App\Http\Controllers\Api\StageUploadController;
+use App\Http\Controllers\Api\OrderRoleNoteController;
 use App\Http\Controllers\Api\ScreenCheckingController;
 use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
@@ -559,6 +560,15 @@ Route::prefix('v2')->group(function () {
         Route::post('/order-stages/{id}/review/resubmit', [StageReviewController::class, 'resubmit'])
             ->whereNumber('id')
             ->middleware('permission:action.advance-stage');
+
+        // ── Role-directed order notes (Hub → portal instructions) ─────
+        // Append-only, ORDER-LEVEL instruction threads aimed at one
+        // production role (audience_role). Written from the Review Hub by
+        // the reviewer roles; READS ride the hub payload above and each
+        // portal's context payload, so there is deliberately no GET here.
+        Route::post('/orders/{orderId}/role-notes', [OrderRoleNoteController::class, 'store'])
+            ->whereNumber('orderId')
+            ->middleware('permission:access.production-review');
 
         // ── Phase 3: generic per-stage proof-of-work uploads ───────────
         // Any role that can see the order may list a stage's attachments
