@@ -217,6 +217,7 @@ class OrderDesignPlacementService
                 $rec = $pantonesById->get((int) $entry);
                 if ($rec) {
                     $hydrated[] = [
+                        'source'       => 'official',
                         'id'           => $rec->id,
                         'name'         => $rec->name,
                         'hexcolor'     => $rec->hexcolor,
@@ -224,7 +225,11 @@ class OrderDesignPlacementService
                     ];
                 }
             } elseif (is_array($entry)) {
+                $entrySource = isset($entry['source']) && $entry['source'] !== ''
+                    ? (string) $entry['source']
+                    : (isset($entry['id']) ? 'official' : 'inline');
                 $hydrated[] = [
+                    'source'       => $entrySource,
                     'id'           => $entry['id']           ?? null,
                     'name'         => $entry['name']         ?? null,
                     'hexcolor'     => $entry['hexcolor']     ?? null,
@@ -285,10 +290,58 @@ class OrderDesignPlacementService
                 continue;
             }
             if (is_array($entry)) {
+                $source = isset($entry['source'])
+                    ? strtolower(trim((string) $entry['source']))
+                    : null;
+
+                // CP1 — custom color: snapshot + reference. Freeze the
+                // name/hex/code and keep a reference to custom_colors. An
+                // entry without an id is a freshly-picked custom color:
+                // find-or-create it (de-duped on hex) and backfill the id.
+                if ($source === 'custom') {
+                    $cid = (isset($entry['id']) && (is_int($entry['id']) || ctype_digit((string) $entry['id'])))
+                        ? (int) $entry['id']
+                        : null;
+
+                    $name = trim((string) ($entry['name'] ?? ''));
+                    $hex  = trim((string) ($entry['hexcolor'] ?? ''));
+                    $code = trim((string) ($entry['pantone_code'] ?? ''));
+
+                    if ($cid === null) {
+                        if ($hex === '') {
+                            continue; // nothing to anchor a custom color on
+                        }
+                        $custom = app(\App\Services\CustomColorService::class)->findOrCreate([
+                            'name'         => $name !== '' ? $name : null,
+                            'hexcolor'     => $hex,
+                            'pantone_code' => $code !== '' ? $code : null,
+                        ], null);
+                    } else {
+                        $custom = \App\Models\CustomColor::find($cid);
+                        if (! $custom) {
+                            continue; // dangling reference — drop it
+                        }
+                    }
+
+                    $out[] = [
+                        'source'       => 'custom',
+                        'id'           => $custom->id,
+                        'name'         => $custom->name,
+                        'hexcolor'     => $custom->hexcolor,
+                        'pantone_code' => $custom->pantone_code,
+                    ];
+                    continue;
+                }
+
+                // Official reference (with or without an explicit source) —
+                // stored as a bare int so Screen Maker / Printer keep reading
+                // the same shape they always have (color_index unchanged).
                 if (isset($entry['id']) && (is_int($entry['id']) || ctype_digit((string) $entry['id']))) {
                     $out[] = (int) $entry['id'];
                     continue;
                 }
+
+                // Legacy inline descriptor (no id, no source).
                 $code = trim((string) ($entry['pantone_code'] ?? ''));
                 $name = trim((string) ($entry['name'] ?? ''));
                 $hex  = trim((string) ($entry['hexcolor'] ?? ''));

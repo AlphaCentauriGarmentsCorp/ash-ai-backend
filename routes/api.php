@@ -779,6 +779,10 @@ Route::prefix('v2')->group(function () {
                 Route::put('/placements',              'upsertPlacement');
                 Route::delete('/placements/{id}',      'destroyPlacement')->whereNumber('id');
 
+                // Custom colors — GA picker find-or-create (CP1). De-duped
+                // on normalised hex; canonical pantones catalog untouched.
+                Route::post('/custom-colors',          'storeCustomColor');
+
                 // Sample uploads — multipart; reuses shared SampleUploadService
                 Route::post('/sample-uploads',         'storeSampleUpload');
                 Route::patch('/sample-uploads/{id}',   'updateSampleUpload')->whereNumber('id');
