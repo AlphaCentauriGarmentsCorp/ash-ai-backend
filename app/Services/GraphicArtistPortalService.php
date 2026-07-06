@@ -76,6 +76,7 @@ class GraphicArtistPortalService
             'pantones_used'       => $this->pantonesUsed($design),
             'placement_options'   => $this->placementOptions(),
             'pantone_options'     => $this->pantoneOptions(),
+            'custom_color_options' => app(\App\Services\CustomColorService::class)->options(),
             'measurement_options' => $this->measurementOptions(),
             'label_assets'        => $this->labelAssets($order),
             'screen_details'      => $this->screenDetails($order),
@@ -290,6 +291,7 @@ class GraphicArtistPortalService
                     $rec = $pantonesById->get((int) $entry);
                     if ($rec) {
                         $hydrated[] = [
+                            'source'       => 'official',
                             'id'           => $rec->id,
                             'name'         => $rec->name,
                             'hexcolor'     => $rec->hexcolor,
@@ -297,8 +299,13 @@ class GraphicArtistPortalService
                         ];
                     }
                 } elseif (is_array($entry)) {
-                    // Already-inline descriptor — preserve shape.
+                    // Already-inline descriptor (custom snapshot or legacy) —
+                    // preserve shape, tag the source for the picker.
+                    $entrySource = isset($entry['source']) && $entry['source'] !== ''
+                        ? (string) $entry['source']
+                        : (isset($entry['id']) ? 'official' : 'inline');
                     $hydrated[] = [
+                        'source'       => $entrySource,
                         'id'           => $entry['id']           ?? null,
                         'name'         => $entry['name']         ?? null,
                         'hexcolor'     => $entry['hexcolor']     ?? null,

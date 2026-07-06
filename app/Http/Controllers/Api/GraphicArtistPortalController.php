@@ -7,7 +7,10 @@ use App\Http\Requests\GraphicArtist\StoreDesignFile;
 use App\Http\Requests\GraphicArtist\StoreLabelDesign;
 use App\Http\Requests\GraphicArtist\StoreSampleUpload;
 use App\Http\Requests\GraphicArtist\UpsertLabelAsset;
+use App\Http\Requests\GraphicArtist\StoreCustomColor;
 use App\Http\Requests\GraphicArtist\UpsertPlacement;
+use App\Http\Resources\CustomColorResource;
+use App\Services\CustomColorService;
 use App\Services\GraphicArtistPortalService;
 use App\Services\OrderDesignFileService;
 use App\Services\OrderDesignPlacementService;
@@ -44,6 +47,7 @@ class GraphicArtistPortalController extends Controller
         protected OrderLabelAssetService $labelAssets,
         protected OrderLabelDesignService $labelDesign,
         protected SampleUploadService $sampleUploads,
+        protected CustomColorService $customColors,
     ) {
     }
 
@@ -212,6 +216,20 @@ class GraphicArtistPortalController extends Controller
         );
 
         return response()->json(['message' => 'Placement deleted'], 200);
+    }
+
+    // ── Custom colors (CP1 — GA picker find-or-create) ───────────────
+
+    public function storeCustomColor(StoreCustomColor $request)
+    {
+        $color = $this->customColors->findOrCreate(
+            $request->validated(),
+            $request->user(),
+        );
+
+        return response()->json([
+            'data' => new CustomColorResource($color),
+        ], 200);
     }
 
     // ── Sample uploads ───────────────────────────────────────────────
