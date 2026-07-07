@@ -30,6 +30,7 @@ class StageReviewController extends Controller
         protected \App\Services\StageArtifactService $artifacts,
         protected \App\Services\OrderPaymentService $payments,
         protected \App\Services\GraphicArtistPortalService $gaPortal,
+        protected \App\Services\ScreenMakerPortalService $smPortal,
         protected \App\Services\OrderRoleNoteService $roleNotes,
     ) {
     }
@@ -65,17 +66,29 @@ class StageReviewController extends Controller
         // of the (possibly already-verified) payment for each gate.
         $payments = $this->payments->forReviewHub($order);
 
-        // GA Portal CP3 — rich per-stage detail blocks, keyed by
-        // order_stage_id. Currently populated only for graphic_artwork
-        // (placements + Pantones + labels + notes + soft warnings);
-        // other stages can add their own block later without a payload
-        // shape change.
+        // Rich per-stage detail blocks, keyed by order_stage_id. Each
+        // portal owns its own review summary and adds its block only
+        // when the order actually has that stage — the payload shape is
+        // stable, so new stages can join without a schema change.
+        //
+        //   graphic_artwork → GA output (placements + Pantones + labels
+        //                     + notes + soft warnings)
+        //   screen_making   → SM output (GA design context + physical
+        //                     screens + the maker's stage notes)  ← CP1
         $stageDetails = [];
+
         $gaStage = OrderStage::where('order_id', $orderId)
             ->where('stage', 'graphic_artwork')
             ->first(['id']);
         if ($gaStage) {
             $stageDetails[$gaStage->id] = $this->gaPortal->reviewSummary($order);
+        }
+
+        $smStage = OrderStage::where('order_id', $orderId)
+            ->where('stage', 'screen_making')
+            ->first(['id']);
+        if ($smStage) {
+            $stageDetails[$smStage->id] = $this->smPortal->reviewSummary($order);
         }
 
         return response()->json([
@@ -86,7 +99,8 @@ class StageReviewController extends Controller
             'payments'      => $payments,
             'stage_details' => $stageDetails,
             // Role-directed instruction threads (ORDER-level), grouped by
-            // audience_role — e.g. role_notes.graphic_artist = [entries].
+            // audience_role — e.g. role_notes.graphic_artist = [entries],
+            // role_notes.screen_maker = [entries].
             'role_notes'    => $this->roleNotes->forOrderGrouped($orderId),
         ]);
     }
