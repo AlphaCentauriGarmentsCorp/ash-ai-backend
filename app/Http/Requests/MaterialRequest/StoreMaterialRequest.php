@@ -12,12 +12,24 @@ use Illuminate\Http\Exceptions\HttpResponseException;
  * Expected shape:
  * {
  *   "order_id": 7,
+ *   "stage_id": 42,               // optional — the exact stage the request
+ *                                 //  is for (a production portal passes the
+ *                                 //  stage it launched from). When omitted,
+ *                                 //  the service attaches the MR to the
+ *                                 //  order's resolved current stage.
  *   "reason": "Need 5 yards red thread for stage",
  *   "items": [
  *     { "material_id": 12, "quantity_requested": 5, "notes": "..." },
  *     { "material_id": 18, "quantity_requested": 2 }
  *   ]
  * }
+ *
+ * SM Rework CP1 — `stage_id` was added because parallel forks
+ * (screen_making ‖ material_prep_sample share sequence 6) make the
+ * order's "current" stage ambiguous. A portal that knows exactly which
+ * station the request is for passes stage_id so the MR attaches there
+ * and reflects back in that portal's own Material Requests section.
+ * The service validates that the stage belongs to the order.
  */
 class StoreMaterialRequest extends FormRequest
 {
@@ -33,6 +45,7 @@ class StoreMaterialRequest extends FormRequest
     {
         return [
             'order_id'             => 'required|integer|exists:orders,id',
+            'stage_id'             => 'nullable|integer|exists:order_stages,id',
             'reason'               => 'nullable|string|max:1000',
             'items'                => 'required|array|min:1',
             'items.*.material_id'  => 'required|integer|exists:materials,id',

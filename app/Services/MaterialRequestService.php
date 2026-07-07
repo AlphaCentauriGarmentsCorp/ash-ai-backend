@@ -27,6 +27,14 @@ use Illuminate\Validation\ValidationException;
  * Stage-restriction rule (per architectural decision):
  *   Only the user assigned to the order's CURRENT order_stages row can
  *   create an MR. SuperAdmin / Admin / GeneralManager bypass this.
+ *
+ * SM Rework CP1 — create() now accepts an optional explicit stage_id.
+ * Parallel forks (screen_making ‖ material_prep_sample share sequence 6)
+ * make the "current" stage ambiguous, so a portal that knows exactly
+ * which station the request is for passes stage_id. When present (and
+ * belonging to the order) it is used both for the stage-restriction
+ * check AND as the MR's stage_id, so the request reflects back in that
+ * station's own portal section. When omitted, behaviour is unchanged.
  */
 class MaterialRequestService
 {
@@ -45,6 +53,7 @@ class MaterialRequestService
      *
      * @param  array  $data  {
      *     order_id: int,
+     *     stage_id?: int,
      *     reason?: string,
      *     items: array<array{material_id:int, quantity_requested:numeric, notes?:string}>
      * }
@@ -63,8 +72,16 @@ class MaterialRequestService
 
         $order = Order::findOrFail($data['order_id']);
 
-        // Stage-restriction check. Bypassed for management roles.
-        $this->assertRequesterCanRequestForOrder($actor, $order);
+        // Resolve the target stage up front — honour an explicit stage_id
+        // from the portal (validated to belong to the order); otherwise
+        // fall back to the order's resolved current stage.
+        $targetStage = $this->resolveStageForRequest($order, $data['stage_id'] ?? null);
+
+        // Stage-restriction check, aligned with the target stage so a role
+        // that owns the requested station (e.g. a screen maker on the
+        // screen_making fork) is authorised even when the order's
+        // current_stage_id points at the parallel fork.
+        $this->assertRequesterCanRequestForOrder($actor, $order, $targetStage);
 
         $items = $data['items'] ?? [];
         if (! is_array($items) || empty($items)) {
@@ -73,14 +90,11 @@ class MaterialRequestService
             ]);
         }
 
-        return DB::transaction(function () use ($data, $items, $order, $actor) {
-            // Resolve the order's current stage so we can attach the MR.
-            $currentStage = $this->resolveCurrentStage($order);
-
+        return DB::transaction(function () use ($data, $items, $order, $actor, $targetStage) {
             $mr = MaterialRequest::create([
                 'mr_code'              => $this->generateCode('MR'),
                 'order_id'             => $order->id,
-                'stage_id'             => $currentStage?->id,
+                'stage_id'             => $targetStage?->id,
                 'requested_by_user_id' => $actor->id,
                 'status'               => MaterialRequest::STATUS_PENDING,
                 'reason'               => $data['reason'] ?? null,
@@ -264,20 +278,24 @@ class MaterialRequestService
      * The stage-restriction policy:
      *   - SuperAdmin / Admin / GeneralManager can request for any order.
      *   - Other roles must (a) have at least one role assigned and
-     *     (b) be the user assigned to the order's current stage,
-     *     OR have a role that matches the current stage's `assigned_role`.
+     *     (b) be the user assigned to the target stage,
+     *     OR have a role that matches the target stage's `assigned_role`.
+     *
+     * $stage is the stage the request will attach to (explicit stage_id
+     * when the portal passed one, otherwise the resolved current stage).
+     * If null we fall back to resolving the current stage.
      *
      * If neither condition is met we throw a 422 with a field-level
      * message that the alert UI will display.
      */
-    protected function assertRequesterCanRequestForOrder(User $actor, Order $order): void
+    protected function assertRequesterCanRequestForOrder(User $actor, Order $order, ?OrderStage $stage = null): void
     {
         $managerRoles = ['superadmin', 'admin', 'general_manager'];
         if ($actor->hasAnyRole($managerRoles)) {
             return; // bypass
         }
 
-        $current = $this->resolveCurrentStage($order);
+        $current = $stage ?? $this->resolveCurrentStage($order);
         if (! $current) {
             throw ValidationException::withMessages([
                 'order' => 'Order has no active stage; cannot request materials right now.',
@@ -299,6 +317,28 @@ class MaterialRequestService
             'stage' => "You can only request materials during the order's current stage. "
                 . "Current stage: {$current->stage}.",
         ]);
+    }
+
+    /**
+     * Resolve the stage a request should attach to.
+     *
+     * When an explicit stage_id is provided it MUST belong to the order —
+     * otherwise a 422 is thrown (a portal should never hand us a foreign
+     * stage). When omitted, we fall back to the order's current stage.
+     */
+    protected function resolveStageForRequest(Order $order, $explicitStageId = null): ?OrderStage
+    {
+        if ($explicitStageId !== null && $explicitStageId !== '') {
+            $stage = OrderStage::find($explicitStageId);
+            if (! $stage || (int) $stage->order_id !== (int) $order->id) {
+                throw ValidationException::withMessages([
+                    'stage_id' => 'The selected stage does not belong to this order.',
+                ]);
+            }
+            return $stage;
+        }
+
+        return $this->resolveCurrentStage($order);
     }
 
     /**
