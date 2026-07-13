@@ -4,10 +4,12 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderStage;
+use App\Models\PurchaseRequest;
 use App\Models\StageReview;
 use App\Models\User;
 use App\Support\WorkflowStages;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Phase 5-A — Resolves "what is the user's currently-active assignment?"
@@ -227,6 +229,23 @@ class PortalAssignmentService
     }
 
     /**
+     * RC-4b — active purchase-request count powering the Material Prep badge, so
+     * it matches that portal's PR worklist (MaterialPrepPortalService::
+     * myActiveRequests) instead of the material_prep_* stages. Reuses that
+     * service's ACTIVE_STATUSES as the single source of truth for "active", so
+     * the two can't drift. Returns 0 when the table is absent (narrow test
+     * harnesses that don't build purchase_requests).
+     */
+    protected function activePurchaseRequestCount(): int
+    {
+        if (! Schema::hasTable('purchase_requests')) {
+            return 0;
+        }
+
+        return PurchaseRequest::whereIn('status', MaterialPrepPortalService::ACTIVE_STATUSES)->count();
+    }
+
+    /**
      * Frontier filter (Bundle 1.1) — given candidate stage rows already limited
      * to a portal role's stages and the active-workload statuses, keep only the
      * ones actionable at the station *right now*:
@@ -305,6 +324,19 @@ class PortalAssignmentService
         $counts = [];
 
         foreach (self::STAGE_PORTAL_ROLES as $role) {
+            // RC-4b — Material Prep is the one portal whose worklist is NOT
+            // stage-based: MaterialPrepPortalService::myActiveRequests() lists
+            // active PURCHASE REQUESTS, so its badge must count those to match
+            // what the portal actually shows (a material_prep_* stage count would
+            // silently disagree). Visibility is unchanged from the other roles:
+            // oversight always; a worker only if they hold portal.material-prep.
+            if ($role === 'material_prep') {
+                if ($isOversight || $user->can('portal.material-prep')) {
+                    $counts[$role] = $this->activePurchaseRequestCount();
+                }
+                continue;
+            }
+
             if ($isOversight) {
                 $counts[$role] = $this->activeCountForRole($role);
                 continue;

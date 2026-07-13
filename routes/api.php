@@ -75,6 +75,7 @@ use App\Http\Controllers\Api\ClientApprovalController;
 use App\Http\Controllers\Api\SampleApprovalController;
 use App\Http\Controllers\Api\FabricSwatchController;
 use App\Http\Controllers\Api\QaPackerPortalController;
+use App\Http\Controllers\Api\BadgeSummaryController;
 
 // example usage: localhost:8000/api/v1/user
 // Route::prefix('v1')->group(function () {
@@ -598,6 +599,12 @@ Route::prefix('v2')->group(function () {
         // it needs auth only — no per-portal permission. Declared before the
         // /portal/{role}/... wildcard so 'badge-counts' is never read as a role.
         Route::get('/portal/badge-counts', [PortalController::class, 'badgeCounts']);
+
+        // CP-3 — one call for every sidebar/dashboard badge count (portals +
+        // awaiting + pending-approvals). Auth-only like badge-counts above; the
+        // controller self-scopes each field to the user's gates. Fixed path, so
+        // no clash with the /portal/{role} wildcard below (BUG-010).
+        Route::get('/badges', [BadgeSummaryController::class, 'index']);
 
         Route::get('/portal/{role}/my-active', [PortalController::class, 'myActive'])
             ->where('role', '[a-z_-]+');
