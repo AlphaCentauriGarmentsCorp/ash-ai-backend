@@ -39,10 +39,18 @@ class PendingApprovalsService
      *
      * @return array<int, array<string, mixed>>
      */
+    // RC-5 — every payment query below is guarded by whereHas('order'). Order
+    // uses SoftDeletes but OrderPayment does not, and there are no DB-level
+    // foreign keys, so deleting an order leaves its payment rows behind. Without
+    // this guard those orphans still counted toward the badges AND rendered as
+    // blank-PO cards (present() reads $p->order, which is null for a trashed
+    // order). whereHas('order') respects the SoftDeletes scope, so a payment
+    // whose order is trashed is excluded from both the list and the count.
     public function queue(): array
     {
         $rows = OrderPayment::query()
             ->where('status', OrderPayment::STATUS_FOR_VERIFICATION)
+            ->whereHas('order')
             ->with(['order.items', 'order.currentStage', 'paymentMethod', 'uploadedBy'])
             ->orderBy('uploaded_at')
             ->get();
@@ -53,7 +61,9 @@ class PendingApprovalsService
     /** Badge count for the widget header. */
     public function count(): int
     {
-        return OrderPayment::where('status', OrderPayment::STATUS_FOR_VERIFICATION)->count();
+        return OrderPayment::where('status', OrderPayment::STATUS_FOR_VERIFICATION)
+            ->whereHas('order')
+            ->count();
     }
 
     /**
@@ -69,6 +79,7 @@ class PendingApprovalsService
     {
         $rows = OrderPayment::query()
             ->whereIn('status', [OrderPayment::STATUS_WAITING, OrderPayment::STATUS_REJECTED])
+            ->whereHas('order')
             ->with(['order.items', 'order.currentStage', 'paymentMethod', 'uploadedBy'])
             ->orderBy('uploaded_at')
             ->get();
@@ -82,7 +93,7 @@ class PendingApprovalsService
         return OrderPayment::whereIn('status', [
             OrderPayment::STATUS_WAITING,
             OrderPayment::STATUS_REJECTED,
-        ])->count();
+        ])->whereHas('order')->count();
     }
 
     /**
@@ -201,11 +212,15 @@ class PendingApprovalsService
         $order = $p->order;
         $gate = $order ? $this->currentGateStage($order) : null;
 
-        // Gate label: prefer the live workflow stage; fall back to the payment
-        // type so the row is still meaningful if the stage isn't active yet.
-        $gateLabel = $gate
-            ? (WorkflowStages::find($gate->stage)['label'] ?? $gate->stage)
-            : $this->labelForType($p->payment_type);
+        // Label the row by the PAYMENT'S OWN type, not the order's current gate
+        // stage. queue()/awaitingQueue() list one row PER PAYMENT, and an order
+        // can have more than one payment awaiting verification at once (e.g. a
+        // sample fee and a down-payment). Deriving the label from the single
+        // current gate made every such row read identically ("...(Sample)"),
+        // so the verifier couldn't tell a sample fee from a down-payment on the
+        // same order (RC-6). The payment_type is unambiguous and always set.
+        // gate_stage below still carries the live workflow stage for context.
+        $gateLabel = $this->labelForType($p->payment_type);
 
         $qty = $order && $order->relationLoaded('items')
             ? (int) $order->items->sum('quantity')
