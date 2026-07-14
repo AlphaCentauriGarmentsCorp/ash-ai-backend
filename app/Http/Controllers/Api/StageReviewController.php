@@ -32,6 +32,7 @@ class StageReviewController extends Controller
         protected \App\Services\GraphicArtistPortalService $gaPortal,
         protected \App\Services\ScreenMakerPortalService $smPortal,
         protected \App\Services\OrderRoleNoteService $roleNotes,
+        protected \App\Services\StageWasteSummaryService $wasteSummary,
     ) {
     }
 
@@ -98,6 +99,10 @@ class StageReviewController extends Controller
             'uploads'       => $uploads,
             'payments'      => $payments,
             'stage_details' => $stageDetails,
+            // Auto-computed per-stage waste / material usage, keyed by
+            // order_stage_id. Aggregated from what the production portals
+            // already log (fabric / ink / reject) — no manual waste entry.
+            'waste'         => $this->wasteSummary->forOrder($orderId),
             // Role-directed instruction threads (ORDER-level), grouped by
             // audience_role — e.g. role_notes.graphic_artist = [entries],
             // role_notes.screen_maker = [entries].
