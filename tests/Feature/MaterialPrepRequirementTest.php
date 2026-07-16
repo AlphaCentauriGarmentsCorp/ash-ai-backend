@@ -345,3 +345,50 @@ test('a rejected material request is ignored — order can still be prepared', f
     expect($state['can_save'])->toBeTrue();
     expect($state['suggestion'])->toHaveCount(1);
 });
+// ── Bug fix: sample-phase Material Prep must also surface in the portal ──────
+
+function prepMakeOrderAtSampleMaterialPrep(): array
+{
+    $order = Order::create([
+        'po_code' => 'ASH-2026-' . str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT),
+        'client_brand' => 'SAMPLE', 'client_name' => 'Sample Client',
+    ]);
+
+    // Tier-6 fork: screen_making completed, material_prep_sample still active.
+    OrderStage::create(['order_id' => $order->id, 'stage' => 'screen_making',        'status' => 'completed',   'sequence' => 6]);
+    $prep = OrderStage::create(['order_id' => $order->id, 'stage' => 'material_prep_sample', 'status' => 'in_progress', 'sequence' => 6, 'assigned_role' => 'material_prep']);
+    // The mass prep stage exists too, but sits pending far downstream.
+    OrderStage::create(['order_id' => $order->id, 'stage' => 'material_prep_mass',    'status' => 'pending',     'sequence' => 13]);
+
+    Order::where('id', $order->id)->update(['current_stage_id' => $prep->id]);
+
+    return ['order' => $order->fresh(), 'prep' => $prep];
+}
+
+test('ordersAtMaterialPrep surfaces an order stuck at the SAMPLE prep stage', function () {
+    $ctx = prepMakeOrderAtSampleMaterialPrep();
+
+    $rows = app(MaterialPrepRequirementService::class)->ordersAtMaterialPrep();
+
+    expect($rows)->toHaveCount(1);
+    expect($rows[0]['order']['id'])->toBe($ctx['order']->id);
+    expect($rows[0]['phase'])->toBe('sample');
+    expect($rows[0]['stage'])->toBe('material_prep_sample');
+    // Sample rows skip the MR/PR flow entirely (pull-from-stock).
+    expect($rows[0]['requirement_set'])->toBeFalse();
+    expect($rows[0]['purchase_needed'])->toBeNull();
+});
+
+test('ordersAtMaterialPrep lists both a sample-stage and a mass-stage order together', function () {
+    $sample = prepMakeOrderAtSampleMaterialPrep();
+    $mass   = prepMakeOrderAtMaterialPrep(10);
+
+    $rows = app(MaterialPrepRequirementService::class)->ordersAtMaterialPrep();
+
+    $byPhase = collect($rows)->keyBy('phase');
+    expect($rows)->toHaveCount(2);
+    expect($byPhase->has('sample'))->toBeTrue();
+    expect($byPhase->has('mass'))->toBeTrue();
+    expect($byPhase['sample']['order']['id'])->toBe($sample['order']->id);
+    expect($byPhase['mass']['order']['id'])->toBe($mass['order']->id);
+});
