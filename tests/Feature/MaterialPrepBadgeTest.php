@@ -55,9 +55,10 @@ beforeEach(function () use ($MPB_TABLES) {
         $t->softDeletes();
     });
 
-    // Only the columns activePurchaseRequestCount() touches.
+    // Only the columns activePurchaseRequestCount() / materialPrepBadgeCount() touch.
     Schema::create('purchase_requests', function (Blueprint $t) {
         $t->id();
+        $t->unsignedBigInteger('order_id')->nullable();
         $t->string('status', 24)->default('pending');
         $t->timestamps();
     });
@@ -201,4 +202,61 @@ it('reports zero active PRs as a present, zero material_prep badge for a worker 
 
     expect($counts)->toHaveKey('material_prep')
         ->and($counts['material_prep'])->toBe(0);
+});
+
+// ── Change 18 — prep-stage orders without a PR must also raise the badge ─────
+
+it('adds a sample-phase prep order (no PR) to the material_prep badge', function () {
+    $user = mpbUser(['portal.material-prep']);
+
+    // An order sitting at the SAMPLE prep stage — pull-from-stock, never a PR.
+    $order = \App\Models\Order::create(['po_code' => 'ASH-2026-000025']);
+    \App\Models\OrderStage::create([
+        'order_id' => $order->id, 'stage' => 'material_prep_sample',
+        'status' => 'in_progress', 'sequence' => 6,
+    ]);
+    // No purchase requests at all.
+
+    $counts = (new PortalAssignmentService())->badgeCounts($user);
+
+    expect($counts)->toHaveKey('material_prep')
+        ->and($counts['material_prep'])->toBe(1);
+});
+
+it('does not double-count a mass prep order that already has an active PR', function () {
+    $user = mpbUser(['portal.material-prep']);
+
+    $order = \App\Models\Order::create(['po_code' => 'ASH-2026-000099']);
+    \App\Models\OrderStage::create([
+        'order_id' => $order->id, 'stage' => 'material_prep_mass',
+        'status' => 'in_progress', 'sequence' => 13,
+    ]);
+
+    // This order's shortfall spawned an active PR; plus one unrelated restock PR.
+    PurchaseRequest::create(['status' => 'approved', 'order_id' => $order->id]);
+    PurchaseRequest::create(['status' => 'pending',  'order_id' => null]);
+
+    $counts = (new PortalAssignmentService())->badgeCounts($user);
+
+    // 2 active PRs. The mass order is represented by its own PR, so it is NOT
+    // added again → total stays 2, not 3.
+    expect($counts['material_prep'])->toBe(2);
+});
+
+it('sums an active PR and a separate PR-less sample order', function () {
+    $user = mpbUser(['portal.material-prep']);
+
+    // Sample order (no PR).
+    $sample = \App\Models\Order::create(['po_code' => 'ASH-2026-000025']);
+    \App\Models\OrderStage::create([
+        'order_id' => $sample->id, 'stage' => 'material_prep_sample',
+        'status' => 'in_progress', 'sequence' => 6,
+    ]);
+    // Unrelated active restock PR (no order at a prep stage).
+    PurchaseRequest::create(['status' => 'ordered', 'order_id' => null]);
+
+    $counts = (new PortalAssignmentService())->badgeCounts($user);
+
+    // 1 active PR + 1 PR-less sample order = 2.
+    expect($counts['material_prep'])->toBe(2);
 });

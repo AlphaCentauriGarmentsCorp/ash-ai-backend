@@ -38,7 +38,8 @@ class MaterialPrepRequirementService
     /** Sample stages whose usage logs seed the mass requirement. */
     protected const SAMPLE_FABRIC_STAGES = ['sample_cutting', 'sample_sewing'];
     protected const SAMPLE_INK_STAGES    = ['sample_printing'];
-    protected const MATERIAL_PREP_STAGE  = 'material_prep_mass';
+    protected const MATERIAL_PREP_STAGE         = 'material_prep_mass';
+    protected const MATERIAL_PREP_SAMPLE_STAGE  = 'material_prep_sample';
 
     /**
      * Full requirement state for an order at the Material Prep stage:
@@ -58,21 +59,58 @@ class MaterialPrepRequirementService
         ];
     }
 
-    /** Orders currently sitting at the Material Prep (mass) stage. */
+    /**
+     * Orders currently sitting at EITHER Material Prep stage.
+     *
+     * Material Prep owns two stages: material_prep_sample (tier 6, the sample
+     * sourcing fork that runs parallel to screen_making) and material_prep_mass
+     * (tier 13, mass sourcing). Both are surfaced here — an order at the sample
+     * stage was previously invisible in the portal, which left it locked and
+     * unable to join the fork to sample_cutting.
+     *
+     * The two phases are handled differently:
+     *   - mass   → the requirement/suggestion + Auto-PR flow (unchanged): each
+     *              row carries requirement_set / purchase_needed / pr_status.
+     *   - sample → a pull-from-stock acknowledgment. There are no usage logs yet
+     *              (sample cutting/printing/sewing come AFTER this tier), so there
+     *              is nothing to suggest or purchase — the role just confirms the
+     *              sample materials are on hand and taps "Prep Done" (the existing
+     *              markPrepDone endpoint, which already targets whichever prep
+     *              stage is active). Sample rows therefore skip the requirement
+     *              lookup entirely.
+     *
+     * The `phase` field tells the frontend which UI to render per row.
+     */
     public function ordersAtMaterialPrep(): array
     {
         $stages = OrderStage::query()
-            ->where('stage', self::MATERIAL_PREP_STAGE)
+            ->whereIn('stage', [self::MATERIAL_PREP_SAMPLE_STAGE, self::MATERIAL_PREP_STAGE])
             ->where('status', 'in_progress')
             ->with('order:id,po_code,client_brand,client_name')
+            ->orderBy('sequence')
             ->get();
 
         return $stages
             ->filter(fn ($s) => $s->order !== null)
             ->map(function ($s) {
+                // Sample prep: pull-from-stock acknowledgment, no MR/PR flow.
+                if ($s->stage === self::MATERIAL_PREP_SAMPLE_STAGE) {
+                    return [
+                        'order'           => $this->orderSummary($s->order),
+                        'phase'           => 'sample',
+                        'stage'           => $s->stage,
+                        'requirement_set' => false,
+                        'purchase_needed' => null,
+                        'pr_status'       => null,
+                    ];
+                }
+
+                // Mass prep: unchanged requirement/suggestion + Auto-PR flow.
                 $existing = $this->existingRequirement($s->order);
                 return [
                     'order'           => $this->orderSummary($s->order),
+                    'phase'           => 'mass',
+                    'stage'           => $s->stage,
                     'requirement_set' => $existing !== null,
                     'purchase_needed' => $existing['purchase_needed'] ?? null,
                     'pr_status'       => $existing['pr']['status'] ?? null,

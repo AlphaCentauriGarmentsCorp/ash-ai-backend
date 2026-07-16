@@ -246,6 +246,58 @@ class PortalAssignmentService
     }
 
     /**
+     * Material Prep badge total = active purchase requests (RC-4b, the
+     * buy/order/receive worklist) PLUS orders sitting at a material-prep stage
+     * that have NO active PR yet.
+     *
+     * Why the second term: the portal's "orders needing material prep" list
+     * (Change 18) surfaces orders at either prep stage — material_prep_sample
+     * (pull-from-stock, never spawns a PR) and material_prep_mass (before a
+     * requirement is saved, or when everything is in stock). Those are
+     * actionable — the role must save a requirement or tap "Prep Done" — but a
+     * PR-only badge counted none of them, so an order like a sample-phase job
+     * sat in the portal with no badge at all.
+     *
+     * De-dup: an order whose shortfall already spawned an active PR is counted
+     * via that PR (its stage stays in_progress until the PR is received), so we
+     * exclude those orders here to avoid counting the same work twice. Orders
+     * with multiple active PRs therefore still weight the badge by PR, exactly
+     * as before.
+     *
+     * Schema-guarded so the narrow badge test harness (no order_stages rows)
+     * short-circuits to the PR-only count before touching order-linked columns.
+     */
+    protected function materialPrepBadgeCount(): int
+    {
+        $activePrCount = $this->activePurchaseRequestCount();
+
+        if (! Schema::hasTable('order_stages')) {
+            return $activePrCount;
+        }
+
+        $prepOrderIds = OrderStage::query()
+            ->whereIn('stage', WorkflowStages::stagesForPortalRole('material_prep'))
+            ->where('status', OrderStage::STATUS_IN_PROGRESS)
+            ->pluck('order_id')
+            ->unique();
+
+        if ($prepOrderIds->isEmpty()) {
+            return $activePrCount;
+        }
+
+        $ordersWithActivePr = Schema::hasTable('purchase_requests')
+            ? PurchaseRequest::whereIn('order_id', $prepOrderIds)
+                ->whereIn('status', MaterialPrepPortalService::ACTIVE_STATUSES)
+                ->pluck('order_id')
+                ->unique()
+            : collect();
+
+        $ordersWithoutActivePr = $prepOrderIds->diff($ordersWithActivePr)->count();
+
+        return $activePrCount + $ordersWithoutActivePr;
+    }
+
+    /**
      * Frontier filter (Bundle 1.1) — given candidate stage rows already limited
      * to a portal role's stages and the active-workload statuses, keep only the
      * ones actionable at the station *right now*:
@@ -324,15 +376,16 @@ class PortalAssignmentService
         $counts = [];
 
         foreach (self::STAGE_PORTAL_ROLES as $role) {
-            // RC-4b — Material Prep is the one portal whose worklist is NOT
-            // stage-based: MaterialPrepPortalService::myActiveRequests() lists
-            // active PURCHASE REQUESTS, so its badge must count those to match
-            // what the portal actually shows (a material_prep_* stage count would
-            // silently disagree). Visibility is unchanged from the other roles:
-            // oversight always; a worker only if they hold portal.material-prep.
+            // RC-4b + Change 18 — Material Prep is the one portal whose worklist
+            // isn't purely stage-based: it shows active PURCHASE REQUESTS plus
+            // orders sitting at a prep stage that still need action (incl. the
+            // pull-from-stock sample stage, which never spawns a PR). The badge
+            // sums both without double-counting — see materialPrepBadgeCount().
+            // Visibility is unchanged: oversight always; a worker only if they
+            // hold portal.material-prep.
             if ($role === 'material_prep') {
                 if ($isOversight || $user->can('portal.material-prep')) {
-                    $counts[$role] = $this->activePurchaseRequestCount();
+                    $counts[$role] = $this->materialPrepBadgeCount();
                 }
                 continue;
             }
