@@ -105,6 +105,7 @@ Route::prefix('v2')->group(function () {
 
     Route::post('login/ash', [AuthController::class, 'loginAsh']);
     Route::post('verify-otp', [AuthController::class, 'verifyOtp']);
+    Route::post('resend-otp', [AuthController::class, 'resendOtp']);
     Route::post('login', [AuthController::class, 'login']);
 
 
