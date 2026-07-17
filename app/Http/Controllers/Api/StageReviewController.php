@@ -31,6 +31,7 @@ class StageReviewController extends Controller
         protected \App\Services\OrderPaymentService $payments,
         protected \App\Services\GraphicArtistPortalService $gaPortal,
         protected \App\Services\ScreenMakerPortalService $smPortal,
+        protected \App\Services\CutterPortalService $cutterPortal,
         protected \App\Services\OrderRoleNoteService $roleNotes,
         protected \App\Services\StageWasteSummaryService $wasteSummary,
     ) {
@@ -76,6 +77,12 @@ class StageReviewController extends Controller
         //                     + notes + soft warnings)
         //   screen_making   → SM output (GA design context + physical
         //                     screens + the maker's stage notes)  ← CP1
+        //   sample_cutting /
+        //   mass_cutting    → Cutter output (fabric usage entries incl.
+        //                     roll/batch refs + the cutter's stage
+        //                     notes)  ← Cutter Rework CP1. The cutter
+        //                     owns TWO stages, so its summaries are
+        //                     built per-stage, keyed by each stage id.
         $stageDetails = [];
 
         $gaStage = OrderStage::where('order_id', $orderId)
@@ -90,6 +97,13 @@ class StageReviewController extends Controller
             ->first(['id']);
         if ($smStage) {
             $stageDetails[$smStage->id] = $this->smPortal->reviewSummary($order);
+        }
+
+        $cuttingStages = OrderStage::where('order_id', $orderId)
+            ->whereIn('stage', ['sample_cutting', 'mass_cutting'])
+            ->get(['id', 'stage', 'notes']);
+        foreach ($cuttingStages as $cuttingStage) {
+            $stageDetails[$cuttingStage->id] = $this->cutterPortal->reviewSummary($order, $cuttingStage);
         }
 
         return response()->json([

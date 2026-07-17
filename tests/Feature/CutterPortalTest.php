@@ -19,6 +19,22 @@
  *   9. SampleUploadService update() transitions pending → for_approval and
  *      sets completed_at
  *  10. SampleUploadService rejects without action.upload-photos permission
+ *
+ * Cutter Rework CP1 additions:
+ *  11. buildContext() order block carries the enriched Product-Details
+ *      mirror (GA/SM shape) + the new placements / pantones_used /
+ *      role_notes keys
+ *  12. buildContext() hydrates the GA design output and returns ONLY the
+ *      cutter's role-note thread
+ *  13. reviewSummary() returns the Cutting output block (fabric entries
+ *      incl. roll/batch refs + totals + stage notes) for a sample stage
+ *  14. reviewSummary() reports phase='mass' + empty logs for an untouched
+ *      mass_cutting stage
+ *
+ * Schema note (fixed in CP1): the hand-built material_requests table now
+ * mirrors the real Phase 3 migration (stage_id + mr_code + reason +
+ * approved_at) — the service queries those columns, so the old
+ * order_stage_id-only shape could not satisfy buildContext.
  */
 
 use App\Models\Order;
@@ -40,6 +56,10 @@ beforeEach(function () {
         'stage_sample_uploads',
         'stage_fabric_logs',
         'material_requests',
+        'order_role_notes',
+        'order_design_placements',
+        'order_designs',
+        'pantones',
         'model_has_permissions',
         'role_has_permissions',
         'model_has_roles',
@@ -74,6 +94,27 @@ beforeEach(function () {
         $t->string('workflow_status', 32)->default('inquiry');
         $t->timestamp('delayed_at')->nullable();
         $t->unsignedBigInteger('current_stage_id')->nullable();
+
+        // Cutter Rework CP1 — Product Details mirror (same columns the
+        // GA / SM portal tests build; read by the enriched orderDetails).
+        $t->unsignedBigInteger('apparel_type_id')->nullable();
+        $t->unsignedBigInteger('pattern_type_id')->nullable();
+        $t->unsignedBigInteger('apparel_neckline_id')->nullable();
+        $t->unsignedBigInteger('print_method_id')->nullable();
+        $t->string('design_name')->nullable();
+        $t->string('service_type', 64)->nullable();
+        $t->string('print_service', 64)->nullable();
+        $t->string('fabric_type', 64)->nullable();
+        $t->string('fabric_supplier', 64)->nullable();
+        $t->string('fabric_color', 64)->nullable();
+        $t->string('thread_color', 64)->nullable();
+        $t->string('ribbing_color', 64)->nullable();
+
+        // Label specs + shared label design.
+        $t->json('brand_label_json')->nullable();
+        $t->json('care_label_json')->nullable();
+        $t->string('label_design_path')->nullable();
+
         $t->timestamps();
         $t->softDeletes();
     });
@@ -84,12 +125,52 @@ beforeEach(function () {
         $t->text('stage');
         $t->unsignedSmallInteger('sequence')->default(0);
         $t->string('status')->default('pending');
+        $t->string('service_type', 16)->default('in_house');
         $t->timestamp('started_at')->nullable();
         $t->timestamp('completed_at')->nullable();
         $t->timestamp('delayed_at')->nullable();
         $t->unsignedBigInteger('assigned_to')->nullable();
         $t->string('assigned_role', 64)->nullable();
         $t->text('notes')->nullable();
+        $t->timestamps();
+    });
+
+    // Cutter Rework CP1 — GA design output tables (buildContext now
+    // hydrates the read-only Design Details section from these).
+    Schema::create('pantones', function (Blueprint $t) {
+        $t->id();
+        $t->string('name');
+        $t->string('hexcolor');
+        $t->string('pantone_code');
+        $t->timestamps();
+    });
+
+    Schema::create('order_designs', function (Blueprint $t) {
+        $t->id();
+        $t->unsignedBigInteger('order_id');
+        $t->unsignedBigInteger('artist_id')->nullable();
+        $t->text('notes')->nullable();
+        $t->text('size_label')->nullable();
+        $t->timestamps();
+    });
+
+    Schema::create('order_design_placements', function (Blueprint $t) {
+        $t->id();
+        $t->unsignedBigInteger('order_design_id');
+        $t->string('type');
+        $t->text('mockup_image')->nullable();
+        $t->unsignedTinyInteger('color_count')->nullable();
+        $t->text('pantones')->nullable();
+        $t->timestamps();
+    });
+
+    // Cutter Rework CP1 — Hub → cutter instruction thread source.
+    Schema::create('order_role_notes', function (Blueprint $t) {
+        $t->id();
+        $t->unsignedBigInteger('order_id');
+        $t->string('audience_role', 64);
+        $t->unsignedBigInteger('author_user_id');
+        $t->text('body');
         $t->timestamps();
     });
 
@@ -172,13 +253,21 @@ beforeEach(function () {
         $t->timestamp('created_at')->nullable();
     });
 
+    // Cutter Rework CP1 — mirrors the REAL Phase 3 migration (stage_id,
+    // mr_code, reason, approved_at …) so the service's query works; the
+    // old order_stage_id-only shape drifted from the data layer.
     Schema::create('material_requests', function (Blueprint $t) {
         $t->id();
+        $t->string('mr_code')->unique();
         $t->unsignedBigInteger('order_id');
-        $t->unsignedBigInteger('order_stage_id');
-        $t->string('status')->default('pending');
-        $t->string('priority', 16)->default('normal');
-        $t->date('needed_by')->nullable();
+        $t->unsignedBigInteger('stage_id')->nullable();
+        $t->unsignedBigInteger('requested_by_user_id');
+        $t->string('status', 16)->default('pending');
+        $t->text('reason')->nullable();
+        $t->text('rejection_reason')->nullable();
+        $t->unsignedBigInteger('approved_by_user_id')->nullable();
+        $t->timestamp('approved_at')->nullable();
+        $t->unsignedBigInteger('purchase_request_id')->nullable();
         $t->timestamps();
     });
 
@@ -199,6 +288,10 @@ afterEach(function () {
         'stage_sample_uploads',
         'stage_fabric_logs',
         'material_requests',
+        'order_role_notes',
+        'order_design_placements',
+        'order_designs',
+        'pantones',
         'model_has_permissions',
         'role_has_permissions',
         'model_has_roles',
@@ -252,6 +345,15 @@ function phase5b_makeOrderWithStage(string $stageSlug = 'sample_cutting', string
             ['size' => 'L', 'quantity' => 40],
             ['size' => 'XL', 'quantity' => 30],
         ]),
+        // Cutter Rework CP1 — Production Details values so the enriched
+        // orderDetails assertions have data (mirrors GA/SM fixtures).
+        'design_name'     => 'Wow Design',
+        'print_service'   => 'in_house',
+        'fabric_type'     => 'Brushed Cotton',
+        'fabric_supplier' => 'ABC Textile Supply',
+        'fabric_color'    => 'Black',
+        'thread_color'    => 'Black',
+        'ribbing_color'   => 'Black',
         'workflow_status' => $stageSlug,
         'created_at' => now(),
         'updated_at' => now(),
@@ -275,6 +377,36 @@ function phase5b_makeOrderWithStage(string $stageSlug = 'sample_cutting', string
     ];
 }
 
+/**
+ * Cutter Rework CP1 — attach a GA design + one placement (Pantone-linked)
+ * to an order, so buildContext's read-only Design Details hydrates.
+ *
+ * @return array{0:int,1:int} [placementId, pantoneId]
+ */
+function phase5b_attachDesign(int $orderId): array
+{
+    $pantoneId = DB::table('pantones')->insertGetId([
+        'name' => 'Jet Black', 'hexcolor' => '#111111', 'pantone_code' => 'Black 6 C',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $designId = DB::table('order_designs')->insertGetId([
+        'order_id' => $orderId,
+        'notes' => 'Body front design',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $placementId = DB::table('order_design_placements')->insertGetId([
+        'order_design_id' => $designId,
+        'type' => 'Front',
+        'color_count' => 2,
+        'pantones' => json_encode([$pantoneId]),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return [$placementId, $pantoneId];
+}
+
 // ─── CutterPortalService tests ────────────────────────────────────
 
 it('builds full context for an active sample_cutting stage', function () {
@@ -286,7 +418,9 @@ it('builds full context for an active sample_cutting stage', function () {
     expect($ctx)->toHaveKeys([
         'order', 'stage', 'size_chart',
         'fabric_tracking', 'material_requests',
-        'sample_uploads', 'activity_log',
+        'sample_uploads', 'activity_log', 'subcontract',
+        // Cutter Rework CP1 — new keys.
+        'placements', 'pantones_used', 'role_notes',
     ]);
 
     expect($ctx['order']['po_code'])->toStartWith('ASH-CT-');
@@ -297,6 +431,11 @@ it('builds full context for an active sample_cutting stage', function () {
 
     expect($ctx['size_chart'])->toHaveCount(3);
     expect($ctx['fabric_tracking']['totals']['fabric_used_kg'])->toBe(0.0);
+
+    // No design / no instructions yet → empty, not errors.
+    expect($ctx['placements'])->toBe([]);
+    expect($ctx['pantones_used'])->toBe([]);
+    expect($ctx['role_notes'])->toHaveCount(0);
 });
 
 it('rejects context for a stage outside cutter scope', function () {
@@ -313,6 +452,130 @@ it('rejects context for a stage that does not exist', function () {
 
     expect(fn () => $svc->buildContext(99999))
         ->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+// ─── Cutter Rework CP1 — enriched context ─────────────────────────
+
+it('returns the enriched Product-Details order block (GA/SM shape)', function () {
+    $made = phase5b_makeOrderWithStage();
+
+    $ctx = (new CutterPortalService())->buildContext($made['order_stage_id']);
+
+    expect($ctx['order'])->toHaveKeys([
+        'shirt_color_hex',
+        'apparel_type', 'pattern_type', 'apparel_neckline', 'print_method',
+        'design_name', 'service_type', 'print_service',
+        'fabric_type', 'fabric_supplier',
+        'fabric_color', 'fabric_color_hex',
+        'thread_color', 'thread_color_hex',
+        'ribbing_color', 'ribbing_color_hex',
+        'brand_label', 'care_label', 'label_design_url',
+    ]);
+
+    expect($ctx['order']['design_name'])->toBe('Wow Design');
+    expect($ctx['order']['fabric_type'])->toBe('Brushed Cotton');
+    expect($ctx['order']['fabric_supplier'])->toBe('ABC Textile Supply');
+    // No fabric_swatches table here and no 'Black' pantone seeded → chip
+    // resolution degrades to null instead of erroring (guarded lookups).
+    expect($ctx['order']['fabric_color_hex'])->toBeNull();
+});
+
+it('hydrates the GA design output and only the cutter role-note thread', function () {
+    $made = phase5b_makeOrderWithStage();
+    [, $pantoneId] = phase5b_attachDesign($made['order_id']);
+
+    $author = phase5b_makeUser('Hub Reviewer');
+    DB::table('order_role_notes')->insert([
+        [
+            'order_id'       => $made['order_id'],
+            'audience_role'  => 'cutter',
+            'author_user_id' => $author->id,
+            'body'           => 'I-double check ang grain line bago mag-cut.',
+            'created_at'     => now(), 'updated_at' => now(),
+        ],
+        [
+            'order_id'       => $made['order_id'],
+            'audience_role'  => 'printer',
+            'author_user_id' => $author->id,
+            'body'           => 'Para sa printer lang ito.',
+            'created_at'     => now(), 'updated_at' => now(),
+        ],
+    ]);
+
+    $ctx = (new CutterPortalService())->buildContext($made['order_stage_id']);
+
+    expect($ctx['placements'])->toHaveCount(1);
+    expect($ctx['placements'][0]['type'])->toBe('Front');
+    expect($ctx['placements'][0]['color_count'])->toBe(2);
+    expect($ctx['placements'][0]['pantones'])->toHaveCount(1);
+    expect($ctx['placements'][0]['pantones'][0]['id'])->toBe($pantoneId);
+    expect($ctx['placements'][0]['pantones'][0]['pantone_code'])->toBe('Black 6 C');
+
+    expect($ctx['pantones_used'])->toHaveCount(1);
+    expect($ctx['pantones_used'][0]['hexcolor'])->toBe('#111111');
+
+    expect($ctx['role_notes'])->toHaveCount(1);
+    expect($ctx['role_notes'][0]['audience_role'])->toBe('cutter');
+    expect($ctx['role_notes'][0]['body'])->toBe('I-double check ang grain line bago mag-cut.');
+});
+
+// ─── Cutter Rework CP1 — Review Hub summary ───────────────────────
+
+it('reviewSummary returns the Cutting output block for a sample stage', function () {
+    $user = phase5b_makeUser('Cutter', ['stage_inputs.log_waste']);
+    $made = phase5b_makeOrderWithStage();
+
+    $made['stage']->update(['notes' => 'Manipis ang tela, dinahan-dahan ko.']);
+
+    DB::table('stage_fabric_logs')->insert([
+        [
+            'order_id' => $made['order_id'], 'order_stage_id' => $made['order_stage_id'],
+            'logged_by_user_id' => $user->id,
+            'fabric_used_kg' => 3.20, 'waste_kg' => 0.35, 'usable_remaining_kg' => 2.85,
+            'fabric_roll_id' => 'BR-052024-08',
+            'created_at' => now(), 'updated_at' => now(),
+        ],
+        [
+            'order_id' => $made['order_id'], 'order_stage_id' => $made['order_stage_id'],
+            'logged_by_user_id' => $user->id,
+            'fabric_used_kg' => 1.80, 'waste_kg' => 0.15, 'usable_remaining_kg' => 1.65,
+            'fabric_roll_id' => 'BR-052024-09',
+            'created_at' => now(), 'updated_at' => now(),
+        ],
+    ]);
+
+    $summary = (new CutterPortalService())
+        ->reviewSummary($made['order'], $made['stage']->fresh());
+
+    expect($summary)->toHaveKeys([
+        'kind', 'phase', 'fabric_logs', 'fabric_totals', 'stage_notes',
+    ]);
+    expect($summary['kind'])->toBe('cutting');
+    expect($summary['phase'])->toBe('sample');
+    expect($summary['stage_notes'])->toBe('Manipis ang tela, dinahan-dahan ko.');
+
+    expect($summary['fabric_logs'])->toHaveCount(2);
+    // Logs come newest-first; the roll/batch refs must ride along.
+    expect($summary['fabric_logs'][0]['fabric_roll_id'])->toBe('BR-052024-09');
+    expect($summary['fabric_logs'][1]['fabric_roll_id'])->toBe('BR-052024-08');
+    expect($summary['fabric_logs'][1]['logged_by']['name'])->toBe('Cutter');
+
+    expect($summary['fabric_totals']['fabric_used_kg'])->toBe(5.0);
+    expect($summary['fabric_totals']['waste_kg'])->toBe(0.5);
+    expect($summary['fabric_totals']['usable_remaining_kg'])->toBe(4.5);
+});
+
+it('reviewSummary reports the mass phase with empty logs for an untouched stage', function () {
+    $made = phase5b_makeOrderWithStage('mass_cutting');
+
+    $summary = (new CutterPortalService())
+        ->reviewSummary($made['order'], $made['stage']);
+
+    expect($summary['kind'])->toBe('cutting');
+    expect($summary['phase'])->toBe('mass');
+    expect($summary['fabric_logs'])->toBe([]);
+    expect($summary['fabric_totals']['fabric_used_kg'])->toBe(0.0);
+    expect($summary['stage_notes'])->toBeNull();
 });
 
 // ─── FabricLogService tests ──────────────────────────────────────

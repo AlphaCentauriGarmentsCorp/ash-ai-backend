@@ -511,10 +511,13 @@ test('HTTP: order without a screen_making stage has no screen block', function (
         'po_code'         => 'ASH-2026-NOSMX1',
         'workflow_status' => 'inquiry',
     ]);
+    // Cutter Rework CP1 — fixture moved off mass_cutting: cutting stages
+    // now emit their own stage_details block, so a detail-free stage
+    // (sample_sewing) keeps this test's intent (no SM stage → no block).
     OrderStage::create([
         'order_id' => $order->id,
-        'stage'    => 'mass_cutting',
-        'sequence' => 12,
+        'stage'    => 'sample_sewing',
+        'sequence' => 9,
         'status'   => 'in_progress',
     ]);
     $user = rhsmMakeUser();

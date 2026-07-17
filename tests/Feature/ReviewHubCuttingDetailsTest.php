@@ -1,32 +1,36 @@
 <?php
 
 /**
- * GA Portal CP3 — Review Hub GA details tests.
+ * Cutter Rework CP1 — Review Hub Cutting details tests.
  *
  * Run with:
- *   php artisan test --filter=ReviewHubGaDetailsTest
+ *   php artisan test --filter=ReviewHubCuttingDetailsTest
  *
  * Coverage:
- *   1. reviewSummary returns the full GA output block for an order
- *   2. reviewSummary on an order with no design yet returns empty shells
- *   3. HTTP: GET /orders/{id}/stage-reviews includes stage_details keyed
- *      by the graphic_artwork stage id (BUG-010 lesson: exercises the
- *      controller's new constructor dependency + payload wiring)
- *   4. HTTP: order without a graphic_artwork stage → stage_details = {}
+ *   1. CutterPortalService::reviewSummary returns the Cutting output block
+ *      (fabric usage entries incl. roll/batch refs + totals + stage notes)
+ *   2. HTTP: GET /orders/{id}/stage-reviews includes stage_details keyed
+ *      by BOTH cutting stage ids — the cutter is the first role owning
+ *      TWO stages per order, so the wiring is per-stage (BUG-010 lesson:
+ *      exercises the controller's new constructor dependency + payload
+ *      wiring end-to-end)
+ *   3. HTTP: order without any cutting stage → no cutting block
  *
- * Helper names prefixed rhga* to avoid Pest global-function collisions.
+ * Schema mirrors ReviewHubScreenMakingDetailsTest (the whole hub read
+ * path is exercised end-to-end) + stage_fabric_logs, which the cutting
+ * summary reads. Helper names prefixed rhct* to avoid Pest
+ * global-function collisions.
  */
 
 use App\Models\Order;
 use App\Models\OrderStage;
-use App\Services\GraphicArtistPortalService;
-use App\Services\OrderDesignPlacementService;
+use App\Services\CutterPortalService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\PermissionRegistrar;
 
-$RHGA_TABLES = [
+$RHCT_TABLES = [
     'role_has_permissions',
     'model_has_permissions',
     'model_has_roles',
@@ -40,6 +44,7 @@ $RHGA_TABLES = [
     'qa_packer_task_completions',
     'stage_audit_logs',
     'stage_sample_uploads',
+    'stage_fabric_logs',
     'material_requests',
     'screen_assignments',
     'screens',
@@ -57,8 +62,8 @@ $RHGA_TABLES = [
     'users',
 ];
 
-beforeEach(function () use ($RHGA_TABLES) {
-    foreach ($RHGA_TABLES as $t) {
+beforeEach(function () use ($RHCT_TABLES) {
+    foreach ($RHCT_TABLES as $t) {
         Schema::dropIfExists($t);
     }
 
@@ -74,9 +79,6 @@ beforeEach(function () use ($RHGA_TABLES) {
         $t->softDeletes();
     });
 
-    // CP1 — GraphicArtistPortalService::buildContext and the hub payload
-    // now ride the role-directed instruction threads (order_role_notes),
-    // so the hand-built schema needs the table.
     Schema::create('order_role_notes', function (Blueprint $t) {
         $t->id();
         $t->unsignedBigInteger('order_id');
@@ -99,6 +101,10 @@ beforeEach(function () use ($RHGA_TABLES) {
         $t->text('items_json')->nullable();
         $t->text('notes')->nullable();
         $t->string('workflow_status', 32)->default('inquiry');
+        // Label specs read by the portal reviewSummary services.
+        $t->json('brand_label_json')->nullable();
+        $t->json('care_label_json')->nullable();
+        $t->string('label_design_path')->nullable();
         $t->timestamps();
         $t->softDeletes();
     });
@@ -242,6 +248,21 @@ beforeEach(function () use ($RHGA_TABLES) {
         $t->timestamps();
     });
 
+    // Cutter Rework CP1 — the cutting summary reads this table.
+    Schema::create('stage_fabric_logs', function (Blueprint $t) {
+        $t->id();
+        $t->unsignedBigInteger('order_id');
+        $t->unsignedBigInteger('order_stage_id');
+        $t->unsignedBigInteger('logged_by_user_id');
+        $t->string('material_type', 32)->nullable();
+        $t->decimal('fabric_used_kg', 10, 2);
+        $t->decimal('waste_kg', 10, 2)->default(0);
+        $t->decimal('usable_remaining_kg', 10, 2)->default(0);
+        $t->string('fabric_roll_id', 64)->nullable();
+        $t->text('notes')->nullable();
+        $t->timestamps();
+    });
+
     Schema::create('stage_audit_logs', function (Blueprint $t) {
         $t->id();
         $t->unsignedBigInteger('order_id');
@@ -279,7 +300,6 @@ beforeEach(function () use ($RHGA_TABLES) {
         $t->timestamps();
     });
 
-    // Review-hub read path (StageReviewService history/state).
     Schema::create('stage_reviews', function (Blueprint $t) {
         $t->id();
         $t->unsignedBigInteger('order_id');
@@ -291,7 +311,6 @@ beforeEach(function () use ($RHGA_TABLES) {
         $t->timestamps();
     });
 
-    // Payment map read path (OrderPaymentService::forReviewHub).
     Schema::create('payment_methods', function (Blueprint $t) {
         $t->id();
         $t->string('name');
@@ -320,7 +339,6 @@ beforeEach(function () use ($RHGA_TABLES) {
         $t->timestamps();
     });
 
-    // Artifact aggregator source (StageArtifactService::forOrder).
     Schema::create('qa_packer_task_completions', function (Blueprint $t) {
         $t->id();
         $t->unsignedBigInteger('order_id');
@@ -364,7 +382,7 @@ beforeEach(function () use ($RHGA_TABLES) {
         $t->primary(['permission_id', 'role_id']);
     });
 
-    foreach (['access.orders', 'action.upload-photos', 'portal.graphic-artist'] as $name) {
+    foreach (['access.orders', 'action.upload-photos', 'portal.cutter'] as $name) {
         DB::table('permissions')->insert([
             'name'       => $name,
             'guard_name' => 'web',
@@ -375,15 +393,15 @@ beforeEach(function () use ($RHGA_TABLES) {
     app(PermissionRegistrar::class)->forgetCachedPermissions();
 });
 
-afterEach(function () use ($RHGA_TABLES) {
-    foreach ($RHGA_TABLES as $t) {
+afterEach(function () use ($RHCT_TABLES) {
+    foreach ($RHCT_TABLES as $t) {
         Schema::dropIfExists($t);
     }
 });
 
-// ── Fixture builders (rhga*) ────────────────────────────────────
+// ── Fixture builders (rhct*) ────────────────────────────────────
 
-function rhgaMakeUser(array $permissionNames = ['access.orders', 'action.upload-photos']): \App\Models\User
+function rhctMakeUser(array $permissionNames = ['access.orders']): \App\Models\User
 {
     $user = \App\Models\User::create([
         'name'          => 'Reviewer ' . uniqid(),
@@ -406,86 +424,91 @@ function rhgaMakeUser(array $permissionNames = ['access.orders', 'action.upload-
     return $user;
 }
 
-function rhgaMakeOrderWithGaStage(): array
+/**
+ * Order with BOTH cutting stages: sample_cutting (in progress, with two
+ * fabric logs + the cutter's Save Notes) and mass_cutting (untouched).
+ *
+ * @return array{0: Order, 1: OrderStage, 2: OrderStage}
+ *         [order, sampleStage, massStage]
+ */
+function rhctMakeOrderWithCuttingStages(string $notes = 'Manipis ang tela.'): array
 {
     $order = Order::create([
         'po_code'         => 'ASH-2026-' . str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT),
         'client_name'     => 'ACME Co',
-        'workflow_status' => 'graphic_artwork',
+        'workflow_status' => 'sample_cutting',
     ]);
-    $stage = OrderStage::create([
+
+    $sampleStage = OrderStage::create([
         'order_id'     => $order->id,
-        'stage'        => 'graphic_artwork',
-        'sequence'     => 5,
+        'stage'        => 'sample_cutting',
+        'sequence'     => 7,
         'status'       => 'in_progress',
         'service_type' => 'in_house',
+        'notes'        => $notes,
     ]);
-    return [$order, $stage];
+
+    $massStage = OrderStage::create([
+        'order_id'     => $order->id,
+        'stage'        => 'mass_cutting',
+        'sequence'     => 14,
+        'status'       => 'pending',
+        'service_type' => 'in_house',
+    ]);
+
+    $cutterId = DB::table('users')->insertGetId([
+        'name'       => 'Cutter Worker',
+        'email'      => 'cutter_' . uniqid() . '@test.local',
+        'password'   => 'x',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    DB::table('stage_fabric_logs')->insert([
+        [
+            'order_id' => $order->id, 'order_stage_id' => $sampleStage->id,
+            'logged_by_user_id' => $cutterId,
+            'fabric_used_kg' => 3.20, 'waste_kg' => 0.35, 'usable_remaining_kg' => 2.85,
+            'fabric_roll_id' => 'BR-052024-08',
+            'created_at' => now(), 'updated_at' => now(),
+        ],
+        [
+            'order_id' => $order->id, 'order_stage_id' => $sampleStage->id,
+            'logged_by_user_id' => $cutterId,
+            'fabric_used_kg' => 1.80, 'waste_kg' => 0.15, 'usable_remaining_kg' => 1.65,
+            'fabric_roll_id' => 'BR-052024-09',
+            'created_at' => now(), 'updated_at' => now(),
+        ],
+    ]);
+
+    return [$order, $sampleStage, $massStage];
 }
 
 // ── Service-level ───────────────────────────────────────────────
 
-test('reviewSummary returns the full GA output block', function () {
-    [$order, $stage] = rhgaMakeOrderWithGaStage();
-    $user = rhgaMakeUser();
+test('reviewSummary returns the Cutting output block', function () {
+    [$order, $sampleStage] = rhctMakeOrderWithCuttingStages('Dinahan-dahan ko ang pag-cut.');
 
-    app(OrderDesignPlacementService::class)->upsert([
-        'order_id'       => $order->id,
-        'order_stage_id' => $stage->id,
-        'type'           => 'Body Front',
-        'color_count'    => 3,
-        'pantones'       => ['PMS 186 C'],
-    ], $user);
+    $summary = app(CutterPortalService::class)->reviewSummary($order, $sampleStage);
 
-    $stage->update(['notes' => 'Medyo manipis ang lines.']);
-
-    $summary = app(GraphicArtistPortalService::class)->reviewSummary($order);
-
-    expect($summary['stage_notes'])->toBe('Medyo manipis ang lines.');
     expect($summary)->toHaveKeys([
-        'kind', 'design', 'placements', 'pantones_used',
-        'labels', 'stage_notes', 'completion_warnings',
+        'kind', 'phase', 'fabric_logs', 'fabric_totals', 'stage_notes',
     ]);
-    expect($summary['labels'])->toHaveKeys(['brand_label', 'care_label', 'label_design_url']);
-    expect($summary['kind'])->toBe('graphic_artwork');
-    expect($summary['design'])->not->toBeNull();
-    expect($summary['placements'])->toHaveCount(1);
-    expect($summary['placements'][0]['type'])->toBe('Body Front');
-    expect($summary['placements'][0]['color_count'])->toBe(3);
-    expect($summary['pantones_used'][0]['pantone_code'])->toBe('PMS 186 C');
-
-    $codes = array_column($summary['completion_warnings'], 'code');
-    expect($codes)->toContain('placement_pantones_incomplete');
-});
-
-test('reviewSummary on an order with no design returns empty shells', function () {
-    [$order] = rhgaMakeOrderWithGaStage();
-
-    $summary = app(GraphicArtistPortalService::class)->reviewSummary($order);
-
-    expect($summary['design'])->toBeNull();
-    expect($summary['placements'])->toBe([]);
-    expect($summary['pantones_used'])->toBe([]);
-    expect($summary['labels'])->toHaveKeys(['brand_label', 'care_label', 'label_design_url']);
-    expect($summary['labels']['label_design_url'])->toBeNull();
-
-    $codes = array_column($summary['completion_warnings'], 'code');
-    expect($codes)->toContain('no_placements');
+    expect($summary['kind'])->toBe('cutting');
+    expect($summary['phase'])->toBe('sample');
+    expect($summary['stage_notes'])->toBe('Dinahan-dahan ko ang pag-cut.');
+    expect($summary['fabric_logs'])->toHaveCount(2);
+    expect($summary['fabric_logs'][0]['fabric_roll_id'])->toBe('BR-052024-09');
+    expect($summary['fabric_logs'][0]['logged_by']['name'])->toBe('Cutter Worker');
+    expect($summary['fabric_totals']['fabric_used_kg'])->toBe(5.0);
+    expect($summary['fabric_totals']['waste_kg'])->toBe(0.5);
+    expect($summary['fabric_totals']['usable_remaining_kg'])->toBe(4.5);
 });
 
 // ── HTTP-level (BUG-010: wiring + new constructor dependency) ───
 
-test('HTTP: stage-reviews payload includes stage_details keyed by GA stage', function () {
-    [$order, $stage] = rhgaMakeOrderWithGaStage();
-    $user = rhgaMakeUser();
-
-    app(OrderDesignPlacementService::class)->upsert([
-        'order_id'       => $order->id,
-        'order_stage_id' => $stage->id,
-        'type'           => 'Body Front',
-        'color_count'    => 2,
-        'pantones'       => ['PMS 186 C', 'PMS 3005 C'],
-    ], $user);
+test('HTTP: stage-reviews payload has per-stage cutting blocks for BOTH cutting stages', function () {
+    [$order, $sampleStage, $massStage] = rhctMakeOrderWithCuttingStages();
+    $user = rhctMakeUser();
 
     $this->actingAs($user, 'sanctum');
 
@@ -493,29 +516,38 @@ test('HTTP: stage-reviews payload includes stage_details keyed by GA stage', fun
 
     $response->assertStatus(200);
     $details = $response->json('stage_details');
-    expect($details)->toHaveKey((string) $stage->id);
 
-    $ga = $details[(string) $stage->id] ?? $details[$stage->id];
-    expect($ga['kind'])->toBe('graphic_artwork');
-    expect($ga['placements'])->toHaveCount(1);
-    expect($ga['placements'][0]['pantones'])->toHaveCount(2);
+    expect($details)->toHaveKey((string) $sampleStage->id);
+    expect($details)->toHaveKey((string) $massStage->id);
+
+    $sample = $details[(string) $sampleStage->id] ?? $details[$sampleStage->id];
+    expect($sample['kind'])->toBe('cutting');
+    expect($sample['phase'])->toBe('sample');
+    expect($sample['stage_notes'])->toBe('Manipis ang tela.');
+    expect($sample['fabric_logs'])->toHaveCount(2);
+    expect($sample['fabric_logs'][1]['fabric_roll_id'])->toBe('BR-052024-08');
+
+    // The mass stage is untouched — it still gets its own block, with
+    // its own (empty) logs. Per-stage separation is the point.
+    $mass = $details[(string) $massStage->id] ?? $details[$massStage->id];
+    expect($mass['kind'])->toBe('cutting');
+    expect($mass['phase'])->toBe('mass');
+    expect($mass['fabric_logs'])->toBe([]);
+    expect($mass['stage_notes'])->toBeNull();
 });
 
-test('HTTP: order without a graphic_artwork stage has empty stage_details', function () {
+test('HTTP: order without a cutting stage has no cutting block', function () {
     $order = Order::create([
-        'po_code'         => 'ASH-2026-NOGAX1',
+        'po_code'         => 'ASH-2026-NOCTX1',
         'workflow_status' => 'inquiry',
     ]);
-    // Cutter Rework CP1 — fixture moved off mass_cutting: cutting stages
-    // now emit their own stage_details block, so a detail-free stage
-    // (sample_sewing) keeps this test's intent (no GA stage → no block).
     OrderStage::create([
         'order_id' => $order->id,
         'stage'    => 'sample_sewing',
         'sequence' => 9,
         'status'   => 'in_progress',
     ]);
-    $user = rhgaMakeUser();
+    $user = rhctMakeUser();
 
     $this->actingAs($user, 'sanctum');
 
