@@ -123,6 +123,24 @@ class AuthService
         ];
     }
 
+    // Resend a fresh OTP to an existing (unverified) user
+    public function resendOtp(string $email): void
+    {
+        $user = User::where('email', $email)->firstOrFail();
+
+        $otp = rand(100000, 999999);
+        $user->otp = $otp;
+        $user->otp_expires_at = Carbon::now()->addMinutes(5);
+        $user->save();
+
+        Mail::raw(
+            "Your OTP code is: {$otp}. It will expire in 5 minutes.",
+            function ($message) use ($user) {
+                $message->to($user->email)->subject('Your OTP Code');
+            }
+        );
+    }
+
     // Logout user
     public function logout($user)
     {

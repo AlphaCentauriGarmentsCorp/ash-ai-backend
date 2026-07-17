@@ -88,6 +88,17 @@ class AuthController extends Controller
         ]);
     }
 
+    public function resendOtp(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $this->authService->resendOtp($request->input('email'));
+
+        return response()->json([
+            'message' => 'A new OTP has been sent to your email.'
+        ]);
+    }
+
     public function logout(Request $request)
     {
         $this->authService->logout($request->user());
