@@ -602,8 +602,24 @@ class GraphicArtistPortalService
      */
     protected function suggestedPlacements(Order $order, ?OrderDesign $design): array
     {
-        if ($design && $design->placements->isNotEmpty()) {
-            return [];
+        // Per-type suppression, NOT all-or-nothing.
+        //
+        // A quotation-seeded suggestion drops out only once a placement of
+        // that SAME type has been saved. Previously ANY saved placement
+        // wiped EVERY remaining suggestion, so on a multi-print order
+        // (e.g. Front + Back) saving one location made the other's
+        // suggestion vanish before the artist ever got to save it.
+        //
+        // Compared case-insensitively to mirror the (design, type)
+        // uniqueness rule enforced in OrderDesignPlacementService::upsert().
+        $savedTypes = [];
+        if ($design) {
+            foreach ($design->placements as $sp) {
+                $t = mb_strtolower(trim((string) $sp->type));
+                if ($t !== '') {
+                    $savedTypes[$t] = true;
+                }
+            }
         }
 
         $parts = $this->asArray($order->print_parts_json);
@@ -618,6 +634,12 @@ class GraphicArtistPortalService
             }
             $type = trim((string) ($p['part'] ?? $p['name'] ?? ''));
             if ($type === '') {
+                continue;
+            }
+
+            // Skip a suggestion whose type is already saved as a placement —
+            // it now lives as an editable card, not a suggestion.
+            if (isset($savedTypes[mb_strtolower($type)])) {
                 continue;
             }
 

@@ -602,6 +602,61 @@ test('suggestions disappear once a real placement exists', function () {
     expect($ctx['placements'][0]['color_count'])->toBe(3);
 });
 
+test('saving one placement keeps the OTHER quotation suggestions', function () {
+    // Regression — multi-print order (Front + Back both seeded from the
+    // quotation). Saving Front must NOT hide Back's suggestion.
+    [$order, $stage] = gapxMakeOrderWithStage('in_progress', [
+        'print_parts_json' => [
+            ['part' => 'Front Print', 'image' => 'orders/front.png', 'color_count' => 3],
+            ['part' => 'Back Print',  'image' => 'orders/back.png',  'color_count' => 2],
+        ],
+    ]);
+    $user = gapxMakeUser();
+
+    // Both parts are suggestions before anything is saved.
+    $before = app(GraphicArtistPortalService::class)->buildContext($stage->id);
+    expect($before['suggested_placements'])->toHaveCount(2);
+
+    // Artist accepts the Front Print suggestion.
+    app(OrderDesignPlacementService::class)->upsert([
+        'order_id'       => $order->id,
+        'order_stage_id' => $stage->id,
+        'type'           => 'Front Print',
+        'color_count'    => 3,
+    ], $user);
+
+    $after = app(GraphicArtistPortalService::class)->buildContext($stage->id);
+
+    // Front is now a saved placement; Back stays a suggestion.
+    expect($after['placements'])->toHaveCount(1);
+    expect($after['placements'][0]['type'])->toBe('Front Print');
+    expect($after['suggested_placements'])->toHaveCount(1);
+    expect($after['suggested_placements'][0]['type'])->toBe('Back Print');
+    expect($after['suggested_placements'][0]['color_count'])->toBe(2);
+});
+
+test('suggestion type match is case-insensitive against saved placements', function () {
+    [$order, $stage] = gapxMakeOrderWithStage('in_progress', [
+        'print_parts_json' => [
+            ['part' => 'Front Print', 'image' => 'orders/front.png', 'color_count' => 3],
+            ['part' => 'Back Print',  'image' => 'orders/back.png',  'color_count' => 2],
+        ],
+    ]);
+    $user = gapxMakeUser();
+
+    // Save with a different casing than the quotation part.
+    app(OrderDesignPlacementService::class)->upsert([
+        'order_id'       => $order->id,
+        'order_stage_id' => $stage->id,
+        'type'           => 'front print',
+        'color_count'    => 3,
+    ], $user);
+
+    $ctx = app(GraphicArtistPortalService::class)->buildContext($stage->id);
+    expect($ctx['suggested_placements'])->toHaveCount(1);
+    expect($ctx['suggested_placements'][0]['type'])->toBe('Back Print');
+});
+
 test('completion_warnings reports missing artwork and pantone shortfalls', function () {
     [$order, $stage] = gapxMakeOrderWithStage();
     $user = gapxMakeUser();
