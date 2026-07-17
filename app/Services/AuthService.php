@@ -17,9 +17,24 @@ class AuthService
     // Register user
     public function register(array $data, array $domains, array $roles)
     {
+        // The users table requires a non-null, unique username, but customer
+        // registration doesn't collect one. Derive a unique handle from the
+        // email local-part, appending a numeric suffix if it's already taken.
+        $base = strtolower(preg_replace('/[^a-z0-9]/i', '', explode('@', $data['email'])[0]));
+        if ($base === '') {
+            $base = 'user';
+        }
+        $username = $base;
+        $suffix = 1;
+        while (User::where('username', $username)->exists()) {
+            $username = $base . $suffix;
+            $suffix++;
+        }
+
         // Create user WITHOUT domain fields
         $user = User::create([
             'name'     => $data['name'] ?? null,
+            'username' => $username,
             'email'    => $data['email'],
             'password' => bcrypt($data['password']),
             'domain_access' =>  array_values($domains),
