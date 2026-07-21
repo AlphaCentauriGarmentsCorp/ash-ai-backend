@@ -17,14 +17,17 @@ class Update extends FormRequest
     /**
      * Get the validation rules that apply to the request.
      *
+     * Mirrors Store: only the material name matters; supplier/type and the
+     * rest are optional and may be cleared (nullable).
+     *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
         return [
-            'supplier_id' => 'sometimes|exists:suppliers,id',
-            'name' => 'sometimes|string|max:255',
-            'material_type' => 'sometimes|string|max:100',
+            'name' => 'sometimes|required|string|max:255',
+            'supplier_id' => 'sometimes|nullable|exists:suppliers,id',
+            'material_type' => 'sometimes|nullable|string|max:100',
             'unit' => 'nullable|string|max:50',
             'price' => 'nullable|numeric|min:0',
             'minimum' => 'nullable|string|min:0',

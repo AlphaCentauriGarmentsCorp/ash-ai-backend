@@ -41,6 +41,28 @@ class MaterialsController extends Controller
         return new MaterialResource($materials);
     }
 
+    public function show($id)
+    {
+        $material = $this->service->getById($id);
+
+        if (! $material) {
+            return response()->json(['message' => 'Material not found'], 404);
+        }
+
+        return new MaterialResource($material);
+    }
+
+    public function update(Update $request, $id)
+    {
+        $material = $this->service->update($id, $request->validated());
+
+        if (! $material) {
+            return response()->json(['message' => 'Material not found'], 404);
+        }
+
+        return new MaterialResource($material);
+    }
+
     public function destroy($id)
     {
         $deleted = $this->service->delete($id);

@@ -28,6 +28,24 @@ class MaterialsService
         return Materials::create($data);
     }
 
+    public function getById(int $id): ?Materials
+    {
+        return Materials::with('supplier')->find($id);
+    }
+
+    public function update(int $id, array $data): ?Materials
+    {
+        $materials = Materials::find($id);
+
+        if (!$materials) {
+            return null;
+        }
+
+        $materials->update($data);
+
+        return $materials->fresh('supplier');
+    }
+
     public function delete(int $id): bool
     {
         $materials = Materials::find($id);
