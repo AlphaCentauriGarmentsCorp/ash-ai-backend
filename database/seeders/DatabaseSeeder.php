@@ -31,6 +31,10 @@ class DatabaseSeeder extends Seeder
         $this->call(PaymentMethodSeeder::class);
         $this->call(PrintLabelPlacements::class);
         $this->call(PantoneSeeder::class);
+        // Fabric Type dropdown options (superadmin-managed list, like the other
+        // managed dropdowns). Idempotent (firstOrCreate by name). Seeds the
+        // fabric_types lookup used by the "All Fabrics" filter and order forms.
+        $this->call(FabricTypeSeeder::class);
         $this->call(FabricSwatchSeeder::class);
 
         // Phase 7-B Bundle 1 — QA/Packer portal lookups + settings
