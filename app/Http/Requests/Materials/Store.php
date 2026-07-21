@@ -17,14 +17,17 @@ class Store extends FormRequest
     /**
      * Get the validation rules that apply to the request.
      *
+     * Only the material NAME is required; every other field is optional
+     * (mirrors the reworked "Materials & Suppliers" Add form).
+     *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
         return [
-            'supplier_id' => 'required|exists:suppliers,id',
             'name' => 'required|string|max:255',
-            'material_type' => 'required|string|max:100',
+            'supplier_id' => 'nullable|exists:suppliers,id',
+            'material_type' => 'nullable|string|max:100',
             'unit' => 'nullable|string|max:50',
             'price' => 'nullable|numeric|min:0',
             'minimum' => 'nullable|string|min:0',

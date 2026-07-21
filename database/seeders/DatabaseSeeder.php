@@ -46,5 +46,9 @@ class DatabaseSeeder extends Seeder
         $this->call(PricingSettingSeeder::class);
         $this->call(ApparelPatternPriceSeeder::class);
         $this->call(PlacementMeasurements::class);
+
+        // Raw-materials catalog (54 items from the inventory reference sheet).
+        // Idempotent (firstOrCreate) — safe on fresh + existing databases.
+        $this->call(MaterialCatalogSeeder::class);
     }
 }
