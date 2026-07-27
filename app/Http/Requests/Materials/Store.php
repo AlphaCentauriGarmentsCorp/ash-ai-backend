@@ -30,6 +30,7 @@ class Store extends FormRequest
             'material_type' => 'nullable|string|max:100',
             'unit' => 'nullable|string|max:50',
             'price' => 'nullable|numeric|min:0',
+            'stock_on_hand' => 'nullable|numeric|min:0',
             'minimum' => 'nullable|string|min:0',
             'lead' => 'nullable|string|min:0',
             'notes' => 'nullable|string',

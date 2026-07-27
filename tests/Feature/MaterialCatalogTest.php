@@ -98,3 +98,21 @@ it('reads + updates a material via the service (supplier/type clearable)', funct
     expect($svc->update(999999, ['name' => 'nope']))->toBeNull();
     expect($svc->getById(999999))->toBeNull();
 });
+
+it('round-trips stock_on_hand through the resource payload', function () {
+    $m = Materials::create([
+        'name'          => 'Stocked Ink',
+        'stock_on_hand' => 12.5,
+    ]);
+
+    $payload = (new \App\Http\Resources\MaterialResource($m))
+        ->toArray(request());
+
+    expect($payload)->toHaveKey('stock_on_hand')
+        ->and((float) $payload['stock_on_hand'])->toBe(12.5)
+        ->and($payload['supplier_id'])->toBeNull();
+
+    // defaults to 0 when not supplied
+    $bare = Materials::create(['name' => 'Bare Material']);
+    expect((float) $bare->fresh()->stock_on_hand)->toBe(0.0);
+});
