@@ -23,6 +23,7 @@ class MaterialResource extends JsonResource
             'material_type' => $this->material_type,
             'unit' => $this->unit,
             'price' => $this->price,
+            'stock_on_hand' => $this->stock_on_hand,
             'minimum' => $this->minimum,
             'lead' => $this->lead,
             'notes' => $this->notes,
