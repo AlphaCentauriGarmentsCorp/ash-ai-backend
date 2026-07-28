@@ -50,5 +50,10 @@ class DatabaseSeeder extends Seeder
         // Raw-materials catalog (54 items from the inventory reference sheet).
         // Idempotent (firstOrCreate) — safe on fresh + existing databases.
         $this->call(MaterialCatalogSeeder::class);
+
+        // Screen Inventory (10 physical screens with a legible sticker, from
+        // SCREEN_DATA.pdf). Idempotent (firstOrCreate by address/sticker
+        // code) — safe on fresh + existing databases.
+        $this->call(ScreenInventorySeeder::class);
     }
 }
