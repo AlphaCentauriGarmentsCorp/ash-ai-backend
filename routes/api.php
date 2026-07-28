@@ -34,7 +34,6 @@ use App\Http\Controllers\Api\StageReviewController;
 use App\Http\Controllers\Api\StageUploadController;
 use App\Http\Controllers\Api\OrderRoleNoteController;
 use App\Http\Controllers\Api\ScreenCheckingController;
-use App\Http\Controllers\Api\ScreenMakingController;
 use App\Http\Controllers\Api\ScreenMaintenanceController;
 use App\Http\Controllers\Api\SewingSubcontractorController;
 use App\Http\Controllers\Api\PaymentMethodsController;
@@ -717,13 +716,17 @@ Route::prefix('v2')->group(function () {
             });
 
         // ── Screen Maker Portal (Phase 5-F) ───────────────────────────
-        // Mostly read-only. Notes + mark-as-done go through existing
-        // OrderStagesController endpoints.
+        // Notes + mark-as-done go through existing OrderStagesController
+        // endpoints. SM Rework CP2 adds the "Screens Used" write path —
+        // saving/clearing a physical screen for a placement/colour slot.
         Route::prefix('/portal/screen-maker')
             ->middleware('permission:portal.screen-maker')
             ->controller(ScreenMakerPortalController::class)
             ->group(function () {
                 Route::get('/context/{orderStageId}', 'showContext')->whereNumber('orderStageId');
+
+                Route::post('/screens',      'storeScreenAssignment');
+                Route::delete('/screens/{id}', 'destroyScreenAssignment')->whereNumber('id');
             });
 
         // ── Material Prep Portal (Phase 5-G) ──────────────────────────
@@ -910,9 +913,13 @@ Route::prefix('v2')->group(function () {
             Route::post('/', 'store');
         });
 
-        Route::prefix('/screen-making')->middleware('permission:access.screen-making')->controller(ScreenMakingController::class)->group(function () {
-            Route::post('/', 'store');
-        });
+        // SM Rework CP5 — the legacy POST /screen-making endpoint (and
+        // its controller/service/request/resource) was removed. It force-
+        // completed the screen_making stage as a side effect, never wrote
+        // to screen inventory, and had no frontend caller since the
+        // Screen Maker Portal's Screens Used picker (SM Rework CP2/CP3)
+        // replaced it. The access.screen-making PERMISSION stays — it's
+        // reused by ScreenAssignmentService, the endpoint's replacement.
 
         Route::prefix('/screen-checking')->middleware('permission:access.screen-checking')->controller(ScreenCheckingController::class)->group(function () {
             Route::post('/', 'store');

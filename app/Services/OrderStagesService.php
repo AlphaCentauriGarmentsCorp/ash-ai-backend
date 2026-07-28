@@ -36,13 +36,16 @@ class OrderStagesService
 {
     protected NotificationService $notifications;
     protected ?OrderPaymentService $payments;
+    protected ?\App\Services\ScreenAssignmentService $screens;
 
     public function __construct(
         NotificationService $notifications,
         ?OrderPaymentService $payments = null,
+        ?\App\Services\ScreenAssignmentService $screens = null,
     ) {
         $this->notifications = $notifications;
         $this->payments = $payments;
+        $this->screens = $screens;
     }
 
     /**
@@ -55,6 +58,16 @@ class OrderStagesService
     private function resolvePayments(): OrderPaymentService
     {
         return $this->payments ??= app(OrderPaymentService::class);
+    }
+
+    /**
+     * SM Rework CP2 — same lazy-resolve pattern as resolvePayments(), so
+     * `new OrderStagesService($notifications)` (used throughout the test
+     * suite) keeps working unchanged.
+     */
+    private function resolveScreens(): \App\Services\ScreenAssignmentService
+    {
+        return $this->screens ??= app(\App\Services\ScreenAssignmentService::class);
     }
 
     /**
@@ -473,6 +486,17 @@ class OrderStagesService
                 $notes,
             );
 
+            // SM Rework CP2 — mass_printing is done with every screen it
+            // was holding (panels are printed before sewing — the
+            // print-before-sew sequence — so nothing downstream needs
+            // them again). Move them to 'for_reclaim': dirty, needs
+            // stripping/washing before the screen maker can reuse them.
+            // No-ops harmlessly if the screens tables don't exist in a
+            // test's hand-built schema (see releaseForOrder's guard).
+            if ($stage->stage === 'mass_printing') {
+                $this->resolveScreens()->releaseForOrder($stage->order_id);
+            }
+
             // Promote the next ELIGIBLE tier. For a normal stage this is the
             // single next stage; at the graphic_artwork → (screen_making ‖
             // material_prep_sample) fork it promotes BOTH branches at once;
@@ -504,6 +528,16 @@ class OrderStagesService
             $remaining = OrderStage::where('order_id', $stage->order_id)
                 ->where('status', '!=', OrderStage::STATUS_COMPLETED)
                 ->exists();
+
+            // SM Rework CP2 — defensive catch-all: if the whole order just
+            // finished and any screen is somehow still marked 'in_use' for
+            // it (e.g. an order with no mass_printing stage), release it
+            // here too. Idempotent — releaseForOrder only touches screens
+            // still 'in_use', so this is a harmless no-op in the normal
+            // case where mass_printing already did it above.
+            if (! $remaining) {
+                $this->resolveScreens()->releaseForOrder($stage->order_id);
+            }
 
             // Refresh cached current_stage_id + workflow_status on the order
             if ($order) {
