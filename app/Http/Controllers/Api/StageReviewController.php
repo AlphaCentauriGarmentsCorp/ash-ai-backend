@@ -32,6 +32,7 @@ class StageReviewController extends Controller
         protected \App\Services\GraphicArtistPortalService $gaPortal,
         protected \App\Services\ScreenMakerPortalService $smPortal,
         protected \App\Services\CutterPortalService $cutterPortal,
+        protected \App\Services\MaterialPrepRequirementService $materialPrepRequirements,
         protected \App\Services\OrderRoleNoteService $roleNotes,
         protected \App\Services\StageWasteSummaryService $wasteSummary,
     ) {
@@ -83,6 +84,12 @@ class StageReviewController extends Controller
         //                     notes)  ← Cutter Rework CP1. The cutter
         //                     owns TWO stages, so its summaries are
         //                     built per-stage, keyed by each stage id.
+        //   material_prep_sample /
+        //   material_prep_mass → the materials Material Prep picked for
+        //                     that stage (catalog items + qty + resulting
+        //                     Purchase Request, or null if nothing saved
+        //                     yet) + the stage's notes. Also owns TWO
+        //                     stages, keyed by each stage id.
         $stageDetails = [];
 
         $gaStage = OrderStage::where('order_id', $orderId)
@@ -104,6 +111,17 @@ class StageReviewController extends Controller
             ->get(['id', 'stage', 'notes']);
         foreach ($cuttingStages as $cuttingStage) {
             $stageDetails[$cuttingStage->id] = $this->cutterPortal->reviewSummary($order, $cuttingStage);
+        }
+
+        // Owner decision (2026-07-28) — Material Prep (sample and/or mass)
+        // shows the materials that were picked for that specific stage,
+        // same pattern as Cutter above. Material Prep owns two stage slugs
+        // just like Cutter, so both are keyed by their own stage id.
+        $materialPrepStages = OrderStage::where('order_id', $orderId)
+            ->whereIn('stage', ['material_prep_sample', 'material_prep_mass'])
+            ->get(['id', 'stage', 'notes']);
+        foreach ($materialPrepStages as $materialPrepStage) {
+            $stageDetails[$materialPrepStage->id] = $this->materialPrepRequirements->reviewSummary($order, $materialPrepStage);
         }
 
         return response()->json([

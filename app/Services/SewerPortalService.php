@@ -32,6 +32,10 @@ use Illuminate\Validation\ValidationException;
  */
 class SewerPortalService
 {
+    public function __construct(
+        protected MaterialPrepRequirementService $materialPrepRequirements,
+    ) {}
+
     /**
      * Material types Sewer can log usage against.
      */
@@ -76,6 +80,7 @@ class SewerPortalService
             'measurements'       => $this->measurements($order),
             'materials_usage'    => $this->materialsUsage($stage),
             'material_requests'  => $this->materialRequestsForStage($stage),
+            'material_details'   => $this->materialPrepRequirements->materialDetailsForOrder($order),
             'sample_uploads'     => $this->sampleUploads($stage),
             'activity_log'       => $this->recentActivity($stage, 10),
             'subcontract'        => $this->subcontractInfo($stage),
