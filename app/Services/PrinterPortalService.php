@@ -30,6 +30,10 @@ use Illuminate\Validation\ValidationException;
  */
 class PrinterPortalService
 {
+    public function __construct(
+        protected MaterialPrepRequirementService $materialPrepRequirements,
+    ) {}
+
     /**
      * Resolve the full Printer portal payload for a stage.
      *
@@ -67,6 +71,7 @@ class PrinterPortalService
             'print_placements' => $this->printPlacements($order),
             'ink_tracking'     => $this->inkTracking($stage),
             'material_requests'=> $this->materialRequestsForStage($stage),
+            'material_details' => $this->materialPrepRequirements->materialDetailsForOrder($order),
             'sample_uploads'   => $this->sampleUploads($stage),
             'activity_log'     => $this->recentActivity($stage, 10),
             'subcontract'      => $this->subcontractInfo($stage),

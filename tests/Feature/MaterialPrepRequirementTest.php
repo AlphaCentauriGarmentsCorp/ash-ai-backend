@@ -392,3 +392,131 @@ test('ordersAtMaterialPrep lists both a sample-stage and a mass-stage order toge
     expect($byPhase['sample']['order']['id'])->toBe($sample['order']->id);
     expect($byPhase['mass']['order']['id'])->toBe($mass['order']->id);
 });
+
+// ── Owner decision (2026-07-28): sample-phase picking now goes through the ──
+// ── SAME create()+approve() path as mass — no more read-only acknowledgment ──
+
+test('stateForOrder resolves the SAMPLE stage (phase=sample, no suggestion, can_save)', function () {
+    $ctx = prepMakeOrderAtSampleMaterialPrep();
+    $order = $ctx['order'];
+
+    $state = app(MaterialPrepRequirementService::class)->stateForOrder($order);
+
+    expect($state['phase'])->toBe('sample');
+    expect($state['existing'])->toBeNull();
+    expect($state['can_save'])->toBeTrue();
+    // No prior usage logs exist yet at this tier — nothing to suggest.
+    expect($state['suggestion'])->toBe([]);
+});
+
+test('saveForOrder on a SAMPLE order attaches the MR to the sample stage, not the pending mass stage', function () {
+    $ctx = prepMakeOrderAtSampleMaterialPrep(); // sample in_progress + mass PENDING coexist
+    $order = $ctx['order'];
+    $mgr = prepMakeManager();
+
+    $cotton = Materials::create(['name' => 'Cotton', 'material_type' => 'fabric', 'unit' => 'm', 'stock_on_hand' => 100]);
+
+    $result = app(MaterialPrepRequirementService::class)->saveForOrder(
+        $order,
+        [['material_id' => $cotton->id, 'quantity_requested' => 5]],
+        $mgr,
+    );
+
+    expect($result['purchase_needed'])->toBeFalse();
+    expect($result['mr']['status'])->toBe('approved');
+    expect((float) $cotton->fresh()->stock_on_hand)->toBe(95.0);
+
+    $mr = \App\Models\MaterialRequest::where('mr_code', $result['mr']['mr_code'])->first();
+    expect($mr->stage_id)->toBe($ctx['prep']->id); // the SAMPLE stage, not the pending mass one
+});
+
+test('saveForOrder on a SAMPLE order with a shortfall auto-spawns a PR, same as mass', function () {
+    $ctx = prepMakeOrderAtSampleMaterialPrep();
+    $order = $ctx['order'];
+    $mgr = prepMakeManager();
+
+    Supplier::create(['name' => 'Acme']);
+    $poly = Materials::create(['name' => 'Polyester', 'material_type' => 'fabric', 'unit' => 'm', 'price' => 10, 'stock_on_hand' => 2, 'supplier_id' => 1]);
+
+    $result = app(MaterialPrepRequirementService::class)->saveForOrder(
+        $order,
+        [['material_id' => $poly->id, 'quantity_requested' => 5]],
+        $mgr,
+    );
+
+    expect($result['purchase_needed'])->toBeTrue();
+    expect($result['mr']['status'])->toBe('auto_pr');
+    expect($result['pr']['total'])->toBe(30.0); // short 3 × ₱10
+});
+
+test('stateForOrder shows the saved sample requirement as existing after save', function () {
+    $ctx = prepMakeOrderAtSampleMaterialPrep();
+    $order = $ctx['order'];
+    $mgr = prepMakeManager();
+
+    $cotton = Materials::create(['name' => 'Cotton', 'material_type' => 'fabric', 'unit' => 'm', 'stock_on_hand' => 100]);
+    app(MaterialPrepRequirementService::class)->saveForOrder(
+        $order, [['material_id' => $cotton->id, 'quantity_requested' => 5]], $mgr,
+    );
+
+    $after = app(MaterialPrepRequirementService::class)->stateForOrder($order->fresh());
+    expect($after['phase'])->toBe('sample');
+    expect($after['existing'])->not->toBeNull();
+    expect($after['can_save'])->toBeFalse();
+});
+
+test('materialDetailsForOrder aggregates the sample-phase requirement for downstream portals', function () {
+    $ctx = prepMakeOrderAtSampleMaterialPrep();
+    $order = $ctx['order'];
+    $mgr = prepMakeManager();
+
+    $cotton = Materials::create(['name' => 'Cotton', 'material_type' => 'fabric', 'unit' => 'm', 'stock_on_hand' => 100]);
+    app(MaterialPrepRequirementService::class)->saveForOrder(
+        $order, [['material_id' => $cotton->id, 'quantity_requested' => 5]], $mgr,
+    );
+
+    $details = app(MaterialPrepRequirementService::class)->materialDetailsForOrder($order->fresh());
+
+    expect($details)->toHaveCount(1);
+    expect($details[0]['phase'])->toBe('sample');
+    expect($details[0]['stage'])->toBe('material_prep_sample');
+    expect($details[0]['mr']['items'][0]['material_name'])->toBe('Cotton');
+    expect($details[0]['purchase_needed'])->toBeFalse();
+});
+
+test('materialDetailsForOrder returns both phases once an order has a sample AND a mass requirement', function () {
+    $ctx = prepMakeOrderAtSampleMaterialPrep();
+    $order = $ctx['order'];
+    $mgr = prepMakeManager();
+
+    $cotton = Materials::create(['name' => 'Cotton', 'material_type' => 'fabric', 'unit' => 'm', 'stock_on_hand' => 100]);
+    app(MaterialPrepRequirementService::class)->saveForOrder(
+        $order, [['material_id' => $cotton->id, 'quantity_requested' => 5]], $mgr,
+    );
+
+    // Sample phase completes; the order later reaches mass prep (its own stage).
+    $ctx['prep']->update(['status' => 'completed']);
+    $mass = OrderStage::create([
+        'order_id' => $order->id, 'stage' => 'material_prep_mass',
+        'status' => 'in_progress', 'sequence' => 13, 'assigned_role' => 'material_prep',
+    ]);
+    // Replace the earlier pending mass placeholder row created by the fixture
+    // so activeMaterialPrepStage resolves this new in_progress one.
+    OrderStage::where('order_id', $order->id)
+        ->where('stage', 'material_prep_mass')
+        ->where('id', '!=', $mass->id)
+        ->delete();
+    Order::where('id', $order->id)->update(['current_stage_id' => $mass->id]);
+
+    $ink = Materials::create(['name' => 'Black Ink', 'material_type' => 'ink', 'unit' => 'kg', 'stock_on_hand' => 50]);
+    app(MaterialPrepRequirementService::class)->saveForOrder(
+        $order->fresh(), [['material_id' => $ink->id, 'quantity_requested' => 2]], $mgr,
+    );
+
+    $details = app(MaterialPrepRequirementService::class)->materialDetailsForOrder($order->fresh());
+
+    expect($details)->toHaveCount(2);
+    $byPhase = collect($details)->keyBy('phase');
+    expect($byPhase['sample']['mr']['items'][0]['material_name'])->toBe('Cotton');
+    expect($byPhase['mass']['mr']['items'][0]['material_name'])->toBe('Black Ink');
+});

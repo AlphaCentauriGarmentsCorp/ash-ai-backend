@@ -9,6 +9,7 @@ use App\Models\OrderStage;
 use App\Models\StageFabricLog;
 use App\Models\StageInkLog;
 use App\Models\User;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Change 18 — Material Prep stage requirement surfacing.
@@ -28,14 +29,27 @@ use App\Models\User;
  * against live stock and auto-spawns a Purchase Request for short items
  * (status auto_pr) or decrements stock when everything is in stock
  * ("no purchase needed").
+ *
+ * Owner decision (2026-07-28) — the sample-phase prep stage is no longer a
+ * read-only "pull from stock" acknowledgment. Material Prep now PICKS
+ * materials from the catalog for the sample too, going through the exact
+ * same create()+approve() path as mass (a shortfall auto-spawns a PR,
+ * exactly like mass). Both phases are therefore driven by ONE requirement
+ * path, resolved against whichever Material Prep stage (sample or mass) is
+ * currently active on the order (OrderStagesService::activeMaterialPrepStage
+ * already generalises over both — see SM Rework CP1). The only remaining
+ * difference is that sample has no prior usage logs to SUGGEST from (sample
+ * cutting/printing/sewing happen AFTER this tier), so its suggestion list is
+ * always empty — the role picks manually from the full catalog.
  */
 class MaterialPrepRequirementService
 {
     public function __construct(
         protected MaterialRequestService $materialRequests,
+        protected OrderStagesService $orderStages,
     ) {}
 
-    /** Sample stages whose usage logs seed the mass requirement. */
+    /** Sample stages whose usage logs seed the MASS requirement suggestion. */
     protected const SAMPLE_FABRIC_STAGES = ['sample_cutting', 'sample_sewing'];
     protected const SAMPLE_INK_STAGES    = ['sample_printing'];
     protected const MATERIAL_PREP_STAGE         = 'material_prep_mass';
@@ -44,18 +58,27 @@ class MaterialPrepRequirementService
     /**
      * Full requirement state for an order at the Material Prep stage:
      * the saved requirement (MR + resulting PR) if one exists, otherwise a
-     * sample-log-based suggestion the role can review.
+     * suggestion (mass only — sample has none) the role can review.
+     *
+     * Resolves against whichever Material Prep stage is currently ACTIVE on
+     * the order (sample or mass) rather than assuming mass, so this now
+     * works correctly for both phases.
      */
     public function stateForOrder(Order $order): array
     {
-        $existing = $this->existingRequirement($order);
+        $stage = $this->orderStages->activeMaterialPrepStage($order->id);
+        $phase = $this->phaseForStage($stage);
+        $existing = $stage ? $this->existingRequirementForStage($stage) : null;
 
         return [
             'order'      => $this->orderSummary($order),
             'order_qty'  => $this->orderQty($order),
-            'existing'   => $existing,                       // null until saved
-            'suggestion' => $existing ? [] : $this->suggestForOrder($order),
-            'can_save'   => $existing === null,              // one requirement per order (v1)
+            'phase'      => $phase,                                       // 'sample' | 'mass' | null
+            'existing'   => $existing,                                    // null until saved
+            // Sample has no prior usage logs to suggest from — the role
+            // picks manually from the full catalog for that phase.
+            'suggestion' => ($existing || $phase !== 'mass') ? [] : $this->suggestForOrder($order),
+            'can_save'   => $existing === null && $stage !== null,
         ];
     }
 
@@ -68,18 +91,14 @@ class MaterialPrepRequirementService
      * stage was previously invisible in the portal, which left it locked and
      * unable to join the fork to sample_cutting.
      *
-     * The two phases are handled differently:
-     *   - mass   → the requirement/suggestion + Auto-PR flow (unchanged): each
-     *              row carries requirement_set / purchase_needed / pr_status.
-     *   - sample → a pull-from-stock acknowledgment. There are no usage logs yet
-     *              (sample cutting/printing/sewing come AFTER this tier), so there
-     *              is nothing to suggest or purchase — the role just confirms the
-     *              sample materials are on hand and taps "Prep Done" (the existing
-     *              markPrepDone endpoint, which already targets whichever prep
-     *              stage is active). Sample rows therefore skip the requirement
-     *              lookup entirely.
+     * Both phases now go through the SAME requirement/suggestion + Auto-PR
+     * flow: each row carries requirement_set / purchase_needed / pr_status.
+     * (Sample used to be a read-only "pull from stock" acknowledgment with no
+     * MR at all — the owner asked for a real pick-and-save flow instead, so
+     * it can spawn a Purchase Request on shortfall exactly like mass does.)
      *
-     * The `phase` field tells the frontend which UI to render per row.
+     * The `phase` field tells the frontend which copy/suggestion behaviour to
+     * render per row (sample has no suggestion source; mass does).
      */
     public function ordersAtMaterialPrep(): array
     {
@@ -93,23 +112,10 @@ class MaterialPrepRequirementService
         return $stages
             ->filter(fn ($s) => $s->order !== null)
             ->map(function ($s) {
-                // Sample prep: pull-from-stock acknowledgment, no MR/PR flow.
-                if ($s->stage === self::MATERIAL_PREP_SAMPLE_STAGE) {
-                    return [
-                        'order'           => $this->orderSummary($s->order),
-                        'phase'           => 'sample',
-                        'stage'           => $s->stage,
-                        'requirement_set' => false,
-                        'purchase_needed' => null,
-                        'pr_status'       => null,
-                    ];
-                }
-
-                // Mass prep: unchanged requirement/suggestion + Auto-PR flow.
-                $existing = $this->existingRequirement($s->order);
+                $existing = $this->existingRequirementForStage($s);
                 return [
                     'order'           => $this->orderSummary($s->order),
-                    'phase'           => 'mass',
+                    'phase'           => $this->phaseForStage($s),
                     'stage'           => $s->stage,
                     'requirement_set' => $existing !== null,
                     'purchase_needed' => $existing['purchase_needed'] ?? null,
@@ -120,7 +126,7 @@ class MaterialPrepRequirementService
             ->all();
     }
 
-    /** Sample-log-based suggested requirement rows. */
+    /** Sample-log-based suggested requirement rows (mass phase only). */
     public function suggestForOrder(Order $order): array
     {
         $orderQty = max(1, $this->orderQty($order));
@@ -156,23 +162,94 @@ class MaterialPrepRequirementService
     }
 
     /**
-     * Save the confirmed requirement → create the MR, then approve it so the
-     * existing Auto-PR / stock-decrement path runs immediately.
+     * Save the confirmed requirement → create the MR against whichever
+     * Material Prep stage is currently active (sample or mass — the explicit
+     * stage_id matters here because the sample stage runs parallel to
+     * screen_making, so the order's "current stage" alone is ambiguous),
+     * then approve it so the existing Auto-PR / stock-decrement path runs
+     * immediately.
      *
      * @param  array<int,array{material_id:int,quantity_requested:numeric,notes?:string}>  $items
      */
     public function saveForOrder(Order $order, array $items, User $actor): array
     {
+        $stage = $this->orderStages->activeMaterialPrepStage($order->id);
+        if (! $stage) {
+            throw ValidationException::withMessages([
+                'order' => 'No active Material Prep stage for this order.',
+            ]);
+        }
+
+        $phase = $this->phaseForStage($stage);
+
         $mr = $this->materialRequests->create([
             'order_id' => $order->id,
+            'stage_id' => $stage->id,
             'items'    => $items,
-            'reason'   => 'Material Prep requirement (mass production).',
+            'reason'   => $phase === 'sample'
+                ? 'Material Prep requirement (sample).'
+                : 'Material Prep requirement (mass production).',
         ], $actor);
 
         // "Auto on save": shortfalls → Purchase Request; else decrement stock.
         $mr = $this->materialRequests->approve($mr, $actor);
 
         return $this->requirementPayload($mr);
+    }
+
+    /**
+     * Owner decision (2026-07-28) — the materials Material Prep confirmed for
+     * an order (sample and/or mass) need to be visible downstream as
+     * "Material Details" in every later portal (Cutter, Printer, Sewer,
+     * QA/Packer), not just re-shown inside Material Prep's own screen.
+     *
+     * Returns one entry per active MR created by Material Prep for this
+     * order (oldest first — sample phase before mass phase), each in the
+     * same shape as the saved-requirement view plus a `phase` label.
+     */
+    public function materialDetailsForOrder(Order $order): array
+    {
+        $mrs = MaterialRequest::query()
+            ->where('order_id', $order->id)
+            ->whereIn('status', [
+                MaterialRequest::STATUS_PENDING,
+                MaterialRequest::STATUS_APPROVED,
+                MaterialRequest::STATUS_AUTO_PR,
+            ])
+            ->whereHas('stage', fn ($q) => $q->whereIn('stage', [
+                self::MATERIAL_PREP_SAMPLE_STAGE,
+                self::MATERIAL_PREP_STAGE,
+            ]))
+            ->with('stage:id,stage')
+            ->orderBy('id')
+            ->get();
+
+        return $mrs->map(function (MaterialRequest $mr) {
+            $payload = $this->requirementPayload($mr);
+            $payload['phase'] = $this->phaseForStage($mr->stage);
+            $payload['stage'] = $mr->stage?->stage;
+
+            return $payload;
+        })->values()->all();
+    }
+
+    /**
+     * Owner decision (2026-07-28) — the Review Hub card for a Material Prep
+     * stage (sample or mass) should show exactly what was picked for THIS
+     * stage, mirroring the reviewSummary() pattern the other portals
+     * (Graphic Artist, Screen Maker, Cutter) already use. Falls through to
+     * the generic "No artifact uploaded" card when nothing has been saved
+     * yet — same convention as the sibling blocks, which must not make an
+     * untouched stage look worked.
+     */
+    public function reviewSummary(Order $order, OrderStage $stage): array
+    {
+        return [
+            'kind'        => 'material_prep',
+            'phase'       => $this->phaseForStage($stage),
+            'requirement' => $this->existingRequirementForStage($stage), // null until saved
+            'stage_notes' => $stage->notes,
+        ];
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
@@ -215,19 +292,29 @@ class MaterialPrepRequirementService
             ->first();
     }
 
-    protected function existingRequirement(Order $order): ?array
+    /** 'sample' | 'mass' | null (no active/known prep stage) from a stage slug. */
+    protected function phaseForStage(?OrderStage $stage): ?string
     {
-        $stage = OrderStage::where('order_id', $order->id)
-            ->where('stage', self::MATERIAL_PREP_STAGE)
-            ->first();
         if (! $stage) {
             return null;
         }
 
-        // Only an ACTIVE requirement counts. A rejected MR must NOT be shown
-        // as the saved requirement (it would display a stale snapshot with no
-        // PR and block the role from saving a real one).
-        $mr = MaterialRequest::where('order_id', $order->id)
+        return $stage->stage === self::MATERIAL_PREP_SAMPLE_STAGE ? 'sample' : 'mass';
+    }
+
+    /**
+     * The active, non-rejected requirement attached to a specific Material
+     * Prep OrderStage row (sample or mass — the stage is passed in directly
+     * rather than re-derived, since a sample stage runs parallel to
+     * screen_making and can't be looked up by stage-type alone).
+     *
+     * Only an ACTIVE requirement counts. A rejected MR must NOT be shown as
+     * the saved requirement (it would display a stale snapshot with no PR
+     * and block the role from saving a real one).
+     */
+    protected function existingRequirementForStage(OrderStage $stage): ?array
+    {
+        $mr = MaterialRequest::where('order_id', $stage->order_id)
             ->where('stage_id', $stage->id)
             ->whereIn('status', [
                 MaterialRequest::STATUS_PENDING,

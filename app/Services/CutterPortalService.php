@@ -52,6 +52,10 @@ use Illuminate\Validation\ValidationException;
  */
 class CutterPortalService
 {
+    public function __construct(
+        protected MaterialPrepRequirementService $materialPrepRequirements,
+    ) {}
+
     /**
      * Resolve the full Cutter portal payload for a stage.
      *
@@ -95,6 +99,9 @@ class CutterPortalService
             'size_chart'      => $this->sizeChart($order),
             'fabric_tracking' => $this->fabricTracking($stage),
             'material_requests' => $this->materialRequestsForStage($stage),
+            // Owner decision (2026-07-28) — what Material Prep confirmed for
+            // this order (sample and/or mass phase), read-only.
+            'material_details' => $this->materialPrepRequirements->materialDetailsForOrder($order),
             'sample_uploads'  => $this->sampleUploads($stage),
             'activity_log'    => $this->recentActivity($stage, 10),
             'subcontract'     => $this->subcontractInfo($stage),

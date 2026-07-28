@@ -39,6 +39,10 @@ use Illuminate\Validation\ValidationException;
  */
 class QaPackerPortalService
 {
+    public function __construct(
+        protected MaterialPrepRequirementService $materialPrepRequirements,
+    ) {}
+
     /**
      * Stage slugs the QA/Packer portal serves.
      */
@@ -78,6 +82,9 @@ class QaPackerPortalService
 
         return [
             'task'               => $this->taskOverview($order, $stage),
+            // Owner decision (2026-07-28) — what Material Prep confirmed for
+            // this order (sample and/or mass phase), read-only.
+            'material_details'   => $this->materialPrepRequirements->materialDetailsForOrder($order),
             'reference_images'   => $this->referenceImages($order),
             'qa_checklist'       => $this->qaChecklist(),
             'packing_checklist'  => $this->packingChecklist(),
