@@ -10,7 +10,7 @@
  *   1. buildContext returns full payload for active screen_making stage
  *   2. buildContext rejects stages outside screen_making scope
  *   3. buildContext rejects unknown stage
- *   4. designs section returns placements with nested screens
+ *   4. (superseded by CP2 #11 — screen_slots replaced this)
  *   5. subcontract info returned when service_type=subcontract
  *
  * SM Rework CP1 — the portal payload was widened to mirror the Graphic
@@ -27,11 +27,35 @@
  * apparel/print lookup tables, so the hand-built schema seeds them
  * (per the "new table on a shared path → every affected test file adds
  * it" convention).
+ *
+ * SM Rework CP2 — the "Designs to Make Screen" section was replaced by
+ * a `screen_slots` write path (ScreenAssignmentService). New coverage:
+ *  11. screen_slots exposes one row per placement colour, carrying the
+ *      existing screen_assignments row when one exists
+ *  12. ScreenAssignmentService::assign creates a slot, claims the screen
+ *      (status in_use, last_used set), increments total_use once
+ *  13. re-saving the same screen does not re-increment total_use
+ *  14. swapping the screen frees the old one (if unreferenced) and
+ *      claims the new one, without double-incrementing total_use
+ *  15. assign rejects a 'damaged' or 'for_reclaim' screen outright
+ *  16. assign warns (does not block) when the screen is 'in_use' on a
+ *      DIFFERENT order
+ *  17. assign rejects a color_index beyond the placement's color_count
+ *  18. assign rejects without access.screen-making permission
+ *  19. unassign clears a slot and frees the screen if unreferenced
+ *  20. releaseForOrder moves only THIS order's 'in_use' screens to
+ *      'for_reclaim'
+ *  21. OrderStagesService::markComplete releases screens to
+ *      'for_reclaim' when the completed stage is mass_printing (wiring)
  */
 
 use App\Models\Order;
 use App\Models\OrderStage;
 use App\Models\StageSubcontractAssignment;
+use App\Models\User;
+use App\Services\NotificationService;
+use App\Services\OrderStagesService;
+use App\Services\ScreenAssignmentService;
 use App\Services\ScreenMakerPortalService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -52,6 +76,13 @@ $SMP_TABLES = [
     'pattern_types',
     'apparel_necklines',
     'print_methods',
+    // SM Rework CP2 — Spatie permission tables, needed by
+    // ScreenAssignmentService's access.screen-making check.
+    'model_has_permissions',
+    'role_has_permissions',
+    'model_has_roles',
+    'permissions',
+    'roles',
     'order_stages',
     'orders',
     'users',
@@ -87,6 +118,10 @@ beforeEach(function () use ($SMP_TABLES) {
         $t->text('items_json')->nullable();
         $t->text('notes')->nullable();
         $t->string('workflow_status', 32)->default('inquiry');
+        // SM Rework CP2 — needed by OrderStagesService::refreshOrderCache,
+        // exercised by the markComplete() wiring test below.
+        $t->timestamp('delayed_at')->nullable();
+        $t->unsignedBigInteger('current_stage_id')->nullable();
 
         // Product Details mirror.
         $t->unsignedBigInteger('apparel_type_id')->nullable();
@@ -179,6 +214,7 @@ beforeEach(function () use ($SMP_TABLES) {
         $t->string('address')->nullable();
         $t->string('size')->nullable();
         $t->integer('total_use')->default(0);
+        $t->timestamp('last_used')->nullable();
         $t->string('status')->nullable();
         $t->timestamps();
     });
@@ -244,6 +280,50 @@ beforeEach(function () use ($SMP_TABLES) {
         $t->text('notes')->nullable();
         $t->timestamp('created_at')->nullable();
     });
+
+    // SM Rework CP2 — Spatie permission tables (minimal), same shape
+    // CutterPortalTest uses. ScreenAssignmentService checks
+    // access.screen-making via $user->can().
+    Schema::create('roles', function (Blueprint $t) {
+        $t->id();
+        $t->string('name');
+        $t->string('guard_name')->default('web');
+        $t->timestamps();
+    });
+
+    Schema::create('permissions', function (Blueprint $t) {
+        $t->id();
+        $t->string('name');
+        $t->string('guard_name')->default('web');
+        $t->timestamps();
+    });
+
+    Schema::create('model_has_roles', function (Blueprint $t) {
+        $t->unsignedBigInteger('role_id');
+        $t->string('model_type');
+        $t->unsignedBigInteger('model_id');
+        $t->primary(['role_id', 'model_id', 'model_type']);
+    });
+
+    Schema::create('model_has_permissions', function (Blueprint $t) {
+        $t->unsignedBigInteger('permission_id');
+        $t->string('model_type');
+        $t->unsignedBigInteger('model_id');
+        $t->primary(['permission_id', 'model_id', 'model_type']);
+    });
+
+    Schema::create('role_has_permissions', function (Blueprint $t) {
+        $t->unsignedBigInteger('permission_id');
+        $t->unsignedBigInteger('role_id');
+        $t->primary(['permission_id', 'role_id']);
+    });
+
+    DB::table('permissions')->insert([
+        'name' => 'access.screen-making', 'guard_name' => 'web',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 });
 
 afterEach(function () use ($SMP_TABLES) {
@@ -284,6 +364,35 @@ function phase5f_makeStage(string $stageSlug = 'screen_making', string $serviceT
         'order_id'       => $orderId,
         'order_stage_id' => $stageId,
     ];
+}
+
+/**
+ * SM Rework CP2 — a user with (optionally) direct permission grants, same
+ * pattern as CutterPortalTest's phase5b_makeUser.
+ */
+function phase5f_makeUser(string $name, array $permissions = []): User
+{
+    $id = DB::table('users')->insertGetId([
+        'name' => $name,
+        'email' => strtolower(str_replace(' ', '', $name)) . uniqid() . '@example.com',
+        'password' => 'x',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    foreach ($permissions as $perm) {
+        $pid = DB::table('permissions')->where('name', $perm)->value('id');
+        if ($pid) {
+            DB::table('model_has_permissions')->insert([
+                'permission_id' => $pid,
+                'model_type' => 'App\\Models\\User',
+                'model_id' => $id,
+            ]);
+        }
+    }
+
+    app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+    return User::find($id);
 }
 
 /**
@@ -370,7 +479,7 @@ function phase5f_makeEnrichedStage(): array
         'order_id' => $orderId,
         'placement_id' => $placementId,
         'screen_id' => $screenId,
-        'color_index' => 0,
+        'color_index' => 1,
         'created_at' => now(), 'updated_at' => now(),
     ]);
 
@@ -405,14 +514,15 @@ it('builds full context for an active screen_making stage', function () {
     $ctx = $svc->buildContext($made['order_stage_id']);
 
     expect($ctx)->toHaveKeys([
-        'order', 'stage', 'designs', 'placements', 'pantones_used',
+        'order', 'stage', 'screen_slots', 'available_screens', 'placements', 'pantones_used',
         'material_requests', 'activity_log', 'subcontract', 'role_notes',
     ]);
 
     expect($ctx['order']['po_code'])->toStartWith('ASH-SM-');
     expect($ctx['stage']['stage'])->toBe('screen_making');
     expect($ctx['stage']['service_type'])->toBe('in_house');
-    expect($ctx['designs'])->toBe([]);  // no designs created
+    expect($ctx['screen_slots'])->toBe([]);   // no design created yet
+    expect($ctx['available_screens'])->toBe([]); // no screens in inventory yet
     expect($ctx['placements'])->toBe([]);
     expect($ctx['subcontract'])->toBeNull();
 });
@@ -433,10 +543,11 @@ it('rejects context for an unknown stage', function () {
         ->toThrow(\Illuminate\Validation\ValidationException::class);
 });
 
-it('returns designs with nested screens when assignments exist', function () {
+it('exposes one screen_slots row per placement colour, carrying the existing assignment', function () {
     $made = phase5f_makeStage();
 
-    // Create a design + placement + screen + screen_assignment
+    // Create a design + a 2-colour placement, but only assign a screen
+    // to colour 1 — colour 2 should still appear, blank.
     $designId = DB::table('order_designs')->insertGetId([
         'order_id' => $made['order_id'],
         'notes' => 'Test design',
@@ -446,7 +557,11 @@ it('returns designs with nested screens when assignments exist', function () {
     $placementId = DB::table('order_design_placements')->insertGetId([
         'order_design_id' => $designId,
         'type' => 'Front',
-        'pantones' => json_encode(['Black']),
+        'color_count' => 2,
+        'pantones' => json_encode([
+            ['name' => 'Black', 'hexcolor' => '#000000'],
+            ['name' => 'White', 'hexcolor' => '#FFFFFF'],
+        ]),
         'created_at' => now(), 'updated_at' => now(),
     ]);
 
@@ -455,7 +570,7 @@ it('returns designs with nested screens when assignments exist', function () {
         'size' => '14 x 6 in',
         'mesh_count' => '110',
         'address' => 'Screen Cabinet A - Shelf 2',
-        'status' => 'available',
+        'status' => 'in_use',
         'created_at' => now(), 'updated_at' => now(),
     ]);
 
@@ -463,20 +578,26 @@ it('returns designs with nested screens when assignments exist', function () {
         'order_id' => $made['order_id'],
         'placement_id' => $placementId,
         'screen_id' => $screenId,
-        'color_index' => 0,
+        'color_index' => 1,
         'created_at' => now(), 'updated_at' => now(),
     ]);
 
     $svc = new ScreenMakerPortalService();
     $ctx = $svc->buildContext($made['order_stage_id']);
 
-    expect($ctx['designs'])->toHaveCount(1);
-    $design = $ctx['designs'][0];
-    expect($design['type'])->toBe('Front');
-    expect($design['pantones'])->toBe(['Black']);
-    expect($design['screens'])->toHaveCount(1);
-    expect($design['screens'][0]['screen']['name'])->toBe('S-001');
-    expect($design['screens'][0]['screen']['mesh_count'])->toBe('110');
+    expect($ctx['screen_slots'])->toHaveCount(2);
+
+    $slot1 = $ctx['screen_slots'][0];
+    expect($slot1['placement_type'])->toBe('Front');
+    expect($slot1['color_index'])->toBe(1);
+    expect($slot1['pantone']['name'])->toBe('Black');
+    expect($slot1['screen']['name'])->toBe('S-001');
+    expect($slot1['screen']['mesh_count'])->toBe('110');
+
+    $slot2 = $ctx['screen_slots'][1];
+    expect($slot2['color_index'])->toBe(2);
+    expect($slot2['pantone']['name'])->toBe('White');
+    expect($slot2['screen'])->toBeNull();
 });
 
 it('returns subcontract info when service_type is subcontract', function () {
@@ -595,4 +716,287 @@ it('builds a Review Hub summary with the maker stage notes', function () {
     expect($summary['labels'])->toHaveKeys(['brand_label', 'care_label', 'label_design_url']);
     expect($summary['screens'])->toHaveCount(1);
     expect($summary['screens'][0]['screen']['name'])->toBe('S-001');
+});
+
+// ─── SM Rework CP2 — ScreenAssignmentService ────────────────────
+
+/**
+ * Order + active screen_making stage + a design placement with the
+ * given colour count, ready for ScreenAssignmentService::assign().
+ */
+function phase5f_makeAssignableStage(int $colorCount = 2): array
+{
+    $made = phase5f_makeStage();
+
+    $designId = DB::table('order_designs')->insertGetId([
+        'order_id' => $made['order_id'],
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $placementId = DB::table('order_design_placements')->insertGetId([
+        'order_design_id' => $designId,
+        'type' => 'Front',
+        'color_count' => $colorCount,
+        'pantones' => json_encode([]),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $made + ['placement_id' => $placementId];
+}
+
+function phase5f_makeScreen(string $name, ?string $status = 'available'): int
+{
+    return DB::table('screens')->insertGetId([
+        'name' => $name, 'size' => '14 x 6 in', 'mesh_count' => '110',
+        'address' => 'Cabinet A', 'status' => $status, 'total_use' => 0,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+}
+
+it('assign creates a slot and claims the screen', function () {
+    $ctx = phase5f_makeAssignableStage();
+    $screenId = phase5f_makeScreen('S-100');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+
+    $result = (new ScreenAssignmentService())->assign([
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $screenId,
+    ], $user);
+
+    expect($result['conflict'])->toBeNull();
+    expect($result['assignment']->order_id)->toBe($ctx['order_id']);
+    expect($result['assignment']->screen_id)->toBe($screenId);
+
+    $screen = DB::table('screens')->where('id', $screenId)->first();
+    expect($screen->status)->toBe('in_use');
+    expect($screen->last_used)->not->toBeNull();
+    expect((int) $screen->total_use)->toBe(1);
+});
+
+it('does not re-increment total_use when re-saving the same screen', function () {
+    $ctx = phase5f_makeAssignableStage();
+    $screenId = phase5f_makeScreen('S-101');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+    $svc = new ScreenAssignmentService();
+
+    $payload = [
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $screenId,
+    ];
+
+    $svc->assign($payload, $user);
+    $svc->assign($payload, $user); // re-save, same screen
+
+    $screen = DB::table('screens')->where('id', $screenId)->first();
+    expect((int) $screen->total_use)->toBe(1);
+    expect(DB::table('screen_assignments')->count())->toBe(1);
+});
+
+it('swapping the screen frees the old one and claims the new one', function () {
+    $ctx = phase5f_makeAssignableStage();
+    $oldScreenId = phase5f_makeScreen('S-OLD');
+    $newScreenId = phase5f_makeScreen('S-NEW');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+    $svc = new ScreenAssignmentService();
+
+    $svc->assign([
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $oldScreenId,
+    ], $user);
+
+    $svc->assign([
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $newScreenId,
+    ], $user);
+
+    $old = DB::table('screens')->where('id', $oldScreenId)->first();
+    $new = DB::table('screens')->where('id', $newScreenId)->first();
+
+    expect($old->status)->toBe('available'); // freed — nothing else holds it
+    expect((int) $old->total_use)->toBe(1);  // not re-incremented on swap-out
+    expect($new->status)->toBe('in_use');
+    // The slot (order+placement+colour) already existed — swapping its
+    // screen updates that row rather than creating a new one, so
+    // wasRecentlyCreated is false and total_use correctly stays untouched
+    // for the swapped-in screen too (Josh's call: "skip swaps").
+    expect((int) $new->total_use)->toBe(0);
+    expect(DB::table('screen_assignments')->count())->toBe(1); // same slot, not a new row
+});
+
+it('rejects a damaged screen outright', function () {
+    $ctx = phase5f_makeAssignableStage();
+    $screenId = phase5f_makeScreen('S-BROKEN', 'damaged');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+
+    expect(fn () => (new ScreenAssignmentService())->assign([
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $screenId,
+    ], $user))->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+it('rejects a for_reclaim screen outright', function () {
+    $ctx = phase5f_makeAssignableStage();
+    $screenId = phase5f_makeScreen('S-DIRTY', 'for_reclaim');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+
+    expect(fn () => (new ScreenAssignmentService())->assign([
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $screenId,
+    ], $user))->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+it('warns but allows a screen already in_use on a different order', function () {
+    $ctxA = phase5f_makeAssignableStage();
+    $ctxB = phase5f_makeAssignableStage();
+    $screenId = phase5f_makeScreen('S-SHARED');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+    $svc = new ScreenAssignmentService();
+
+    // Order A claims it first.
+    $svc->assign([
+        'order_stage_id' => $ctxA['order_stage_id'],
+        'placement_id'   => $ctxA['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $screenId,
+    ], $user);
+
+    // Order B picks the SAME screen — allowed, but flagged.
+    $result = $svc->assign([
+        'order_stage_id' => $ctxB['order_stage_id'],
+        'placement_id'   => $ctxB['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $screenId,
+    ], $user);
+
+    expect($result['conflict'])->not->toBeNull();
+    expect($result['conflict']['order_id'])->toBe($ctxA['order_id']);
+    expect(DB::table('screen_assignments')->where('screen_id', $screenId)->count())->toBe(2);
+});
+
+it('rejects a color_index beyond the placement color_count', function () {
+    $ctx = phase5f_makeAssignableStage(2); // only 2 colours
+    $screenId = phase5f_makeScreen('S-102');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+
+    expect(fn () => (new ScreenAssignmentService())->assign([
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 3,
+        'screen_id'      => $screenId,
+    ], $user))->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+it('rejects assign without access.screen-making permission', function () {
+    $ctx = phase5f_makeAssignableStage();
+    $screenId = phase5f_makeScreen('S-103');
+    $user = phase5f_makeUser('No Perms', []);
+
+    expect(fn () => (new ScreenAssignmentService())->assign([
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $screenId,
+    ], $user))->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+it('unassign clears the slot and frees the screen if unreferenced', function () {
+    $ctx = phase5f_makeAssignableStage();
+    $screenId = phase5f_makeScreen('S-104');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+    $svc = new ScreenAssignmentService();
+
+    $result = $svc->assign([
+        'order_stage_id' => $ctx['order_stage_id'],
+        'placement_id'   => $ctx['placement_id'],
+        'color_index'    => 1,
+        'screen_id'      => $screenId,
+    ], $user);
+
+    $svc->unassign($result['assignment']->id, $user);
+
+    expect(DB::table('screen_assignments')->count())->toBe(0);
+    $screen = DB::table('screens')->where('id', $screenId)->first();
+    expect($screen->status)->toBe('available');
+});
+
+it("releaseForOrder moves only that order's in_use screens to for_reclaim", function () {
+    $ctxA = phase5f_makeAssignableStage();
+    $ctxB = phase5f_makeAssignableStage();
+    $screenA = phase5f_makeScreen('S-A');
+    $screenB = phase5f_makeScreen('S-B');
+    $user = phase5f_makeUser('Screen Maker', ['access.screen-making']);
+    $svc = new ScreenAssignmentService();
+
+    $svc->assign(['order_stage_id' => $ctxA['order_stage_id'], 'placement_id' => $ctxA['placement_id'], 'color_index' => 1, 'screen_id' => $screenA], $user);
+    $svc->assign(['order_stage_id' => $ctxB['order_stage_id'], 'placement_id' => $ctxB['placement_id'], 'color_index' => 1, 'screen_id' => $screenB], $user);
+
+    $svc->releaseForOrder($ctxA['order_id']);
+
+    $a = DB::table('screens')->where('id', $screenA)->first();
+    $b = DB::table('screens')->where('id', $screenB)->first();
+
+    expect($a->status)->toBe('for_reclaim'); // order A's screen released
+    expect($b->status)->toBe('in_use');      // order B's screen untouched
+});
+
+it('OrderStagesService::markComplete releases screens to for_reclaim when mass_printing finishes', function () {
+    $orderId = DB::table('orders')->insertGetId([
+        'po_code' => 'ASH-SM-REL-' . uniqid(),
+        'items_json' => json_encode([['size' => 'M', 'quantity' => 10]]),
+        'workflow_status' => 'mass_printing',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $printingStageId = DB::table('order_stages')->insertGetId([
+        'order_id' => $orderId, 'stage' => 'mass_printing', 'sequence' => 15,
+        'status' => 'in_progress', 'service_type' => 'in_house',
+        'started_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    // A dummy next stage so completing mass_printing has somewhere to
+    // promote to — keeps the order "not fully done" so the order-completed
+    // notification path (which needs tables this schema doesn't build)
+    // never fires. Left unassigned (no assigned_role/assigned_to) so the
+    // stage-started notification path is also a safe no-op.
+    DB::table('order_stages')->insert([
+        'order_id' => $orderId, 'stage' => 'mass_sewing', 'sequence' => 16,
+        'status' => 'pending', 'service_type' => 'in_house',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $screenId = phase5f_makeScreen('S-REL', 'in_use');
+    $designId = DB::table('order_designs')->insertGetId([
+        'order_id' => $orderId, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $placementId = DB::table('order_design_placements')->insertGetId([
+        'order_design_id' => $designId, 'type' => 'Front',
+        'color_count' => 1, 'pantones' => json_encode([]),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('screen_assignments')->insert([
+        'order_id' => $orderId, 'placement_id' => $placementId,
+        'screen_id' => $screenId, 'color_index' => 1,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    (new OrderStagesService(new NotificationService()))->markComplete($printingStageId);
+
+    $screen = DB::table('screens')->where('id', $screenId)->first();
+    expect($screen->status)->toBe('for_reclaim');
+
+    $sewing = DB::table('order_stages')
+        ->where('order_id', $orderId)->where('stage', 'mass_sewing')->first();
+    expect($sewing->status)->toBe('in_progress');
 });

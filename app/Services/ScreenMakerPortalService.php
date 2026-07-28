@@ -30,9 +30,18 @@ use Illuminate\Validation\ValidationException;
  *   - Design Details         (read-only view of the GA output — the
  *                             hydrated placements + Pantones and the
  *                             order's label specs / shared Label Design)
- *   - Designs to Make Screen (existing physical-screen mapping)
  *   - Notes / Instructions   (order.notes + the Hub → screen_maker
  *                             role-directed instruction thread)
+ *
+ * SM Rework CP2 — "Designs to Make Screen" (a read-only recap of already-
+ * saved assignments) is replaced by `screen_slots`: one row per
+ * (placement, colour) the placement actually needs, each carrying its
+ * current screen_assignments row if one exists yet. `available_screens`
+ * is the picker's source list. The write path
+ * (ScreenAssignmentService::assign/unassign, gated by
+ * access.screen-making) writes to the SAME screen_assignments table the
+ * Printer Portal and CSR Review Hub already read from, so this is the
+ * first thing that actually populates it from the frontend.
  *
  * The Screen Maker does NOT edit the GA output — the placements / labels
  * here are read-only. Notes + mark-as-done still route through the
@@ -74,9 +83,11 @@ class ScreenMakerPortalService
             // Read-only GA output — the reworked "Design Details" section.
             'placements'        => $this->placements($design),
             'pantones_used'     => $this->pantonesUsed($design),
-            // Existing physical-screen mapping — the "Designs to Make Screen"
-            // section (kept as-is; different data from `placements`).
-            'designs'           => $this->designsToMakeScreen($order),
+            // SM Rework CP2 — Screens Used input. One slot per (placement,
+            // colour) with its current screen_assignments row if any, plus
+            // the pickable inventory list for the dropdown.
+            'screen_slots'      => $this->screenSlots($order, $design),
+            'available_screens' => $this->availableScreens(),
             'material_requests' => $this->materialRequestsForStage($stage),
             'activity_log'      => $this->recentActivity($stage, 10),
             'subcontract'       => $this->subcontractInfo($stage),
@@ -340,53 +351,90 @@ class ScreenMakerPortalService
     }
 
     /**
-     * Designs that need screens for this order — the existing "Designs to
-     * Make Screen" section. Joins order_designs → placements (the design
-     * definitions) with screen_assignments → screens (the physical screen
-     * mappings). Kept as-is: pantones here are passed through raw (not
-     * hydrated) because this section is about the physical screen mapping,
-     * not the colour spec (which now lives in `placements`).
+     * SM Rework CP2 — "Screens Used" input rows. One row per (placement,
+     * colour) the placement actually needs — expanded from color_count,
+     * defaulting to 1 colour when unset — each carrying its current
+     * screen_assignments row (if the screen maker already picked one)
+     * plus the matching Pantone from that placement's saved colour list
+     * so the picker can show "colour 2 = PANTONE 186 C" next to the
+     * dropdown. Writes go through ScreenAssignmentService, NOT here —
+     * this method is read-only.
      */
-    protected function designsToMakeScreen(Order $order): array
+    protected function screenSlots(Order $order, ?OrderDesign $design): array
     {
-        $design = OrderDesign::where('order_id', $order->id)
-            ->with('placements')
-            ->first();
-
-        if (! $design) {
+        if (! $design || $design->placements->isEmpty()) {
             return [];
         }
 
         $assignments = ScreenAssignment::with('screen')
             ->where('order_id', $order->id)
             ->get()
-            ->groupBy('placement_id');
+            ->groupBy(fn ($a) => $a->placement_id . ':' . $a->color_index);
 
-        return $design->placements->map(function ($p) use ($assignments) {
-            $placementAssignments = $assignments->get($p->id, collect());
+        $rows = [];
+        foreach ($design->placements as $p) {
+            $pantones = is_array($p->pantones) ? $p->pantones : [];
+            $colorCount = max(1, (int) ($p->color_count ?? 1));
 
-            return [
-                'id'             => $p->id,
-                'type'           => $p->type,
-                'mockup_image'   => $p->mockup_image,
-                'mockup_url'     => $p->mockup_image
-                    ? Storage::disk('public')->url($p->mockup_image)
-                    : null,
-                'pantones'       => is_array($p->pantones) ? $p->pantones : [],
-                'screens'        => $placementAssignments->map(fn ($a) => [
-                    'assignment_id' => $a->id,
-                    'color_index'   => $a->color_index,
-                    'screen' => $a->screen ? [
-                        'id'         => $a->screen->id,
-                        'name'       => $a->screen->name,
-                        'size'       => $a->screen->size,
-                        'mesh_count' => $a->screen->mesh_count,
-                        'address'    => $a->screen->address,
-                        'status'     => $a->screen->status,
+            for ($colorIndex = 1; $colorIndex <= $colorCount; $colorIndex++) {
+                $assignment = $assignments->get("{$p->id}:{$colorIndex}", collect())->first();
+                $pantone = $pantones[$colorIndex - 1] ?? null;
+
+                $rows[] = [
+                    'placement_id'   => $p->id,
+                    'placement_type' => $p->type,
+                    'mockup_image'   => $p->mockup_image,
+                    'mockup_url'     => $p->mockup_image
+                        ? Storage::disk('public')->url($p->mockup_image)
+                        : null,
+                    'color_index'    => $colorIndex,
+                    'pantone'        => is_array($pantone) ? $pantone : null,
+                    'assignment_id'  => $assignment?->id,
+                    'screen'         => $assignment?->screen ? [
+                        'id'         => $assignment->screen->id,
+                        'name'       => $assignment->screen->name,
+                        'size'       => $assignment->screen->size,
+                        'mesh_count' => $assignment->screen->mesh_count,
+                        'address'    => $assignment->screen->address,
+                        'status'     => $assignment->screen->status,
                     ] : null,
-                ])->all(),
-            ];
-        })->all();
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Pickable screen inventory for the "Screens Used" dropdown — screens
+     * that are free to claim (status 'available', or null for screens
+     * created before the status lifecycle existed). Screens that are
+     * 'in_use', 'for_reclaim', or 'damaged' are intentionally excluded
+     * here; ScreenAssignmentService still allows picking an 'in_use'
+     * screen belonging to another order (warn, don't block) for cases
+     * where the screen maker types/selects it directly, but the
+     * dropdown itself only surfaces the clean choices.
+     */
+    protected function availableScreens(): array
+    {
+        if (! Schema::hasTable('screens')) {
+            return [];
+        }
+
+        return \App\Models\Screens::where(function ($q) {
+            $q->whereNull('status')->orWhere('status', 'available');
+        })
+            ->orderBy('name')
+            ->get(['id', 'name', 'size', 'mesh_count', 'address', 'status'])
+            ->map(fn ($s) => [
+                'id'         => $s->id,
+                'name'       => $s->name,
+                'size'       => $s->size,
+                'mesh_count' => $s->mesh_count,
+                'address'    => $s->address,
+                'status'     => $s->status,
+            ])
+            ->all();
     }
 
     /**
