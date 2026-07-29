@@ -2,13 +2,16 @@
 
 namespace App\Services;
 
+use App\Models\FabricSwatch;
 use App\Models\Materials;
 use App\Models\MaterialRequest;
 use App\Models\Order;
 use App\Models\OrderStage;
+use App\Models\Pantone;
 use App\Models\StageFabricLog;
 use App\Models\StageInkLog;
 use App\Models\User;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -71,7 +74,12 @@ class MaterialPrepRequirementService
         $existing = $stage ? $this->existingRequirementForStage($stage) : null;
 
         return [
-            'order'      => $this->orderSummary($order),
+            // 2026-07-29 — enriched order details (was orderSummary()'s bare
+            // id/po_code/client trio) so the role can see what they're
+            // sourcing for without leaving the portal: apparel + production
+            // specs, quantity, deadline/priority, and order notes.
+            'order'      => $this->orderDetails($order),
+            'stage'      => $stage ? $this->stageContext($stage, $phase) : null,
             'order_qty'  => $this->orderQty($order),
             'phase'      => $phase,                                       // 'sample' | 'mass' | null
             'existing'   => $existing,                                    // null until saved
@@ -374,5 +382,101 @@ class MaterialPrepRequirementService
             'client_brand' => $order->client_brand,
             'client_name'  => $order->client_name,
         ];
+    }
+
+    /**
+     * 2026-07-29 — full order context for the expanded Material Prep card.
+     * Same shape/fields as CutterPortalService::orderDetails() (renders
+     * through the shared OrderDetailsSectionGA component on the frontend,
+     * reused directly rather than building a Material-Prep-specific
+     * version), minus the brand/care label block — label design isn't a
+     * material-sourcing concern for this role. Adds deadline/priority/
+     * rush_order/sales_channel on top, which Cutter's version doesn't
+     * carry but Material Prep needs to judge sourcing urgency.
+     */
+    protected function orderDetails(Order $order): array
+    {
+        return [
+            'id'              => $order->id,
+            'po_code'         => $order->po_code,
+            'client_name'     => $order->client_name,
+            'client_brand'    => $order->client_brand,
+            'shirt_color'     => $order->shirt_color,
+            'shirt_color_hex' => $this->colorHex($order->shirt_color),
+            'special_print'   => $order->special_print,
+            'print_area'      => $order->print_area,
+            'total_pcs'       => $this->orderQty($order),
+            'workflow_status' => $order->workflow_status,
+            'notes'           => $order->notes,
+
+            // ── Sourcing urgency — not on Cutter's version, needed here ──
+            'deadline'        => $order->deadline?->toDateString(),
+            'priority'        => $order->priority,
+            'rush_order'      => (bool) $order->rush_order,
+            'sales_channel'   => $order->sales_channel,
+
+            // ── Apparel Information (Product Details mirror) ────────
+            'apparel_type'     => $order->apparelType?->name,
+            'pattern_type'     => $order->patternType?->name,
+            'apparel_neckline' => $order->apparelNeckline?->name,
+            'print_method'     => $order->printMethod?->name,
+
+            // ── Production Details ──────────────────────────────────
+            'design_name'       => $order->design_name,
+            'service_type'      => $order->service_type,
+            'print_service'     => $order->print_service,
+            'fabric_type'       => $order->fabric_type,
+            'fabric_supplier'   => $order->fabric_supplier,
+            'fabric_color'      => $order->fabric_color,
+            'fabric_color_hex'  => $this->colorHex($order->fabric_color),
+            'thread_color'      => $order->thread_color,
+            'thread_color_hex'  => $this->colorHex($order->thread_color),
+            'ribbing_color'     => $order->ribbing_color,
+            'ribbing_color_hex' => $this->colorHex($order->ribbing_color),
+        ];
+    }
+
+    /** Stage context (status, started_at, phase) — mirrors CutterPortalService::stageContext(). */
+    protected function stageContext(OrderStage $stage, ?string $phase): array
+    {
+        return [
+            'id'           => $stage->id,
+            'stage'        => $stage->stage,
+            'sequence'     => $stage->sequence,
+            'status'       => $stage->status,
+            'phase'        => $phase,                  // 'sample' | 'mass'
+            'service_type' => $stage->service_type ?? OrderStage::SERVICE_IN_HOUSE,
+            'started_at'   => $stage->started_at?->toDateTimeString(),
+            'completed_at' => $stage->completed_at?->toDateTimeString(),
+            'assigned_to'  => $stage->assigned_to,
+            'notes'        => $stage->notes,
+        ];
+    }
+
+    /** Colour name → hex, matched against fabric swatches then Pantones. Ported from CutterPortalService::colorHex(). */
+    protected function colorHex(?string $name): ?string
+    {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return null;
+        }
+        $lower = mb_strtolower($name);
+
+        if (Schema::hasTable('fabric_swatches')) {
+            $hex = FabricSwatch::whereRaw('LOWER(name) = ?', [$lower])
+                ->value('hex_color');
+            if (! empty($hex)) {
+                return $hex;
+            }
+        }
+
+        if (Schema::hasTable('pantones')) {
+            $hex = Pantone::whereRaw('LOWER(name) = ?', [$lower])->value('hexcolor');
+            if (! empty($hex)) {
+                return $hex;
+            }
+        }
+
+        return null;
     }
 }
