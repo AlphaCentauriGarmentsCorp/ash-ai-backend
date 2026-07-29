@@ -43,6 +43,35 @@ beforeEach(function () {
         $t->string('client_name')->nullable();
         $t->string('client_brand')->nullable();
         $t->unsignedBigInteger('current_stage_id')->nullable();
+
+        // 2026-07-29 — Product Details mirror (same columns the GA / Cutter
+        // portal tests build; read by the new enriched orderDetails() that
+        // stateForOrder() now returns instead of the old bare orderSummary()).
+        $t->string('shirt_color', 64)->nullable();
+        $t->string('special_print', 64)->nullable();
+        $t->string('print_area', 64)->nullable();
+        $t->text('notes')->nullable();
+        $t->string('workflow_status', 32)->default('inquiry');
+        $t->unsignedBigInteger('apparel_type_id')->nullable();
+        $t->unsignedBigInteger('pattern_type_id')->nullable();
+        $t->unsignedBigInteger('apparel_neckline_id')->nullable();
+        $t->unsignedBigInteger('print_method_id')->nullable();
+        $t->string('design_name')->nullable();
+        $t->string('service_type', 64)->nullable();
+        $t->string('print_service', 64)->nullable();
+        $t->string('fabric_type', 64)->nullable();
+        $t->string('fabric_supplier', 64)->nullable();
+        $t->string('fabric_color', 64)->nullable();
+        $t->string('thread_color', 64)->nullable();
+        $t->string('ribbing_color', 64)->nullable();
+
+        // Sourcing-urgency fields — Material Prep-specific addition on top
+        // of the Cutter/GA orderDetails shape.
+        $t->date('deadline')->nullable();
+        $t->string('priority', 16)->default('normal');
+        $t->boolean('rush_order')->default(false);
+        $t->string('sales_channel', 32)->nullable();
+
         $t->timestamps();
         $t->softDeletes();
     });
@@ -316,6 +345,37 @@ test('stateForOrder returns a suggestion before save, the saved requirement afte
     expect($after['existing'])->not->toBeNull();
     expect($after['can_save'])->toBeFalse();
     expect($after['suggestion'])->toBe([]);
+});
+
+test('stateForOrder returns enriched order details and stage context', function () {
+    $order = Order::create([
+        'po_code' => 'ASH-2026-' . str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT),
+        'client_brand' => 'PREP', 'client_name' => 'Prep Client',
+        'shirt_color' => 'Navy Blue', 'special_print' => 'Full Print',
+        'print_area' => 'Front + Back', 'fabric_type' => 'CVC 240', 'fabric_supplier' => 'Uy Textiles',
+        'design_name' => 'House CC Tee', 'service_type' => 'in_house',
+        'deadline' => '2026-08-15', 'priority' => 'rush', 'rush_order' => true,
+        'sales_channel' => 'Facebook',
+    ]);
+    \App\Models\PoItem::create(['order_id' => $order->id, 'quantity' => 25, 'color' => 'Black', 'size' => 'L']);
+
+    $prep = OrderStage::create([
+        'order_id' => $order->id, 'stage' => 'material_prep_mass',
+        'status' => 'in_progress', 'sequence' => 13, 'assigned_role' => 'material_prep',
+    ]);
+    Order::where('id', $order->id)->update(['current_stage_id' => $prep->id]);
+
+    $state = app(MaterialPrepRequirementService::class)->stateForOrder($order->fresh());
+
+    expect($state['order']['po_code'])->toBe($order->po_code);
+    expect($state['order']['shirt_color'])->toBe('Navy Blue');
+    expect($state['order']['fabric_type'])->toBe('CVC 240');
+    expect($state['order']['total_pcs'])->toBe(25);
+    expect($state['order']['deadline'])->toBe('2026-08-15');
+    expect($state['order']['priority'])->toBe('rush');
+    expect($state['order']['rush_order'])->toBeTrue();
+    expect($state['stage']['status'])->toBe('in_progress');
+    expect($state['stage']['phase'])->toBe('mass');
 });
 
 test('a rejected material request is ignored — order can still be prepared', function () {
