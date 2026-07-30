@@ -32,6 +32,7 @@ class StageReviewController extends Controller
         protected \App\Services\GraphicArtistPortalService $gaPortal,
         protected \App\Services\ScreenMakerPortalService $smPortal,
         protected \App\Services\CutterPortalService $cutterPortal,
+        protected \App\Services\PrinterPortalService $printerPortal,
         protected \App\Services\MaterialPrepRequirementService $materialPrepRequirements,
         protected \App\Services\OrderRoleNoteService $roleNotes,
         protected \App\Services\StageWasteSummaryService $wasteSummary,
@@ -84,6 +85,13 @@ class StageReviewController extends Controller
         //                     notes)  ← Cutter Rework CP1. The cutter
         //                     owns TWO stages, so its summaries are
         //                     built per-stage, keyed by each stage id.
+        //   sample_printing /
+        //   mass_printing   → Printer output (the per-colour ink entries
+        //                     the printer logged + the printer's stage
+        //                     notes)  ← Printer Rework CP1. Like the
+        //                     cutter, the printer owns TWO stages, so its
+        //                     summaries are built per-stage, keyed by
+        //                     each stage id.
         //   material_prep_sample /
         //   material_prep_mass → the materials Material Prep picked for
         //                     that stage (catalog items + qty + resulting
@@ -111,6 +119,17 @@ class StageReviewController extends Controller
             ->get(['id', 'stage', 'notes']);
         foreach ($cuttingStages as $cuttingStage) {
             $stageDetails[$cuttingStage->id] = $this->cutterPortal->reviewSummary($order, $cuttingStage);
+        }
+
+        // Printer Rework CP1 — the printing cards (sample and/or mass).
+        // Same two-stage pattern as Cutter above: each card must show only
+        // its own ink logs and notes, so the summary is keyed by the
+        // concrete stage id, never by the role.
+        $printingStages = OrderStage::where('order_id', $orderId)
+            ->whereIn('stage', ['sample_printing', 'mass_printing'])
+            ->get(['id', 'stage', 'notes']);
+        foreach ($printingStages as $printingStage) {
+            $stageDetails[$printingStage->id] = $this->printerPortal->reviewSummary($order, $printingStage);
         }
 
         // Owner decision (2026-07-28) — Material Prep (sample and/or mass)
