@@ -408,11 +408,16 @@ function phase5b_attachDesign(int $orderId): array
 }
 
 // ─── CutterPortalService tests ────────────────────────────────────
+// NOTE — was `new CutterPortalService()`, but the service's
+// constructor requires MaterialPrepRequirementService with no default,
+// so that threw ArgumentCountError; every test below now resolves the
+// service through the container instead. Flagged for Josh: this means
+// this whole suite could not have been passing before this fix.
 
 it('builds full context for an active sample_cutting stage', function () {
     $made = phase5b_makeOrderWithStage();
 
-    $svc = new CutterPortalService();
+    $svc = app(CutterPortalService::class);
     $ctx = $svc->buildContext($made['order_stage_id']);
 
     expect($ctx)->toHaveKeys([
@@ -441,14 +446,14 @@ it('builds full context for an active sample_cutting stage', function () {
 it('rejects context for a stage outside cutter scope', function () {
     $made = phase5b_makeOrderWithStage('graphic_artwork');
 
-    $svc = new CutterPortalService();
+    $svc = app(CutterPortalService::class);
 
     expect(fn () => $svc->buildContext($made['order_stage_id']))
         ->toThrow(\Illuminate\Validation\ValidationException::class);
 });
 
 it('rejects context for a stage that does not exist', function () {
-    $svc = new CutterPortalService();
+    $svc = app(CutterPortalService::class);
 
     expect(fn () => $svc->buildContext(99999))
         ->toThrow(\Illuminate\Validation\ValidationException::class);
@@ -459,7 +464,7 @@ it('rejects context for a stage that does not exist', function () {
 it('returns the enriched Product-Details order block (GA/SM shape)', function () {
     $made = phase5b_makeOrderWithStage();
 
-    $ctx = (new CutterPortalService())->buildContext($made['order_stage_id']);
+    $ctx = (app(CutterPortalService::class))->buildContext($made['order_stage_id']);
 
     expect($ctx['order'])->toHaveKeys([
         'shirt_color_hex',
@@ -502,7 +507,7 @@ it('hydrates the GA design output and only the cutter role-note thread', functio
         ],
     ]);
 
-    $ctx = (new CutterPortalService())->buildContext($made['order_stage_id']);
+    $ctx = (app(CutterPortalService::class))->buildContext($made['order_stage_id']);
 
     expect($ctx['placements'])->toHaveCount(1);
     expect($ctx['placements'][0]['type'])->toBe('Front');
@@ -544,7 +549,7 @@ it('reviewSummary returns the Cutting output block for a sample stage', function
         ],
     ]);
 
-    $summary = (new CutterPortalService())
+    $summary = (app(CutterPortalService::class))
         ->reviewSummary($made['order'], $made['stage']->fresh());
 
     expect($summary)->toHaveKeys([
@@ -568,7 +573,7 @@ it('reviewSummary returns the Cutting output block for a sample stage', function
 it('reviewSummary reports the mass phase with empty logs for an untouched stage', function () {
     $made = phase5b_makeOrderWithStage('mass_cutting');
 
-    $summary = (new CutterPortalService())
+    $summary = (app(CutterPortalService::class))
         ->reviewSummary($made['order'], $made['stage']);
 
     expect($summary['kind'])->toBe('cutting');

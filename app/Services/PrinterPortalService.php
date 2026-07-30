@@ -6,11 +6,13 @@ use App\Models\MaterialRequest;
 use App\Models\Order;
 use App\Models\OrderDesign;
 use App\Models\OrderStage;
+use App\Models\Pantone;
 use App\Models\ScreenAssignment;
 use App\Models\StageAuditLog;
 use App\Models\StageInkLog;
 use App\Models\StageSampleUpload;
 use App\Models\StageSubcontractAssignment;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -27,6 +29,35 @@ use Illuminate\Validation\ValidationException;
  *   5. Material requests for this stage (Phase 3, same as Cutter)
  *   6. Sample uploads (shared with Cutter via stage_sample_uploads)
  *   7. Recent activity (last N audit log entries for this stage)
+ *
+ * Printer Rework CP1 — the portal now mirrors the Graphic Artist /
+ * Screen Maker / Cutter data surface so the reworked page can render the
+ * same canonical section order every other production portal uses:
+ *   - Order Details          (enriched: Apparel Info + Production Details
+ *                             + colour-hex chips + label specs) — the
+ *                             identical shape CutterPortalService and
+ *                             GraphicArtistPortalService return
+ *   - Design Details         (read-only GA output: hydrated placements +
+ *                             the aggregated Pantone palette). This is
+ *                             ADDITIVE — the printer-specific
+ *                             screen_details and print_placements
+ *                             sections stay exactly as they were (owner
+ *                             decision: full parity, keep both)
+ *   - Notes / Instructions   (order.notes + the Hub -> printer
+ *                             role-directed instruction thread)
+ *
+ * The printer does NOT edit the GA output — placements here are
+ * read-only reference. Notes + mark-as-done still route through the
+ * existing OrderStagesController endpoints (no portal-specific writes).
+ *
+ * Eligible stages: 'sample_printing' and 'mass_printing' — like the
+ * cutter, the printer owns TWO stages per order, so anything per-stage
+ * (ink logs, notes, the Review Hub summary) is keyed by the concrete
+ * OrderStage, never by the role.
+ *
+ * Called by PrinterPortalController::showContext() to drive the page
+ * render, and by StageReviewController for the Review Hub's printing
+ * cards.
  */
 class PrinterPortalService
 {
@@ -64,6 +95,13 @@ class PrinterPortalService
 
         $phase = $stage->stage === 'sample_printing' ? 'sample' : 'mass';
 
+        // Printer Rework CP1 — the GA design output, read-only. Same
+        // hydration the Screen Maker and Cutter portals already use for
+        // their Design Details section.
+        $design = OrderDesign::where('order_id', $order->id)
+            ->with('placements')
+            ->first();
+
         return [
             'order'            => $this->orderDetails($order),
             'stage'            => $this->stageContext($stage, $phase),
@@ -75,11 +113,79 @@ class PrinterPortalService
             'sample_uploads'   => $this->sampleUploads($stage),
             'activity_log'     => $this->recentActivity($stage, 10),
             'subcontract'      => $this->subcontractInfo($stage),
+            // Printer Rework CP1 — read-only GA output for the portal's
+            // Design Details section (full Cutter/SM parity).
+            'placements'       => $this->placements($design),
+            'pantones_used'    => $this->pantonesUsed($design),
+            // Hub -> Printer instruction thread (ORDER-level, role-directed).
+            'role_notes'       => app(OrderRoleNoteService::class)->forRole($order->id, 'printer'),
+        ];
+    }
+
+    /**
+     * Printer Rework CP1 — Review Hub summary of ONE printing stage.
+     *
+     * Read-only composition for the CSR Review Hub's Sample Printing /
+     * Mass Printing cards. PRINTER-AUTHORED output only (owner decision):
+     * the per-colour ink entries the printer logged and the printer's own
+     * "Save Notes" blob (stage.notes). The screens and placements are GA /
+     * Screen Maker context and already render on THEIR cards, so they are
+     * deliberately not repeated here — the same rule CutterPortalService
+     * and ScreenMakerPortalService follow.
+     *
+     * Aggregate ink used / waste totals also appear in the hub's
+     * auto-computed Waste block; they ride along here so the frontend can
+     * caption the per-colour table without a second lookup.
+     *
+     * Shape intentionally parallels CutterPortalService::reviewSummary so
+     * the hub frontend consumes both the same way — and like the cutter,
+     * it takes the concrete stage, because the printer owns two stages per
+     * order and each card must show only its own logs and notes.
+     *
+     * The stage_ink_logs read is guarded by Schema::hasTable() — in
+     * production the table exists (real migration); the guard only matters
+     * for hand-built SQLite test schemas that don't include it, so this
+     * service can join the shared stage-reviews code path safely.
+     */
+    public function reviewSummary(Order $order, OrderStage $stage): array
+    {
+        $tracking = Schema::hasTable('stage_ink_logs')
+            ? $this->inkTracking($stage)
+            : [
+                'logs'   => [],
+                'totals' => [
+                    'ink_used_kg'         => 0.0,
+                    'ink_waste_kg'        => 0.0,
+                    'usable_remaining_kg' => 0.0,
+                ],
+            ];
+
+        return [
+            'kind'        => 'printing',
+            'phase'       => $stage->stage === 'sample_printing' ? 'sample' : 'mass',
+            'ink_logs'    => $tracking['logs'],
+            'ink_totals'  => $tracking['totals'],
+            'stage_notes' => $stage->notes,
         ];
     }
 
     // ── Section builders ────────────────────────────────────────────
 
+    /**
+     * Top section — order info as the portal needs it.
+     *
+     * Printer Rework CP1 — enriched to match the order page's Product
+     * Details (Apparel Information + Production Details + Labels),
+     * byte-for-byte the same shape CutterPortalService::orderDetails and
+     * GraphicArtistPortalService::orderDetails return, so the reworked
+     * page can render the shared OrderDetailsSectionGA layout. Colour
+     * fields carry a best-effort resolved hex (fabric_swatches name match,
+     * falling back to pantones) so the portal can show a visual chip beside
+     * the colour name; unmatched names get null and the chip is omitted.
+     *
+     * The pre-rework keys are all still present and unchanged — this is
+     * purely additive, so nothing that already read this payload breaks.
+     */
     protected function orderDetails(Order $order): array
     {
         $items = $this->itemsAsArray($order);
@@ -89,16 +195,43 @@ class PrinterPortalService
         }
 
         return [
-            'id'             => $order->id,
-            'po_code'        => $order->po_code,
-            'client_name'    => $order->client_name,
-            'client_brand'   => $order->client_brand,
-            'shirt_color'    => $order->shirt_color,
-            'special_print'  => $order->special_print,
-            'print_area'     => $order->print_area,
-            'total_pcs'      => $totalPcs,
-            'workflow_status'=> $order->workflow_status,
-            'notes'          => $order->notes,
+            'id'              => $order->id,
+            'po_code'         => $order->po_code,
+            'client_name'     => $order->client_name,
+            'client_brand'    => $order->client_brand,
+            'shirt_color'     => $order->shirt_color,
+            'shirt_color_hex' => $this->colorHex($order->shirt_color),
+            'special_print'   => $order->special_print,
+            'print_area'      => $order->print_area,
+            'total_pcs'       => $totalPcs,
+            'workflow_status' => $order->workflow_status,
+            'notes'           => $order->notes,
+
+            // -- Apparel Information (Product Details mirror) --------
+            'apparel_type'     => $order->apparelType?->name,
+            'pattern_type'     => $order->patternType?->name,
+            'apparel_neckline' => $order->apparelNeckline?->name,
+            'print_method'     => $order->printMethod?->name,
+
+            // -- Production Details ---------------------------------
+            'design_name'       => $order->design_name,
+            'service_type'      => $order->service_type,
+            'print_service'     => $order->print_service,
+            'fabric_type'       => $order->fabric_type,
+            'fabric_supplier'   => $order->fabric_supplier,
+            'fabric_color'      => $order->fabric_color,
+            'fabric_color_hex'  => $this->colorHex($order->fabric_color),
+            'thread_color'      => $order->thread_color,
+            'thread_color_hex'  => $this->colorHex($order->thread_color),
+            'ribbing_color'     => $order->ribbing_color,
+            'ribbing_color_hex' => $this->colorHex($order->ribbing_color),
+
+            // -- Labels (structured specs shared with the quotation) -
+            'brand_label'      => is_array($order->brand_label_json) ? $order->brand_label_json : null,
+            'care_label'       => is_array($order->care_label_json) ? $order->care_label_json : null,
+            'label_design_url' => $order->label_design_path
+                ? $this->publicUrl($order->label_design_path)
+                : null,
         ];
     }
 
@@ -265,6 +398,183 @@ class PrinterPortalService
                 'created_at'        => $u->created_at?->toDateTimeString(),
             ])
             ->all();
+    }
+
+    /**
+     * Printer Rework CP1 — read-only hydrated GA placements for the
+     * Design Details section. Ported verbatim from
+     * CutterPortalService::placements so all three portals render
+     * identical data.
+     *
+     * order_design_placements.pantones is stored as a JSON array. Each
+     * element may be either a Pantone ID (int) or an inline pantone
+     * descriptor (array). We resolve IDs to full records.
+     *
+     * NOTE — this is NOT the same thing as printPlacements() above.
+     * printPlacements() is the printer's own mockup/measurement guide and
+     * is untouched; this one feeds the shared Design Details section.
+     */
+    protected function placements(?OrderDesign $design): array
+    {
+        if (! $design || $design->placements->isEmpty()) {
+            return [];
+        }
+
+        // Collect all Pantone IDs referenced across placements for a
+        // single batched lookup.
+        $ids = [];
+        foreach ($design->placements as $p) {
+            $raw = is_array($p->pantones) ? $p->pantones : [];
+            foreach ($raw as $entry) {
+                if (is_int($entry) || (is_string($entry) && ctype_digit($entry))) {
+                    $ids[] = (int) $entry;
+                } elseif (is_array($entry) && isset($entry['id'])) {
+                    $ids[] = (int) $entry['id'];
+                }
+            }
+        }
+        $ids = array_values(array_unique($ids));
+
+        $pantonesById = empty($ids)
+            ? collect()
+            : Pantone::whereIn('id', $ids)->get()->keyBy('id');
+
+        return $design->placements->map(function ($p) use ($pantonesById) {
+            $raw = is_array($p->pantones) ? $p->pantones : [];
+            $hydrated = [];
+            foreach ($raw as $entry) {
+                if (is_int($entry) || (is_string($entry) && ctype_digit($entry))) {
+                    $rec = $pantonesById->get((int) $entry);
+                    if ($rec) {
+                        $hydrated[] = [
+                            'source'       => 'official',
+                            'id'           => $rec->id,
+                            'name'         => $rec->name,
+                            'hexcolor'     => $rec->hexcolor,
+                            'pantone_code' => $rec->pantone_code,
+                        ];
+                    }
+                } elseif (is_array($entry)) {
+                    $entrySource = isset($entry['source']) && $entry['source'] !== ''
+                        ? (string) $entry['source']
+                        : (isset($entry['id']) ? 'official' : 'inline');
+                    $hydrated[] = [
+                        'source'       => $entrySource,
+                        'id'           => $entry['id']           ?? null,
+                        'name'         => $entry['name']         ?? null,
+                        'hexcolor'     => $entry['hexcolor']     ?? null,
+                        'pantone_code' => $entry['pantone_code'] ?? null,
+                    ];
+                }
+            }
+
+            return [
+                'id'           => $p->id,
+                'type'         => $p->type,
+                'color_count'  => $p->color_count !== null ? (int) $p->color_count : null,
+                'mockup_image' => $p->mockup_image,
+                'mockup_url'   => $p->mockup_image
+                    ? $this->publicUrl($p->mockup_image)
+                    : null,
+                'pantones'     => $hydrated,
+            ];
+        })->all();
+    }
+
+    /**
+     * Aggregated unique Pantones across all placements — for the palette
+     * strip in the Design Details section. Ported from
+     * CutterPortalService::pantonesUsed.
+     */
+    protected function pantonesUsed(?OrderDesign $design): array
+    {
+        if (! $design || $design->placements->isEmpty()) {
+            return [];
+        }
+
+        $ids = [];
+        $inline = [];
+        foreach ($design->placements as $p) {
+            $raw = is_array($p->pantones) ? $p->pantones : [];
+            foreach ($raw as $entry) {
+                if (is_int($entry) || (is_string($entry) && ctype_digit($entry))) {
+                    $ids[(int) $entry] = true;
+                } elseif (is_array($entry)) {
+                    if (isset($entry['id'])) {
+                        $ids[(int) $entry['id']] = true;
+                    } else {
+                        $key = ($entry['pantone_code'] ?? '') . '|' . ($entry['name'] ?? '');
+                        $inline[$key] = [
+                            'id'           => null,
+                            'name'         => $entry['name']         ?? null,
+                            'hexcolor'     => $entry['hexcolor']     ?? null,
+                            'pantone_code' => $entry['pantone_code'] ?? null,
+                        ];
+                    }
+                }
+            }
+        }
+
+        $byId = [];
+        if (! empty($ids)) {
+            $byId = Pantone::whereIn('id', array_keys($ids))->get()
+                ->map(fn ($p) => [
+                    'id'           => $p->id,
+                    'name'         => $p->name,
+                    'hexcolor'     => $p->hexcolor,
+                    'pantone_code' => $p->pantone_code,
+                ])->all();
+        }
+
+        return array_values(array_merge($byId, array_values($inline)));
+    }
+
+    /**
+     * Best-effort colour name -> hex resolution, for the Order Details
+     * colour chips. Checks fabric_swatches first (hex_color), then falls
+     * back to the Pantone catalog (hexcolor). Case-insensitive exact
+     * match; null when unmatched (the UI omits the chip). Table guards
+     * keep the throwaway Pest schemas (which don't build fabric_swatches)
+     * safe. Ported from CutterPortalService::colorHex.
+     */
+    protected function colorHex(?string $name): ?string
+    {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return null;
+        }
+        $lower = mb_strtolower($name);
+
+        if (Schema::hasTable('fabric_swatches')) {
+            $hex = \App\Models\FabricSwatch::whereRaw('LOWER(name) = ?', [$lower])
+                ->value('hex_color');
+            if (! empty($hex)) {
+                return $hex;
+            }
+        }
+
+        if (Schema::hasTable('pantones')) {
+            $hex = Pantone::whereRaw('LOWER(name) = ?', [$lower])->value('hexcolor');
+            if (! empty($hex)) {
+                return $hex;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Build a publicly-servable URL for a stored path. Accepts paths that
+     * already include the /storage/ prefix or relative disk paths.
+     * Ported from CutterPortalService::publicUrl.
+     */
+    protected function publicUrl(string $path): string
+    {
+        $relative = ltrim($path, '/');
+        if (str_starts_with($relative, 'storage/')) {
+            return '/' . $relative;
+        }
+        return Storage::disk('public')->url($relative);
     }
 
     protected function recentActivity(OrderStage $stage, int $limit): array
