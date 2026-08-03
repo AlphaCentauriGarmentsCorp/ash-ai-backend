@@ -10,10 +10,12 @@ use App\Models\Storefront\Customer;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Contracts\Auth\PasswordBroker;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Support\Timebox;
+use Throwable;
 
 class PasswordResetController extends Controller
 {
@@ -59,7 +61,25 @@ class PasswordResetController extends Controller
             $broker = Password::broker(self::BROKER);
             $token = $broker->createToken($user);
 
-            Mail::to($user->email)->send(new PasswordResetMail($user, $token));
+            /*
+             * A delivery failure must not reach the shopper, because only THIS branch
+             * can produce one. Unguarded, a broken mailer answers 200 for an address
+             * with no account and 500 for one that has an account — which is the
+             * enumeration oracle the Timebox and NEUTRAL_REPLY above exist to close,
+             * arriving through the back door. SMTP being down is an operational
+             * problem; it must not become a disclosure one.
+             *
+             * Logged, not swallowed: the shopper is told a link is on its way, so
+             * the only remaining record that it never left is this line.
+             */
+            try {
+                Mail::to($user->email)->send(new PasswordResetMail($user, $token));
+            } catch (Throwable $e) {
+                Log::error('Storefront password-reset mail failed to send.', [
+                    'customer_id' => $user->getKey(),
+                    'exception' => $e,
+                ]);
+            }
         }, 200_000);
 
         return response()->json(['message' => self::NEUTRAL_REPLY]);

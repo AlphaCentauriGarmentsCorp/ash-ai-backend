@@ -79,4 +79,28 @@ class PasswordResetTest extends TestCase
         $this->assertSame($registered->getStatusCode(), $unregistered->getStatusCode());
         $this->assertSame($registered->json('message'), $unregistered->json('message'));
     }
+
+    /**
+     * The same property, but with the mailer failing rather than the view being wrong.
+     *
+     * Only the "account exists" branch sends anything, so an unguarded send makes the
+     * MAILER the oracle: unknown address → 200, registered address → 500. It needs no
+     * attacker skill to trigger, only a rate-limited provider or a wrong SMTP password
+     * on the day, and the endpoint silently loses the property it is built around while
+     * looking like an ordinary outage.
+     */
+    public function test_a_delivery_failure_still_reveals_nothing(): void
+    {
+        $user = $this->customer();
+
+        Mail::shouldReceive('to')->andReturnSelf();
+        Mail::shouldReceive('send')->andThrow(new \RuntimeException('SMTP is down'));
+
+        $registered = $this->postJson('/api/storefront/v1/auth/forgot-password', ['email' => $user->email]);
+        $unregistered = $this->postJson('/api/storefront/v1/auth/forgot-password', ['email' => 'nobody@example.test']);
+
+        $this->assertSame(200, $registered->getStatusCode(), 'A broken mailer must not surface as a 500.');
+        $this->assertSame($registered->getStatusCode(), $unregistered->getStatusCode());
+        $this->assertSame($registered->json('message'), $unregistered->json('message'));
+    }
 }

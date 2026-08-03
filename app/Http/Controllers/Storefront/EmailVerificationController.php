@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Mail\Storefront\VerifyEmailMail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Email verification by 6-digit code.
@@ -57,7 +59,33 @@ class EmailVerificationController extends Controller
             'email_verification_sent_at' => now(),
         ])->save();
 
-        Mail::to($user->email)->send(new VerifyEmailMail($user, $code));
+        /*
+         * The cooldown stamp was written ABOVE, before the send. If delivery then
+         * fails, the account is throttled for a code that never arrived — the shopper
+         * sees an error, finds an empty inbox, and is refused a retry for the next
+         * RESEND_COOLDOWN seconds. So on failure the stamp goes back to what it was,
+         * which lets them retry at once (the check above has already established that
+         * the previous cooldown, if any, had lapsed).
+         *
+         * The freshly generated code stays: it superseded the old one in the same
+         * write, and it is not in anybody's inbox, so leaving it costs nothing and a
+         * retry replaces it. This endpoint is authenticated, so unlike the password
+         * reset there is nothing to disclose — the honest answer is the useful one.
+         */
+        try {
+            Mail::to($user->email)->send(new VerifyEmailMail($user, $code));
+        } catch (Throwable $e) {
+            $user->forceFill(['email_verification_sent_at' => $sentAt])->save();
+
+            Log::error('Storefront email-verification mail failed to send.', [
+                'customer_id' => $user->getKey(),
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'message' => 'We could not send the code just now. Please try again in a moment.',
+            ], 503);
+        }
 
         return response()->json([
             'message' => 'If that address can receive mail, a 6-digit code is on its way.',

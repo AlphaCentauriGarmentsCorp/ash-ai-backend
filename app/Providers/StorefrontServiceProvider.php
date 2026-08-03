@@ -9,6 +9,7 @@ use App\Services\Storefront\PayMongoGateway;
 use App\Services\Storefront\PricingService;
 use App\Services\Storefront\SimulatedPaymentGateway;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
@@ -48,6 +49,7 @@ class StorefrontServiceProvider extends ServiceProvider
     {
         $this->configureRateLimiting();
         $this->prioritiseJsonResponses();
+        $this->scheduleStockAlerts();
 
         /*
          * Mounted under its own prefix, NOT merged into routes/api.php: the ERP
@@ -68,6 +70,44 @@ class StorefrontServiceProvider extends ServiceProvider
         Route::prefix('api/storefront')
             ->middleware(['api', ForceJsonResponse::class, 'throttle:storefront-api'])
             ->group(base_path('routes/storefront.php'));
+    }
+
+    /**
+     * Run the back-in-stock mailer on a schedule.
+     *
+     * Without this the feature is a dead end that looks alive: StockAlertController
+     * happily takes subscriptions and writes storefront_stock_alerts rows, and
+     * reefer:notify-back-in-stock is the only thing that ever reads them — so with
+     * nothing calling it, shoppers wait for an email that has no sender. `artisan
+     * schedule:list` reported "No scheduled tasks have been defined" for this whole
+     * application, so there was no existing entry to sit beside.
+     *
+     * Declared here rather than in routes/console.php or bootstrap/app.php because
+     * both are the ERP's, and the point of this provider is that the storefront adds
+     * nothing to files it does not own. Removing the provider removes this too.
+     *
+     * Console-only: the schedule is read by `schedule:run`, so building it during an
+     * HTTP request would cost the ERP's ~440 routes a container resolution none of
+     * them use. withoutOverlapping so a slow SMTP run cannot stack on the next tick.
+     *
+     * NOTE this needs the server's cron to be calling `php artisan schedule:run`
+     * every minute. Where it is not, this is inert rather than wrong — the same
+     * silence as before, but now one cron entry away from working.
+     */
+    private function scheduleStockAlerts(): void
+    {
+        if (! $this->app->runningInConsole()) {
+            return;
+        }
+
+        // Deferred: the scheduler is resolved out of the container, which is not
+        // ready to hand it over while providers are still booting.
+        $this->app->booted(function () {
+            $this->app->make(Schedule::class)
+                ->command('reefer:notify-back-in-stock')
+                ->everyFifteenMinutes()
+                ->withoutOverlapping();
+        });
     }
 
     /**
