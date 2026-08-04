@@ -42,11 +42,19 @@ class DemoSeeder extends Seeder
         $pricing = app(PricingService::class);
 
         // A delivered order and an in-transit one, mirroring the account page demo.
-        $this->makeOrder($user, $pricing, 'RFR-PH0018452', 'deep-current', 'L', 1,
+        //
+        // Both reference PHOTOGRAPHED products. They used to point at 'deep-current' and
+        // 'undertow', which came from ProductSeeder's filler catalogue — and makeOrder()
+        // resolves the slug with firstOrFail(), so once the catalogue was cut down to the
+        // three real products this seeder threw instead of skipping. Keeping it on the
+        // three means it depends only on PhotographedProductSeeder, which is the one
+        // catalogue seeder that must always run. Sizes chosen from stock those two
+        // actually carry.
+        $this->makeOrder($user, $pricing, 'RFR-PH0018452', 'behemoth', 'L', 1,
             status: 'Delivered', stage: 4, courier: 'LBC Express', tracking: 'LBC55120983',
             placedAt: '2026-05-12', eta: '2026-05-15', paymentStatus: 'paid');
 
-        $this->makeOrder($user, $pricing, 'RFR-PH0019004', 'undertow', 'M', 1,
+        $this->makeOrder($user, $pricing, 'RFR-PH0019004', 'dark-days', 'M', 1,
             status: 'Processing', stage: 2, courier: 'J&T Express', tracking: 'JT8842019PH',
             placedAt: '2026-07-11', eta: '2026-07-15', paymentStatus: 'paid');
     }

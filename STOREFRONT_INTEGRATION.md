@@ -148,16 +148,26 @@ php artisan migrate
 # 3. product photography lives on the public disk
 php artisan storage:link
 
-# 4. demo catalogue + data (order matters: products before the demo orders)
-php artisan db:seed --class="Database\Seeders\Storefront\ProductSeeder"
+# 4. catalogue + demo data (order matters: products before the demo orders)
 php artisan db:seed --class="Database\Seeders\Storefront\PhotographedProductSeeder"
 php artisan db:seed --class="Database\Seeders\Storefront\DiscountSeeder"
 php artisan db:seed --class="Database\Seeders\Storefront\DemoSeeder"
 ```
 
-`DemoSeeder` creates a shopper you can sign in as: **demo@reefer.mnl / password**. All
-four seeders are `updateOrCreate`-based, so re-running them will not duplicate products
-or reset stock that orders have already drawn down.
+`DemoSeeder` creates a shopper you can sign in as: **demo@reefer.mnl / password**. The
+seeders are `updateOrCreate`-based, so re-running them will not duplicate products or
+reset stock that orders have already drawn down.
+
+> **`ProductSeeder` is deliberately NOT in that list.** It seeds 15 additional products
+> that have no photography, so every one of them renders as a grey placeholder card. The
+> catalogue is the three photographed products — `PhotographedProductSeeder` is the one
+> that matters, and `DemoSeeder`'s orders reference only those three. The file is kept
+> for anyone who wants a fuller catalogue to test paging and filters against; running it
+> is opt-in:
+>
+> ```bash
+> php artisan db:seed --class="Database\Seeders\Storefront\ProductSeeder"   # optional filler
+> ```
 
 `database/seeders/DatabaseSeeder.php` is the ERP's and was **not** modified — the
 storefront seeders are run explicitly, as above.
