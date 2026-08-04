@@ -7,7 +7,7 @@ the whole thing can be switched off again by deleting one line from
 `bootstrap/providers.php`.
 
 - Backend API: `/api/storefront/v1/*` (the ERP keeps `/api/v1/*`)
-- Frontend: mounted at `/store` inside the existing React app
+- Frontend: its own SPA (`reefer-frontend`), served at the root of its own domain
 
 ---
 
@@ -169,6 +169,23 @@ php artisan test                                  # ERP + storefront
 php artisan test --filter=Storefront              # storefront only
 ```
 
+> ### ⚠ Never run the suite with a cached config
+>
+> `php artisan config:cache` writes `bootstrap/cache/config.php`, and **a cached config
+> silently overrides `phpunit.xml`'s `<env>` entries** — Laravel loads the cached file
+> and never consults them. The suite's `DB_CONNECTION=sqlite` / `DB_DATABASE=:memory:`
+> pinning is defeated, so `RefreshDatabase` runs `migrate:fresh` against whatever
+> connection the cached config names: **your development MySQL database**. Every table
+> is dropped.
+>
+> This is not hypothetical — it emptied `ash_ai_backend` during this integration.
+>
+> Run `php artisan config:clear` before `php artisan test`, always. Caching config is
+> for deployed servers, not for a machine you also run tests on.
+> `StressInputTest` carries a guard that refuses to run when the target database does
+> not look disposable; the other test files do not, so the rule above is the real
+> protection.
+
 ---
 
 ## 5. Running locally
@@ -186,8 +203,8 @@ npm install
 npm run dev
 ```
 
-- ERP app: <http://localhost:5173/>
-- Storefront: <http://localhost:5173/store>
+- Storefront: <http://localhost:5173/> — it owns the root; `reefer-frontend` is the
+  storefront now, not an ERP app with a storefront bolted into a sub-path.
 
 `reefer-frontend/.env` holds:
 
@@ -195,9 +212,18 @@ npm run dev
 VITE_API_URL=http://127.0.0.1:8000/api/storefront
 ```
 
-The API clients append `/v1/...` themselves. Port 5173 is already in this repo's
-`config/cors.php` allowlist, so **local dev needs no CORS change at all** —
-`STOREFRONT_ALLOWED_ORIGINS` can stay empty.
+The API clients append `/v1/...` themselves. This is cross-origin (`:5173` → `:8000`),
+so **set the dev origin in the backend `.env`**:
+
+```
+STOREFRONT_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+The committed `config/cors.php` reads `CORS_ALLOWED_ORIGINS`, which is unset in a fresh
+`.env.example` — so on a clean clone the allowlist is empty and the browser blocks every
+request while `curl` against the same URLs returns 200. `StorefrontServiceProvider`
+merges `STOREFRONT_ALLOWED_ORIGINS` in additively, keeping the ERP's own origins, so
+setting it here never requires editing `config/cors.php`.
 
 Mail (verification codes, password resets, back-in-stock) goes to
 `storage/logs/laravel.log` while `MAIL_MAILER=log`.
@@ -230,9 +256,18 @@ REEFER_MANUAL_ADVANCE=false        # ⚠ see below
 INVENTORY_API_TOKEN=<64 hex chars> # turns on the ERP↔storefront stock API
 PAYMONGO_SECRET_KEY=<live key>     # switches checkout off the simulator
 PAYMONGO_PUBLIC_KEY=<live key>
-PAYMONGO_SUCCESS_URL=https://shop.example.com/store/checkout/success
-PAYMONGO_FAILED_URL=https://shop.example.com/store/checkout/failed
+PAYMONGO_SUCCESS_URL=https://reeferclothing.com/checkout
+PAYMONGO_FAILED_URL=https://reeferclothing.com/checkout
+STOREFRONT_SPA_URL=https://reeferclothing.com  # base for links in outgoing email
 ```
+
+⚠ Both redirect URLs point at the SPA's `/checkout`, because the SPA has no
+`/checkout/success` or `/checkout/failed` route — `Checkout.jsx` renders the outcome
+in-page from a `phase` state. The config *default* is `APP_URL + /checkout/success`,
+which is wrong twice over on a split deployment: `APP_URL` is the API host, and that
+path exists nowhere. Before enabling PayMongo, either add real outcome routes to the
+SPA and point these at them, or keep them on `/checkout` and have it read the result
+from the query string.
 
 ⚠ **`REEFER_MANUAL_ADVANCE` is a demo affordance.** It lets a buyer walk their own order
 down the tracker. Movement is one-way and owner-scoped, but someone who can mark their
@@ -252,7 +287,9 @@ VITE_API_URL=https://api.example.com/api/storefront
 
 Then `npm run build` and deploy `dist/`. Vite bakes this in at build time, so a change
 here means a rebuild, not a restart. Serve `dist/` with an SPA fallback (every unmatched
-path returns `index.html`) or deep links into `/store/...` will 404 on refresh.
+path returns `index.html`) or deep links like `/product/behemoth` will 404 on refresh.
+`public/.htaccess` (Apache/Hostinger) and `public/_redirects` (Netlify) ship that
+fallback and are copied into `dist/` by the build.
 
 **After deploying**, sanity-check in this order:
 
@@ -270,12 +307,16 @@ missing port is the usual cause), and the browser will block every API call from
 
 ## 7. Files this integration is allowed to have touched
 
-Everything above is new. The only pre-existing files edited, all append-only:
+In THIS repo (`ash-ai-backend`) everything above is new, and exactly one pre-existing
+file was edited:
 
 - `bootstrap/providers.php` — one line registering `StorefrontServiceProvider`
-- `reefer-frontend/src/App.jsx` — one import + one `<Route path="/store/*">`
-- `reefer-frontend/.env`, `.env.production` — `VITE_API_URL`
-- `reefer-frontend/public/` — the storefront's image assets (new files only)
+
+`reefer-frontend` is a different matter and is **not** append-only: that repo's previous
+app was replaced wholesale by the storefront (138 files: 40 added, 20 modified, 78
+removed). The storefront owns `/` there now. Its deployment files — `.github/workflows/
+deploy.yml`, `public/.htaccess`, `public/_redirects`, `vercel.json` — were carried over
+untouched.
 
 `config/cors.php`, `config/auth.php`, `config/services.php`, `bootstrap/app.php`,
 `routes/api.php`, `routes/web.php`, `database/seeders/DatabaseSeeder.php`, `composer.json`

@@ -54,6 +54,31 @@ return [
         'failed_url' => env('PAYMONGO_FAILED_URL') ?: rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/checkout/failed',
     ],
 
+    /*
+     * Where the SHOPPER-FACING site lives — the base every link in an outgoing email
+     * is built from.
+     *
+     * Not APP_URL. APP_URL is this Laravel app, and in the deployment this integration
+     * targets that is the API host (api.sorbetesapparel.com), whose routes/web.php
+     * serves exactly one route: '/'. Every path an email wants to link to
+     * (/reset-password, /product/{slug}) is a CLIENT-SIDE React route that exists only
+     * on the storefront's own origin. Build those links from APP_URL and they resolve
+     * to a 404 on the API host — the shopper never reaches the page, and for the reset
+     * link that means account recovery is impossible, since the token is single-use and
+     * the SPA offers no way to paste one in by hand.
+     *
+     * This is the same trap the PayMongo redirects above already document ("APP_URL is
+     * then the API host, which has no /checkout page to land on"). That reasoning was
+     * applied to payments and missed for mail; this key closes it for mail.
+     *
+     * Defaults to APP_URL, which is correct for a single-origin setup where the SPA and
+     * the API share a host — so nothing changes for local dev or the original mockup.
+     * `?:` rather than env()'s second argument for the same reason as above: appending
+     * .env.storefront.example whole leaves the key PRESENT-and-empty, and an empty
+     * string must not win.
+     */
+    'spa_url' => env('STOREFRONT_SPA_URL') ?: env('APP_URL', 'http://localhost:8000'),
+
     // Human-facing order number: RFR-PH + 7-digit zero-padded sequence.
     'order_prefix' => 'RFR-PH',
     'order_seq_start' => 19005, // demo history in the design ends at RFR-PH0019004

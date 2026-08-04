@@ -49,9 +49,13 @@ class BackInStockMail extends Mailable
                 'productName' => $product->name,
                 'size' => $this->variant->size,
                 'priceFormatted' => '₱'.number_format((int) $product->price),
-                // /product/{slug} is a SPA route served by the same origin as the API,
-                // so app.url is the whole address.
-                'productUrl' => rtrim((string) config('app.url'), '/').'/product/'.$product->slug,
+                // /product/{slug} is a SPA route, so this is built from the STOREFRONT's
+                // origin. The comment here used to say "served by the same origin as the
+                // API" — true of the original single-origin mockup, false of the split
+                // deployment this integration targets, where it sent every restock
+                // notification to a 404 on the API host. spa_url defaults to app.url, so
+                // same-origin setups keep the old behaviour.
+                'productUrl' => rtrim((string) config('reefer.spa_url'), '/').'/product/'.$product->slug,
             ],
         );
     }

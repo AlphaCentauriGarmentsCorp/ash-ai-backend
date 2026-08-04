@@ -21,7 +21,8 @@ class MergeCartRequest extends FormRequest
     {
         return [
             'items' => ['present', 'array', 'max:50'],
-            'items.*.slug' => ['required', 'string', 'exists:storefront_products,slug'],
+            // bail + max before exists — see StoreCartItemRequest for why both are needed.
+            'items.*.slug' => ['bail', 'required', 'string', 'max:255', 'exists:storefront_products,slug'],
             'items.*.size' => ['required', 'string', 'max:8'],
             'items.*.qty' => ['required', 'integer', 'min:1', 'max:99'],
         ];

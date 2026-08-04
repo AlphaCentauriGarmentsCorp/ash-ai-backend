@@ -27,7 +27,14 @@ class PasswordResetMail extends Mailable
         // /reset-password is a SPA route, not a Laravel one — the client reads token
         // and email off the query string and posts them back to the API. http_build_query
         // handles the encoding, which matters for the '+' addresses email allows.
-        $this->resetUrl = rtrim((string) config('app.url'), '/').'/reset-password?'.http_build_query([
+        //
+        // reefer.spa_url, NOT app.url: because that route is client-side only, the link
+        // has to point at the STOREFRONT's origin. Where the two are split — the SPA on
+        // reeferclothing.com, this app on api.sorbetesapparel.com — app.url resolves to
+        // the API host, whose routes/web.php serves only '/', so the shopper lands on a
+        // 404 and the token expires unredeemed. spa_url defaults to app.url, so the
+        // single-origin case is unchanged.
+        $this->resetUrl = rtrim((string) config('reefer.spa_url'), '/').'/reset-password?'.http_build_query([
             'token' => $token,
             'email' => $user->email,
         ]);

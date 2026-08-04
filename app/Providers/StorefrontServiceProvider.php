@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Contracts\Storefront\PaymentGateway;
+use App\Http\Middleware\Storefront\AuthenticateApiToken;
 use App\Http\Middleware\Storefront\ForceJsonResponse;
 use App\Models\Storefront\Customer;
 use App\Services\Storefront\PayMongoGateway;
@@ -10,12 +11,15 @@ use App\Services\Storefront\PricingService;
 use App\Services\Storefront\SimulatedPaymentGateway;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
+use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * The single integration point for the REEFER storefront inside the ASH-AI ERP.
@@ -49,6 +53,7 @@ class StorefrontServiceProvider extends ServiceProvider
     {
         $this->configureRateLimiting();
         $this->prioritiseJsonResponses();
+        $this->normaliseNotFoundResponses();
         $this->scheduleStockAlerts();
 
         /*
@@ -70,6 +75,41 @@ class StorefrontServiceProvider extends ServiceProvider
         Route::prefix('api/storefront')
             ->middleware(['api', ForceJsonResponse::class, 'throttle:storefront-api'])
             ->group(base_path('routes/storefront.php'));
+    }
+
+    /**
+     * Give every storefront 404 the same body.
+     *
+     * Laravel turns a route-model-binding miss into a NotFoundHttpException carrying
+     * ModelNotFoundException's message, and that message survives into the JSON — with
+     * APP_DEBUG=false too, which is worth stating because it looks like a debug artifact
+     * and is not (verified by running the suite with APP_DEBUG=false). So a request for
+     * an id that does not exist answered
+     *     {"message":"No query results for model [App\\Models\\Storefront\\Address] 999999"}
+     * while a request for an id that exists but belongs to somebody else answered a 404
+     * with an empty message. Two things leak from that: the internal model class name,
+     * and — because the two bodies differ — whether any given id is real. An owner-scoped
+     * resource must not confirm its own existence to someone who cannot read it.
+     *
+     * Registered as a renderable on the shared handler but gated on the storefront path
+     * prefix, so ERP routes keep whatever behaviour they have. Returning null for
+     * anything else lets the handler carry on as normal.
+     */
+    private function normaliseNotFoundResponses(): void
+    {
+        $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
+            if (! $handler instanceof Handler) {
+                return;
+            }
+
+            $handler->renderable(function (NotFoundHttpException $e, Request $request) {
+                if (! $request->is('api/storefront/*')) {
+                    return null;
+                }
+
+                return response()->json(['message' => 'Not found.'], 404);
+            });
+        });
     }
 
     /**
@@ -138,6 +178,21 @@ class StorefrontServiceProvider extends ServiceProvider
             // does not declare this method. Anything but the standard kernel is simply
             // left alone instead of fatalling.
             if ($kernel instanceof HttpKernel) {
+                /*
+                 * Order matters, and these are prepended in reverse: the LAST prepend
+                 * ends up first.
+                 *
+                 * AuthenticateApiToken must outrank SubstituteBindings. Both are in the
+                 * storefront pipeline, but only SubstituteBindings is named in the
+                 * framework's default priority list, so it sorted ahead of our custom
+                 * class and route-model binding ran BEFORE authentication. That turned
+                 * every owner-scoped route into an existence oracle for anonymous
+                 * callers: a real id bound successfully and then answered 401, while a
+                 * made-up id 404'd at binding — so the status code alone told an
+                 * unauthenticated stranger which ids exist. Authenticating first makes
+                 * both answer 401.
+                 */
+                $kernel->prependToMiddlewarePriority(AuthenticateApiToken::class);
                 $kernel->prependToMiddlewarePriority(ForceJsonResponse::class);
             }
         };

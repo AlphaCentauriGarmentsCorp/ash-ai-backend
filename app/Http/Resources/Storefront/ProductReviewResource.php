@@ -44,13 +44,27 @@ class ProductReviewResource extends JsonResource
             return 'Reefer customer';
         }
 
-        $parts = preg_split('/\s+/', $name);
+        $parts = preg_split('/\s+/u', $name);
         $first = array_shift($parts);
 
         if (! $parts) {
             return $first;
         }
 
-        return $first.' '.strtoupper(substr(end($parts), 0, 1)).'.';
+        /*
+         * mb_*, not substr()/strtoupper(). substr($surname, 0, 1) takes the first BYTE.
+         * "Peña" starts fine, but a surname BEGINNING with a multi-byte character —
+         * Ñoño, Ángeles, an emoji — is 2+ bytes there, so taking one byte returned half
+         * a character. That is not valid UTF-8, and json_encode refuses to encode it:
+         * response()->json() threw "Malformed UTF-8 characters", so the whole reviews
+         * endpoint answered 500 for every product that customer had reviewed. Not an
+         * edge case here — Ñ is ordinary in Filipino surnames.
+         *
+         * The /u on the split above matters for the same reason: without it \s+ can
+         * split inside a multi-byte sequence.
+         */
+        $initial = mb_substr(end($parts), 0, 1, 'UTF-8');
+
+        return $first.' '.mb_strtoupper($initial, 'UTF-8').'.';
     }
 }

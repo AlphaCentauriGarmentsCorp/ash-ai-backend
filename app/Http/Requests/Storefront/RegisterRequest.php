@@ -23,7 +23,10 @@ class RegisterRequest extends FormRequest
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:255', 'unique:storefront_users,email'],
             'phone' => ['nullable', 'string', 'max:30'],
-            'password' => ['required', 'string', 'min:8'],
+            // max as well as min: an unbounded password is handed to bcrypt as-is, and
+            // LoginRequest bounds it identically so the two can never disagree about
+            // what is acceptable.
+            'password' => ['required', 'string', 'min:8', 'max:255'],
         ];
     }
 }

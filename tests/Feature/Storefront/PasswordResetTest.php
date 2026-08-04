@@ -45,6 +45,42 @@ class PasswordResetTest extends TestCase
         $this->assertStringContainsString('raw-token-abc', $html);
     }
 
+    /**
+     * The link must point at the STOREFRONT, not at this API.
+     *
+     * /reset-password is a client-side React route. Built from app.url it resolves to the
+     * API host, whose routes/web.php serves only '/', so the shopper gets a 404 and the
+     * token — single-use, and unpasteable because the SPA has no manual-entry screen —
+     * expires unredeemed. Account recovery would be impossible for every user, and the
+     * endpoint would still answer a cheerful "a reset link is on its way".
+     */
+    public function test_the_link_points_at_the_storefront_when_the_spa_is_on_its_own_domain(): void
+    {
+        config([
+            'app.url' => 'https://api.sorbetesapparel.com',
+            'reefer.spa_url' => 'https://reeferclothing.com',
+        ]);
+
+        $html = (new PasswordResetMail($this->customer(), 'tok-123'))->render();
+
+        $this->assertStringContainsString('https://reeferclothing.com/reset-password?', $html);
+        $this->assertStringNotContainsString('api.sorbetesapparel.com/reset-password', $html);
+    }
+
+    /** And the single-origin case is unchanged, since spa_url defaults to app.url. */
+    public function test_the_link_still_uses_app_url_when_the_two_share_an_origin(): void
+    {
+        config([
+            'app.url' => 'https://shop.example.com',
+            'reefer.spa_url' => 'https://shop.example.com',
+        ]);
+
+        $this->assertStringContainsString(
+            'https://shop.example.com/reset-password?',
+            (new PasswordResetMail($this->customer(), 'tok-123'))->render(),
+        );
+    }
+
     public function test_a_registered_address_gets_a_link_and_a_neutral_200(): void
     {
         $user = $this->customer();
