@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../ash-ai-frontend"
+		},
+		{
+			"path": "../../reefer-frontend"
+		},
+		{
+			"path": "../../backup/reefer-storefront"
+		}
+	],
+	"settings": {}
+}
