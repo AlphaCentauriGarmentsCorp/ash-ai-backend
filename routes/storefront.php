@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/test', [HealthController::class, 'index']);
 
+    
 Route::prefix('v1')->group(function () {
     Route::get('/health', [HealthController::class, 'index']);
 

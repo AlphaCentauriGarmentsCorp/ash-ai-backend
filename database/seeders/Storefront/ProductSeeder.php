@@ -66,6 +66,7 @@ class ProductSeeder extends Seeder
                 ]
             );
 
+            
             // Low stock on "LAST FEW" so the PDP shows "ONLY A FEW LEFT".
             $perSize = $tag === 'LAST FEW' ? 2 : 40;
 

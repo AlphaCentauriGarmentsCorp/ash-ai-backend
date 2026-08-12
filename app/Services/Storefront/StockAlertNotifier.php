@@ -75,6 +75,7 @@ class StockAlertNotifier
             return false;
         }
 
+    
         return true;
     }
 }

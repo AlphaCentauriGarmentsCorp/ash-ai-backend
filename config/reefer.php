@@ -164,6 +164,7 @@ return [
         'statuses' => ['requested', 'approved', 'rejected', 'received', 'refunded', 'cancelled'],
     ],
 
+    
     /*
      * Machine-to-machine inventory API, for the ERP / stock system that owns
      * quantities and availability.

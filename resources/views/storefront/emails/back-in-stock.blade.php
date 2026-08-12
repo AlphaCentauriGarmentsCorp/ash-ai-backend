@@ -48,6 +48,7 @@
                     </td>
                 </tr>
 
+                
                 {{-- The storefront's hard offset shadow, drawn as cells: Outlook ignores
                      box-shadow, so the orange sits beside and under the ink button. --}}
                 <tr>

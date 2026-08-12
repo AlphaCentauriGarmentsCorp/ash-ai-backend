@@ -36,6 +36,7 @@ class CartTest extends TestCase
         return $product;
     }
 
+    
     private function token(string $email = 'shopper@example.com'): string
     {
         return $this->postJson('/api/storefront/v1/auth/register', [
