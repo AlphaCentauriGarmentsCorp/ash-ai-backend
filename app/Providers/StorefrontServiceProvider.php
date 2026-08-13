@@ -18,6 +18,7 @@ use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -55,6 +56,7 @@ class StorefrontServiceProvider extends ServiceProvider
         $this->prioritiseJsonResponses();
         $this->normaliseNotFoundResponses();
         $this->scheduleStockAlerts();
+        $this->honourHttpsBehindProxy();
 
         /*
          * Mounted under its own prefix, NOT merged into routes/api.php: the ERP
@@ -75,6 +77,34 @@ class StorefrontServiceProvider extends ServiceProvider
         Route::prefix('api/storefront')
             ->middleware(['api', ForceJsonResponse::class, 'throttle:storefront-api'])
             ->group(base_path('routes/storefront.php'));
+    }
+
+    /**
+     * Generate https:// URLs when the site is served over TLS.
+     *
+     * Product photos are the reason. Both the shop's ProductResource and the stock
+     * manager's InventoryData build image URLs with asset(), which takes its scheme
+     * from the incoming request. On a host that terminates TLS at a proxy — which
+     * is how the Hostinger deployment works — the request arriving at PHP is plain
+     * http, so every image URL comes out http:// on an https:// page and the
+     * browser blocks it as mixed content. The catalogue renders with every
+     * thumbnail missing and nothing in the network tab marked as an error.
+     *
+     * The complete fix is TrustProxies, which also repairs the client IP that every
+     * rate limiter keys on. That lives in bootstrap/app.php, and this integration is
+     * contractually forbidden from touching it (see STOREFRONT_INTEGRATION.md §7) —
+     * so this covers the URL half from the one file the storefront does own, and §6
+     * documents the one-line proxy change for whoever owns the ERP.
+     *
+     * Keyed off APP_URL rather than a new flag: if the app is configured to live at
+     * an https address, its generated URLs should say so. Forcing it unconditionally
+     * would break local http development.
+     */
+    private function honourHttpsBehindProxy(): void
+    {
+        if (str_starts_with((string) config('app.url'), 'https://')) {
+            URL::forceScheme('https');
+        }
     }
 
     /**
@@ -283,15 +313,37 @@ class StorefrontServiceProvider extends ServiceProvider
         // here bootstrap/app.php is the ERP's and its `api` group carries no throttle,
         // so without this the whole catalogue/cart/order surface would be unlimited.
         // Applied to the route group in boot(), never to the `api` group itself.
-        RateLimiter::for('storefront-api', fn (Request $request) => Limit::perMinute(60)->by($request->ip()));
+        // Both budgets are configurable, and 0 means UNLIMITED (Limit::none()).
+        //
+        // This group now also carries the stock manager (/api/storefront/stocks/*),
+        // whose dashboards fetch several endpoints per view — a staff member
+        // clicking through tabs blows past 60/minute easily, and every call then
+        // answers 429, which on screen is indistinguishable from being logged out.
+        // A warehouse tool and a public shop front have very different traffic
+        // shapes behind one IP, which is why this is tunable rather than fixed.
+        $apiPerMinute = (int) config('reefer.rate_limits.api', 60);
+        RateLimiter::for('storefront-api', fn (Request $request) => $apiPerMinute <= 0
+            ? Limit::none()
+            : Limit::perMinute($apiPerMinute)->by($request->ip()));
 
         // Login and register are the brute-force surface, so they get a much tighter
         // budget than the rest of the API. Keyed on email+IP as well as IP alone, so
         // spraying one password across many accounts is caught by the second limit.
-        RateLimiter::for('storefront-auth', fn (Request $request) => [
-            Limit::perMinute(5)->by($request->input('email').'|'.$request->ip()),
-            Limit::perMinute(20)->by($request->ip()),
-        ]);
+        //
+        // ⚠ Setting this to 0 removes brute-force protection from login — for BOTH
+        // shopper and warehouse-staff accounts, since the stock module's auth routes
+        // use this same limiter. Acceptable on a demo with no real accounts.
+        $authPerMinute = (int) config('reefer.rate_limits.auth', 5);
+        RateLimiter::for('storefront-auth', function (Request $request) use ($authPerMinute) {
+            if ($authPerMinute <= 0) {
+                return Limit::none();
+            }
+
+            return [
+                Limit::perMinute($authPerMinute)->by($request->input('email').'|'.$request->ip()),
+                Limit::perMinute($authPerMinute * 4)->by($request->ip()),
+            ];
+        });
 
         // For the token-authenticated sensitive actions: confirming a TOTP code and
         // requesting/checking an email code. They identify by bearer token and carry no

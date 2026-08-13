@@ -142,17 +142,31 @@ From the repo root, with the ERP's `.env` already working:
 # 1. env — append the storefront keys (all optional; defaults are the demo shape)
 cat .env.storefront.example >> .env        # then edit as needed
 
-# 2. schema — 15 new storefront_* tables; no existing table is altered
+# 2. schema — 18 new storefront_* tables; no existing table is altered
 php artisan migrate
 
 # 3. product photography lives on the public disk
 php artisan storage:link
 
-# 4. catalogue + demo data (order matters: products before the demo orders)
+# 4. THE STOCK MANAGER'S FIRST ADMIN — do this BEFORE the host is reachable.
+#    Stock\AuthController::register() grants the first account ever created both
+#    `admin` and `approved`. On an empty storefront_stock_users that means the
+#    first stranger to POST /api/storefront/stocks/auth/register owns the
+#    warehouse. Seeding one account closes it: everyone after lands `pending`.
+php artisan db:seed --class="Database\Seeders\Storefront\StockAdminSeeder"
+
+# 5. catalogue + demo data (order matters: products before the demo orders)
 php artisan db:seed --class="Database\Seeders\Storefront\PhotographedProductSeeder"
 php artisan db:seed --class="Database\Seeders\Storefront\DiscountSeeder"
 php artisan db:seed --class="Database\Seeders\Storefront\DemoSeeder"
 ```
+
+> ⚠ **Never run a bare `php artisan db:seed` on a deployed box.** That runs the
+> ERP's `DatabaseSeeder`, whose `UsersTableSeeder` creates `superadmin@com` and 14
+> other accounts with the password `password` — and `AppServiceProvider`'s
+> `Gate::before` lets `superadmin` pass every gate, while `/api/v2/login` carries
+> no throttle. Because it uses `updateOrCreate`, it also RESETS those passwords on
+> every re-run. Always seed by `--class`, as above.
 
 `DemoSeeder` creates a shopper you can sign in as: **demo@reefer.mnl / password**. The
 seeders are `updateOrCreate`-based, so re-running them will not duplicate products or
@@ -279,11 +293,71 @@ path exists nowhere. Before enabling PayMongo, either add real outcome routes to
 SPA and point these at them, or keep them on `/checkout` and have it read the result
 from the query string.
 
-⚠ **`REEFER_MANUAL_ADVANCE` is a demo affordance.** It lets a buyer walk their own order
-down the tracker. Movement is one-way and owner-scoped, but someone who can mark their
-own parcel *Delivered* can also open its returns window and dispute a delivery they set
-themselves. Turn it off the moment real fulfilment exists and move stage changes onto the
-inventory API.
+⚠ **`REEFER_MANUAL_ADVANCE` is a demo affordance, and it now moves real stock.**
+It lets a buyer walk their own order down the tracker. That was cosmetic while it only
+rewrote `stage`/`status`; it now also applies the stock movement (`OrderStock::apply`,
+so the shop and the warehouse cannot disagree about the same rows), which makes it a
+free `on_hand` drain — COD takes no money, so place an order, advance it to Delivered,
+repeat, and the catalogue empties. It also opens a returns window on a delivery the
+buyer set themselves. **It defaults to `false`** so a deployment that forgets the key
+fails closed; leave it that way on any public host.
+
+### Before the host is reachable
+
+```bash
+php artisan migrate --force
+php artisan storage:link
+php artisan db:seed --class="Database\Seeders\Storefront\StockAdminSeeder" --force
+php artisan optimize:clear
+```
+
+`StockAdminSeeder` is not optional on a public domain. Until one staff account
+exists, `Stock\AuthController::register()` hands the first anonymous caller
+`role=admin, status=approved` — full inventory delete, order writes, and the
+approvals screen they can use to lock the real staff out. Verify with
+`SELECT COUNT(*) FROM storefront_stock_users;` before opening the host.
+
+Three more that will bite on a real domain:
+
+- **`RATE_LIMIT_AUTH`** guards login for shoppers *and* warehouse staff. `0` means
+  unlimited; ship `5`.
+- **Never run a bare `php artisan db:seed`** — see the warning in §4. It creates
+  `superadmin@com` / `password`, which passes every gate via `Gate::before`, on an
+  ERP login that has no throttle at all.
+- **Trusted proxies**, if TLS terminates at a proxy (it does on the Hostinger box).
+
+### Product photos and the TLS proxy
+
+Both halves build image URLs with `asset()` — the shop in `ProductResource`, the
+stock manager in `InventoryData::rows()` and `InventoryController::photo()`.
+`asset()` takes its scheme *and host* from the incoming request. Behind a proxy
+that terminates TLS, the request reaching PHP is plain `http`, so every image URL
+comes out `http://` on an `https://` page and the browser blocks it as mixed
+content: the catalogue renders with every thumbnail missing and **nothing marked
+as an error in the network tab**.
+
+`StorefrontServiceProvider::honourHttpsBehindProxy()` covers the scheme — it calls
+`URL::forceScheme('https')` when `APP_URL` is an `https://` address, so **setting
+`APP_URL` correctly is not optional**.
+
+The complete fix is trusted proxies, which also repairs the client IP that every
+rate limiter keys on — without it all traffic looks like it comes from the proxy,
+so one visitor's requests exhaust everyone's budget. That is a **one-line change
+to `bootstrap/app.php`**, an ERP file this integration is contractually forbidden
+from touching (§7), so it needs whoever owns the ERP to apply it:
+
+```php
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->trustProxies(at: '*');   // or the proxy's actual CIDR
+    // ...existing ERP middleware configuration...
+})
+```
+
+Verify once live — this must print `https://` and the real host:
+
+```bash
+curl -s https://api.sorbetesapparel.com/api/storefront/v1/products | grep -o '"image":"[^"]*"' | head -1
+```
 
 The PayMongo redirect URLs must point at the **SPA**, not at `APP_URL`. Their default is
 `APP_URL + /checkout/...`, which on a split deployment is the API host — a host that

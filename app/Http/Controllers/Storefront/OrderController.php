@@ -12,6 +12,8 @@ use App\Models\Storefront\Product;
 use App\Models\Storefront\ProductVariant;
 use App\Services\Storefront\DiscountService;
 use App\Services\Storefront\PricingService;
+use App\Support\Storefront\Stock\OrderPipeline;
+use App\Support\Storefront\Stock\OrderStock;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -88,6 +90,25 @@ class OrderController extends Controller
             ], 422);
         }
 
+        // The order must still be ON the pipeline. `stage` alone cannot tell us:
+        // staff cancel or accept a return by writing `status`, and such an order
+        // keeps whatever stage index it had when it left. Advancing one would
+        // re-apply a stock movement against units already released — and hand the
+        // customer a Delivered order they were refunded for.
+        //
+        // The expected label is NOT simply $stages[$current]: checkout writes
+        // 'Processing' at stage 0 while $stages[0] is 'Ordered' (OrderPipeline:16
+        // documents this — "the human label: 'Processing' at stage 0, then the
+        // stage's"). Comparing against $stages[0] would reject every genuine
+        // first advance, which is the whole normal flow.
+        $expected = $current === 0 ? 'Processing' : (string) $stages[$current];
+
+        if ((string) $model->status !== $expected) {
+            return response()->json([
+                'message' => 'That order is no longer in fulfilment.',
+            ], 422);
+        }
+
         $attributes = [
             'stage' => $target,
             'status' => $stages[$target],
@@ -107,7 +128,49 @@ class OrderController extends Controller
             $attributes['delivered_at'] = now();
         }
 
-        $model->forceFill($attributes)->save();
+        DB::transaction(function () use ($model, $attributes, $current, $target) {
+            $model->forceFill($attributes)->save();
+
+            // MOVE THE STOCK TOO, not just the label.
+            //
+            // This used to write stage/status alone, which let an order walk to
+            // Delivered from the customer's own tracker while its units stayed
+            // reserved forever. The shop then read available = on_hand - allocated
+            // as 0 and showed SOLD OUT for a product the warehouse still had on the
+            // shelf — the two halves disagreeing about the same rows.
+            //
+            // The stock module's own vocabulary is used rather than a second copy
+            // of the rules: `stage` is the index shared by config('reefer.stages')
+            // and OrderPipeline::PIPELINE, and OrderStock::apply() is exactly what
+            // the stock manager calls when staff move an order. Whichever side
+            // drives the order, stock lands in the same place.
+            $from = OrderPipeline::PIPELINE[$current] ?? null;
+            $to = OrderPipeline::PIPELINE[$target] ?? null;
+
+            if ($from === null || $to === null) {
+                return;
+            }
+
+            $delta = OrderStock::delta($from, $to);
+
+            if (OrderStock::isNoMovement($delta)) {
+                return;
+            }
+
+            $lines = OrderStock::linesByOrder([(int) $model->id], lock: true)[(int) $model->id] ?? [];
+
+            if ($lines === []) {
+                return;
+            }
+
+            OrderStock::apply(
+                $lines,
+                $delta,
+                'Order '.str_replace('_', ' ', $to),
+                'Advanced from the storefront order tracker',
+                'storefront',
+            );
+        });
 
         return response()->json([
             'message' => 'Order is now "'.$stages[$target].'".',

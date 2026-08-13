@@ -129,7 +129,16 @@ return [
      * fulfilment exists, and move stage changes onto the inventory API.
      */
     'orders' => [
-        'allow_manual_advance' => env('REEFER_MANUAL_ADVANCE', true),
+        // DEFAULTS OFF. It used to default true, from when this endpoint only
+        // rewrote `stage` and `status` — a cosmetic demo. It now also applies the
+        // real stock movement (OrderStock::apply, so the shop and the warehouse
+        // cannot disagree), and that turns a customer-driven tracker into a way to
+        // decrement on_hand at will: place a COD order, which takes no money, walk
+        // it to Delivered, repeat, and the catalogue drains for free.
+        //
+        // A deployment that forgets this key must fail CLOSED. Turn it on
+        // explicitly for a local demo; never on a public domain.
+        'allow_manual_advance' => env('REEFER_MANUAL_ADVANCE', false),
         // Stamped on when a simulated order reaches Shipped, so the tracker has
         // something to show where a real courier integration would put its data.
         'demo_courier' => env('REEFER_DEMO_COURIER', 'GoLocal Express'),
@@ -188,5 +197,32 @@ return [
     'stock_alerts' => [
         // Guards the notify job against blasting a huge backlog in one run.
         'max_per_run' => 200,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Rate limits (requests per minute, per IP)
+    |--------------------------------------------------------------------------
+    |
+    | 0 = UNLIMITED. Read by StorefrontServiceProvider::configureRateLimiting().
+    | These govern the STOREFRONT group only — the ERP's own limiters are
+    | untouched, in keeping with this integration being purely additive.
+    |
+    | 'api'  covers /api/storefront/*, which now includes the stock manager at
+    |        /api/storefront/stocks/*. The staff ERP is far chattier than the
+    |        shop — several fetches per dashboard view — so the default that
+    |        suits a public storefront locks staff out of their own tool. When
+    |        it trips, every call answers 429 and the screen looks exactly like
+    |        a session that expired.
+    |
+    | 'auth' covers shopper login/register AND warehouse-staff login.
+    |        ⚠ Setting it to 0 removes brute-force protection from both. Fine
+    |        for a demo with no real accounts; put it back before real
+    |        customers sign in.
+    |
+    */
+    'rate_limits' => [
+        'api' => (int) env('RATE_LIMIT_API', 60),
+        'auth' => (int) env('RATE_LIMIT_AUTH', 5),
     ],
 ];
