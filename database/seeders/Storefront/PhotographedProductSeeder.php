@@ -44,22 +44,35 @@ class PhotographedProductSeeder extends Seeder
                 $data + ['marketplace' => $marketplace],
             );
 
-            foreach ($variants as [$size, $sku, $onHand, $allocated, $active, $weight, $width, $length, $shelf, $area]) {
-                $product->variants()->updateOrCreate(
-                    ['size' => $size],
-                    [
-                        'sku' => $sku,
-                        'on_hand' => $onHand,
-                        'allocated' => $allocated,
-                        'is_active' => $active,
-                        'weight_grams' => $weight,
-                        'width_cm' => $width,
-                        'length_cm' => $length,
-                        'shelf_location' => $shelf,
-                        'warehouse' => $warehouse,
-                        'area' => $area,
-                    ],
-                );
+            foreach ($variants as [$size, $sku, $onHand, $active, $weight, $width, $length, $shelf, $area]) {
+                // `allocated` is NOT seeded. It means "units reserved against an
+                // order that has not shipped" (ProductVariant: "Checkout writes
+                // it."), so a constant here asserts reservations for orders that
+                // never existed — and it feeds available = on_hand - allocated,
+                // which is what the shop sells against. It stays at its column
+                // default of 0 and is moved only by OrderController::reserveStock()
+                // and OrderStock::apply().
+                $variant = $product->variants()->firstOrNew(['size' => $size]);
+
+                $variant->fill([
+                    'sku' => $sku,
+                    'is_active' => $active,
+                    'weight_grams' => $weight,
+                    'width_cm' => $width,
+                    'length_cm' => $length,
+                    'shelf_location' => $shelf,
+                    'warehouse' => $warehouse,
+                    'area' => $area,
+                ]);
+
+                // on_hand is an OPENING count, written once. Re-seeding used to
+                // overwrite it, silently undoing stock that real orders had drawn
+                // down — the opposite of what this seeder's own docblock promises.
+                if (! $variant->exists) {
+                    $variant->on_hand = $onHand;
+                }
+
+                $variant->save();
             }
         }
     }
@@ -110,7 +123,7 @@ class PhotographedProductSeeder extends Seeder
     {
         // Figures taken from the ERP's own inventory export, so the two systems agree
         // from the first sync: SKU, price, per-size weight, flat dimensions, shelf and
-        // storage area, on-hand and already-allocated quantities.
+        // storage area and opening on-hand quantities.
         //
         // The ERP writes MEDIUM/LARGE; the storefront keys carts and orders on the
         // short codes, so sizes are stored short and only rendered long.
@@ -131,11 +144,11 @@ class PhotographedProductSeeder extends Seeder
                 'is_active' => true,
                 'sort' => 1,
                 'variants' => [
-                    // size, sku, on_hand, allocated, active, weight, w, l, shelf, area
-                    ['M',   'R001UM',   0, 15, false, 320.0, 29.5, 34.0, 'A01', 'Storage 1'],
-                    ['L',   'R001UL',  17,  3, true,  337.0, 31.0, 34.0, 'B01', 'Storage 2'],
-                    ['XL',  'R001UXL', 11,  3, true,  342.0, 31.5, 34.0, 'C01', 'Storage 3'],
-                    ['2XL', 'R001U2XL', 20, 0, true,  374.0, 32.5, 36.0, 'D01', 'Storage 4'],
+                    // size, sku, on_hand, active, weight, w, l, shelf, area
+                    ['M',   'R001UM',   0, false, 320.0, 29.5, 34.0, 'A01', 'Storage 1'],
+                    ['L',   'R001UL',  17, true,  337.0, 31.0, 34.0, 'B01', 'Storage 2'],
+                    ['XL',  'R001UXL', 11, true,  342.0, 31.5, 34.0, 'C01', 'Storage 3'],
+                    ['2XL', 'R001U2XL', 20, true,  374.0, 32.5, 36.0, 'D01', 'Storage 4'],
                 ],
             ],
             [
@@ -154,10 +167,10 @@ class PhotographedProductSeeder extends Seeder
                 'is_active' => true,
                 'sort' => 2,
                 'variants' => [
-                    ['M',   'R002UM',   7,  9, true,  320.0, 29.5, 35.0, 'A02', 'Storage 5'],
-                    ['L',   'R002UL',   0, 18, false, 337.0, 32.0, 34.0, 'B02', 'Storage 6'],
-                    ['XL',  'R002UXL',  5, 10, true,  342.0, 31.5, 35.0, 'C02', 'Storage 7'],
-                    ['2XL', 'R002U2XL', 10, 9, true,  374.0, 32.5, 37.0, 'D02', 'Storage 8'],
+                    ['M',   'R002UM',   7, true,  320.0, 29.5, 35.0, 'A02', 'Storage 5'],
+                    ['L',   'R002UL',   0, false, 337.0, 32.0, 34.0, 'B02', 'Storage 6'],
+                    ['XL',  'R002UXL',  5, true,  342.0, 31.5, 35.0, 'C02', 'Storage 7'],
+                    ['2XL', 'R002U2XL', 10, true,  374.0, 32.5, 37.0, 'D02', 'Storage 8'],
                 ],
             ],
             [
@@ -176,10 +189,10 @@ class PhotographedProductSeeder extends Seeder
                 'is_active' => true,
                 'sort' => 3,
                 'variants' => [
-                    ['M',   'R003UM',   0, 16, false, 320.0, 29.5, 36.0, 'A03', 'Storage 9'],
-                    ['L',   'R003UL',   2, 18, true,  337.0, 33.0, 34.0, 'B03', 'Storage 10'],
-                    ['XL',  'R003UXL', 12,  8, true,  342.0, 31.5, 36.0, 'C03', 'Storage 11'],
-                    ['2XL', 'R003U2XL', 4, 14, true,  374.0, 32.5, 38.0, 'D03', 'Storage 12'],
+                    ['M',   'R003UM',   0, false, 320.0, 29.5, 36.0, 'A03', 'Storage 9'],
+                    ['L',   'R003UL',   2, true,  337.0, 33.0, 34.0, 'B03', 'Storage 10'],
+                    ['XL',  'R003UXL', 12, true,  342.0, 31.5, 36.0, 'C03', 'Storage 11'],
+                    ['2XL', 'R003U2XL', 4, true,  374.0, 32.5, 38.0, 'D03', 'Storage 12'],
                 ],
             ],
         ];

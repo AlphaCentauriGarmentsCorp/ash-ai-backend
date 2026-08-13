@@ -28,7 +28,17 @@ class ProductResource extends JsonResource
             'sizes' => $this->whenLoaded('variants', fn () => $this->sizes),
             'placeholder' => $this->name ? 'Drop the ' . $this->name . ' shot' : null,
             'low_stock' => $this->whenLoaded('variants', fn () => $this->low_stock),
-            'stock_label' => $this->whenLoaded('variants', fn () => $this->low_stock ? 'ONLY A FEW LEFT' : 'IN STOCK'),
+            // Three states, not two. low_stock is false both when there is plenty
+            // and when there is nothing at all — reading it as a bare boolean put
+            // an "IN STOCK" badge on products whose every size was struck through,
+            // which is what a brand-new design with no stock looks like.
+            'stock_label' => $this->whenLoaded('variants', function () {
+                if ($this->total_stock <= 0) {
+                    return 'SOLD OUT';
+                }
+
+                return $this->low_stock ? 'ONLY A FEW LEFT' : 'IN STOCK';
+            }),
             'image' => $this->image_path ? asset('storage/' . $this->image_path) : null,
 
             // Ratings are public, so they ride along with the catalog and every
