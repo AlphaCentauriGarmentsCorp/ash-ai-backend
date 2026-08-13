@@ -143,3 +143,90 @@ Route::prefix('v1')->group(function () {
         Route::post('/returns/{returnRequest}/cancel', [ReturnRequestController::class, 'cancel']);
     });
 });
+
+
+/*
+|--------------------------------------------------------------------------
+| Stock manager (staff ERP)
+|--------------------------------------------------------------------------
+|
+| Ported from Reefer_Backend under the same rules as the rest of this file:
+| every class carries a `Storefront` segment and every table a `storefront_`
+| prefix, so nothing here can reach the ASH ERP's own `orders`/`products`.
+|
+| The provider owns the `api/storefront` prefix, so these land at
+| /api/storefront/stocks/* — which is what reefer-frontend's stock client
+| builds (VITE_API_URL + '/stocks'). They sit OUTSIDE the /v1 group on
+| purpose: /v1 is the shopper API, this is the staff one, and they
+| authenticate against different tables with different tokens.
+|
+| Login/register use `throttle:storefront-auth`, this app's limiter — the
+| source's bare `throttle:auth` is the ERP's and means something else here.
+|
+*/
+Route::prefix('stocks')->group(function () {
+
+    // Public: the login and register screens have no session yet. Throttled with the
+    // storefront's own limiter — brute-forcing a warehouse login is worth no less
+    // effort to an attacker than brute-forcing a customer one.
+    Route::middleware('throttle:storefront-auth')->group(function () {
+        Route::post('auth/register', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'register']);
+        Route::post('auth/login', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'login']);
+    });
+
+    Route::middleware(\App\Http\Middleware\Storefront\Stock\StockAuthenticate::class)->group(function () {
+
+        Route::post('auth/logout', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'logout']);
+
+        /*
+         | Inventory.
+         |
+         | ORDER MATTERS HERE. Every literal segment is declared before the
+         | `{sku}` wildcard, or `inventory/export` would be swallowed as a SKU
+         | named "export" — a 404 that looks like a missing feature rather than a
+         | routing mistake. Same reason pending-edits sits above it.
+         */
+        Route::get('inventory/logs', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'logs']);
+        Route::get('inventory/export', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'export']);
+        Route::get('inventory/import-template', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'importTemplate']);
+        Route::post('inventory/import-xlsx', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'importXlsx']);
+        Route::post('inventory/photo', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'photo']);
+        Route::post('inventory/product', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'createProduct']);
+
+        // Push Product review queue. Declared before inventory/{sku} for the same reason.
+        Route::get('inventory/pending-edits', [\App\Http\Controllers\Storefront\Stock\PendingEditsController::class, 'index']);
+        Route::post('inventory/pending-edits', [\App\Http\Controllers\Storefront\Stock\PendingEditsController::class, 'store']);
+        Route::post('inventory/pending-edits/push-all', [\App\Http\Controllers\Storefront\Stock\PendingEditsController::class, 'pushAll']);
+        Route::post('inventory/pending-edits/{id}/push', [\App\Http\Controllers\Storefront\Stock\PendingEditsController::class, 'push'])->whereNumber('id');
+        Route::delete('inventory/pending-edits/{id}', [\App\Http\Controllers\Storefront\Stock\PendingEditsController::class, 'destroy'])->whereNumber('id');
+
+        Route::get('inventory', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'index']);
+        Route::put('inventory/{sku}', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'update']);
+        Route::delete('inventory/{sku}', [\App\Http\Controllers\Storefront\Stock\InventoryController::class, 'destroy']);
+
+        // Catalog: the same designs seen product-first rather than SKU-first, plus the
+        // website-content fields that live on `products`.
+        Route::get('catalog', [\App\Http\Controllers\Storefront\Stock\CatalogController::class, 'index']);
+        Route::get('catalog/rows', [\App\Http\Controllers\Storefront\Stock\CatalogController::class, 'rows']);
+        Route::get('catalog/design/{code}', [\App\Http\Controllers\Storefront\Stock\CatalogController::class, 'design']);
+        Route::get('catalog/content/{code}', [\App\Http\Controllers\Storefront\Stock\CatalogController::class, 'content']);
+
+        // Orders. `report` before `{order}` — same wildcard rule as above.
+        Route::get('orders/report', [\App\Http\Controllers\Storefront\Stock\OrdersController::class, 'report']);
+        Route::get('orders', [\App\Http\Controllers\Storefront\Stock\OrdersController::class, 'index']);
+        Route::post('orders', [\App\Http\Controllers\Storefront\Stock\OrdersController::class, 'store']);
+        Route::put('orders/{order}', [\App\Http\Controllers\Storefront\Stock\OrdersController::class, 'updateStatus']);
+
+        // Staff administration. Approving, rejecting and deactivating accounts is
+        // admin-only; StockRequireAdmin re-checks the session rather than trusting
+        // the outer middleware's decision.
+        Route::middleware(\App\Http\Middleware\Storefront\Stock\StockRequireAdmin::class)->group(function () {
+            Route::get('auth/users', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'listUsers']);
+            Route::put('auth/users/{username}/approve', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'approve']);
+            Route::put('auth/users/{username}/reject', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'reject']);
+            Route::put('auth/users/{username}/deactivate', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'deactivate']);
+            Route::put('auth/users/{username}/reactivate', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'reactivate']);
+            Route::put('auth/users/{username}/edit', [\App\Http\Controllers\Storefront\Stock\AuthController::class, 'edit']);
+        });
+    });
+});
